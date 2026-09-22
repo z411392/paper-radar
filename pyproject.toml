@@ -1,11 +1,47 @@
+[build-system]
+requires = ["hatchling==1.27.0"]
+build-backend = "hatchling.build"
+
 [project]
 name = "paper-radar"
 version = "0.1.0"
-description = "Local paper radar planning and provisioning baseline"
-requires-python = ">=3.12, <3.14"
-dependencies = []
+description = "Local-first research paper discovery and grounded reading"
+requires-python = ">=3.12,<3.14"
+dependencies = ["fire==0.7.0", "injector==0.22.0"]
+
+[dependency-groups]
+dev = [
+    "hatchling==1.27.0",
+    "pytest>=8.3,<9",
+    "pyright>=1.1.400,<2",
+    "ruff>=0.9,<1",
+]
 
 [tool.uv]
-# Planning stage: no product package exists yet. T01 will define the build
-# backend and src/apps + src/libs package installation when code is introduced.
-package = false
+package = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/apps", "src/libs"]
+exclude = ["**/tests/**", "**/__pycache__/**"]
+
+[tool.hatch.build.targets.sdist]
+include = ["/src", "/pyproject.toml", "/uv.lock", "/.python-version", "/README.md", "/Makefile"]
+
+[tool.pytest.ini_options]
+testpaths = ["src"]
+addopts = ["--import-mode=importlib", "--strict-markers", "--strict-config", "-ra"]
+markers = ["live_external: opt-in external source, model or email verification"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "ERA"]
+
+[tool.pyright]
+include = ["src"]
+exclude = ["src/**/tests", "**/__pycache__"]
+typeCheckingMode = "standard"
+pythonVersion = "3.12"
