@@ -1,6 +1,5 @@
 import hashlib
 import json
-import os
 import sqlite3
 import subprocess
 import sys
@@ -58,9 +57,15 @@ def env(tmp_path):
         connection.close()
     compiler = ArxivQueryCompilerAdapter()
     query = SourceQueryInput(
-        "arxiv", "personal", 1, "a" * 64,
+        "arxiv",
+        "personal",
+        1,
+        "a" * 64,
         DomainQuerySnapshot("statistics", 1, ("arxiv",), ("stat.ML",)),
-        NOW, NOW + timedelta(days=1), ("arxiv",), page_size=2,
+        NOW,
+        NOW + timedelta(days=1),
+        ("arxiv",),
+        page_size=2,
     )
     plan = compiler.compile(query)
     request = compiler.page(plan)
@@ -71,16 +76,30 @@ def env(tmp_path):
 
 def capture(request, body=b"synthetic raw; not parsed", status=200, failure=None, capture_error=None):
     response = SourceHttpResponse(
-        status, body, (("content-type", "application/atom+xml"),), NOW + timedelta(seconds=1), capture_error,
+        status,
+        body,
+        (("content-type", "application/atom+xml"),),
+        NOW + timedelta(seconds=1),
+        capture_error,
     )
     return SourceFetchResult(
-        request.request_fingerprint, response, hashlib.sha256(body).hexdigest(), failure,
-        failure is not None, 3.0 if failure else None,
+        request.request_fingerprint,
+        response,
+        hashlib.sha256(body).hexdigest(),
+        failure,
+        failure is not None,
+        3.0 if failure else None,
     )
 
 
 def rows(factory, table):
-    assert table in {"source_bindings", "harvest_units", "harvest_attempts", "source_observations", "object_registry"}
+    assert table in {
+        "source_bindings",
+        "harvest_units",
+        "harvest_attempts",
+        "source_observations",
+        "object_registry",
+    }
     connection = factory.connect()
     try:
         return connection.execute(f"SELECT * FROM {table}").fetchall()
@@ -121,11 +140,15 @@ def test_capture_is_durable_idempotent_and_does_not_advance_checkpoint(env):
     assert len(rows(env[1], "object_registry")) == 1
 
 
-@pytest.mark.parametrize("status,error", [(429, "http_rate_limited"), (503, "http_server_error"), (401, "http_auth")])
+@pytest.mark.parametrize(
+    "status,error", [(429, "http_rate_limited"), (503, "http_server_error"), (401, "http_auth")]
+)
 def test_failed_http_body_is_preserved_not_verified_empty(env, status, error):
     attempt = started(env)
     saved = RecordHarvestCapture(env[6], env[7])(
-        attempt.attempt_id, capture(env[5], b"failure body", status, error), NOW + timedelta(seconds=2),
+        attempt.attempt_id,
+        capture(env[5], b"failure body", status, error),
+        NOW + timedelta(seconds=2),
     )
     assert saved.state == "failed"
     meta = json.loads(saved.capture_json)
@@ -150,25 +173,30 @@ def test_partial_response_retains_prefix_semantics(env):
     assert meta["retry_after_seconds"] == 3.0
 
 
-@pytest.mark.parametrize("mutation", [
-    lambda r: replace(r, request_fingerprint="f" * 64),
-    lambda r: replace(r, response_sha256="f" * 64),
-    lambda r: replace(r, response=None),
-    lambda r: replace(r, retryable=1),
-    lambda r: replace(r, retry_after_seconds=float("nan")),
-    lambda r: replace(r, retry_after_seconds=-1.0),
-    lambda r: replace(r, response=replace(r.response, status=True)),
-    lambda r: replace(r, response=replace(r.response, status=500)),
-    lambda r: replace(r, response=replace(r.response, capture_error="truncated")),
-    lambda r: replace(r, response=replace(r.response, received_at=NOW.replace(tzinfo=None))),
-    lambda r: replace(r, response=replace(r.response, headers=(("authorization", "private"),))),
-    lambda r: replace(r, response=replace(r.response, body=b"x" * 8_000_001)),
-])
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda r: replace(r, request_fingerprint="f" * 64),
+        lambda r: replace(r, response_sha256="f" * 64),
+        lambda r: replace(r, response=None),
+        lambda r: replace(r, retryable=1),
+        lambda r: replace(r, retry_after_seconds=float("nan")),
+        lambda r: replace(r, retry_after_seconds=-1.0),
+        lambda r: replace(r, response=replace(r.response, status=True)),
+        lambda r: replace(r, response=replace(r.response, status=500)),
+        lambda r: replace(r, response=replace(r.response, capture_error="truncated")),
+        lambda r: replace(r, response=replace(r.response, received_at=NOW.replace(tzinfo=None))),
+        lambda r: replace(r, response=replace(r.response, headers=(("authorization", "private"),))),
+        lambda r: replace(r, response=replace(r.response, body=b"x" * 8_000_001)),
+    ],
+)
 def test_invalid_capture_fails_before_object_write(env, mutation):
     attempt = started(env)
     publisher = Mock(side_effect=AssertionError("must not write"))
     with pytest.raises(HarvestError):
-        RecordHarvestCapture(env[6], publisher)(attempt.attempt_id, mutation(capture(env[5])), NOW + timedelta(seconds=2))
+        RecordHarvestCapture(env[6], publisher)(
+            attempt.attempt_id, mutation(capture(env[5])), NOW + timedelta(seconds=2)
+        )
     publisher.assert_not_called()
     assert ReadHarvestAttempt(env[6])(attempt.attempt_id).state == "running"
 
@@ -215,7 +243,12 @@ def test_database_capture_failure_preserves_object_and_retry_adopts_it(env):
     attempt = started(env)
     conn = env[1].connect()
     try:
-        conn.execute("CREATE TRIGGER fail_capture BEFORE UPDATE ON harvest_attempts BEGIN SELECT RAISE(ABORT,'fixture'); END")
+        conn.execute(
+            (
+                "CREATE TRIGGER fail_capture BEFORE UPDATE ON harvest_attempts BEGIN SE"
+                "LECT RAISE(ABORT,'fixture'); END"
+            )
+        )
     finally:
         conn.close()
     result = capture(env[5])
@@ -228,9 +261,14 @@ def test_database_capture_failure_preserves_object_and_retry_adopts_it(env):
         conn.execute("DROP TRIGGER fail_capture")
     finally:
         conn.close()
-    assert RecordHarvestCapture(env[6], env[7])(
-        attempt.attempt_id, result, NOW + timedelta(seconds=2),
-    ).state == "captured"
+    assert (
+        RecordHarvestCapture(env[6], env[7])(
+            attempt.attempt_id,
+            result,
+            NOW + timedelta(seconds=2),
+        ).state
+        == "captured"
+    )
     assert len(rows(env[1], "object_registry")) == 1
 
 
@@ -238,7 +276,9 @@ def test_object_write_failure_keeps_attempt_open(env):
     attempt = started(env)
     publisher = Mock(side_effect=OSError("fixture"))
     with pytest.raises(OSError):
-        RecordHarvestCapture(env[6], publisher)(attempt.attempt_id, capture(env[5]), NOW + timedelta(seconds=2))
+        RecordHarvestCapture(env[6], publisher)(
+            attempt.attempt_id, capture(env[5]), NOW + timedelta(seconds=2)
+        )
     assert ReadHarvestAttempt(env[6])(attempt.attempt_id).capture_json is None
 
 
@@ -246,6 +286,7 @@ def test_concurrent_connections_allocate_unique_attempt_numbers(env):
     def run(index):
         store = SqliteHarvestStoreAdapter(env[1].connect, env[2])
         return StartHarvestAttempt(store)(env[4], env[5], f"attempt-{index}", NOW).attempt_no
+
     with ThreadPoolExecutor(max_workers=4) as pool:
         numbers = list(pool.map(run, range(8)))
     assert sorted(numbers) == list(range(1, 9))
@@ -255,7 +296,7 @@ def test_concurrent_connections_allocate_unique_attempt_numbers(env):
 def test_new_process_reads_capture_without_network_or_refetch(env):
     attempt = started(env)
     RecordHarvestCapture(env[6], env[7])(attempt.attempt_id, capture(env[5]), NOW + timedelta(seconds=2))
-    code = '''
+    code = """
 import json, sys
 from pathlib import Path
 from libs.discovery.adapters.driven.arxiv_query_compiler_adapter import ArxivQueryCompilerAdapter
@@ -266,7 +307,7 @@ store=SqliteHarvestStoreAdapter(SqliteConnectionFactory(Path(sys.argv[1])).conne
 row=ReadHarvestAttempt(store)("attempt-a")
 assert row.state=="captured"
 print(json.loads(row.capture_json)["raw_object_id"])
-'''
+"""
     result = subprocess.run([sys.executable, "-I", "-c", code, str(env[0])], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip().startswith("raw:")
@@ -274,7 +315,9 @@ print(json.loads(row.capture_json)["raw_object_id"])
 
 def test_empty_success_body_is_captured_but_not_verified_empty(env):
     attempt = started(env)
-    saved = RecordHarvestCapture(env[6], env[7])(attempt.attempt_id, capture(env[5], b""), NOW + timedelta(seconds=2))
+    saved = RecordHarvestCapture(env[6], env[7])(
+        attempt.attempt_id, capture(env[5], b""), NOW + timedelta(seconds=2)
+    )
     assert saved.state == "captured"
     assert json.loads(saved.capture_json)["byte_size"] == 0
     assert rows(env[1], "harvest_units")[0][4] != "verified_empty"
@@ -282,10 +325,12 @@ def test_empty_success_body_is_captured_but_not_verified_empty(env):
 
 def test_no_schema_is_created_implicitly(tmp_path):
     path = tmp_path / "fixture.sqlite3"
+
     def connect():
         conn = sqlite3.connect(path, isolation_level=None)
         conn.execute("PRAGMA foreign_keys=ON")
         return conn
+
     store = SqliteHarvestStoreAdapter(connect, ArxivQueryCompilerAdapter())
     with pytest.raises(HarvestError, match="harvest_database_error"):
         ReadHarvestAttempt(store)("missing")
@@ -299,6 +344,7 @@ def test_no_schema_is_created_implicitly(tmp_path):
 def test_missing_foreign_key_enforcement_is_rejected(env):
     def unsafe():
         return sqlite3.connect(env[0] / "state/app.sqlite3", isolation_level=None)
+
     with pytest.raises(HarvestError, match="foreign_keys_required"):
         ReadHarvestAttempt(SqliteHarvestStoreAdapter(unsafe, env[2]))("missing")
 
@@ -306,7 +352,7 @@ def test_missing_foreign_key_enforcement_is_rejected(env):
 def test_real_process_crash_after_publish_does_not_forge_capture(env):
     started(env)
     body = b"synthetic raw; not parsed"
-    code = '''
+    code = """
 import os,sys
 from pathlib import Path
 from libs.kernel.adapters.driven.filesystem_object_bytes_adapter import FilesystemObjectBytesAdapter
@@ -314,11 +360,16 @@ from libs.kernel.adapters.driven.sqlite_connection_factory import SqliteConnecti
 from libs.kernel.adapters.driven.sqlite_object_unit_of_work_adapter import SqliteObjectUnitOfWorkAdapter
 from libs.kernel.application.commands.publish_object import PublishObject
 root=Path(sys.argv[1])
-PublishObject(FilesystemObjectBytesAdapter(root),SqliteObjectUnitOfWorkAdapter(SqliteConnectionFactory(root)))(b"synthetic raw; not parsed","raw","application/octet-stream","source-response")
+PublishObject(
+    FilesystemObjectBytesAdapter(root),
+    SqliteObjectUnitOfWorkAdapter(SqliteConnectionFactory(root)),
+)(b"synthetic raw; not parsed","raw","application/octet-stream","source-response")
 os._exit(23)
-'''
+"""
     result = subprocess.run([sys.executable, "-I", "-c", code, str(env[0])], capture_output=True)
     assert result.returncode == 23
     assert ReadHarvestAttempt(env[6])("attempt-a").capture_json is None
-    saved = RecordHarvestCapture(env[6], env[7])("attempt-a", capture(env[5], body), NOW + timedelta(seconds=2))
+    saved = RecordHarvestCapture(env[6], env[7])(
+        "attempt-a", capture(env[5], body), NOW + timedelta(seconds=2)
+    )
     assert saved.state == "captured" and len(rows(env[1], "object_registry")) == 1

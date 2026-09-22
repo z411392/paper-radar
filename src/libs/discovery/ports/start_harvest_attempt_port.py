@@ -7,4 +7,6 @@ from libs.discovery.dtos.source_page_request import SourcePageRequest
 
 
 class StartHarvestAttemptPort(Protocol):
-    def __call__(self, plan: CompiledSourceQuery, request: SourcePageRequest, attempt_id: str, started_at: datetime) -> HarvestAttempt: ...
+    def __call__(
+        self, plan: CompiledSourceQuery, request: SourcePageRequest, attempt_id: str, started_at: datetime
+    ) -> HarvestAttempt: ...

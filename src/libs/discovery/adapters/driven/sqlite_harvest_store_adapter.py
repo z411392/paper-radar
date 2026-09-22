@@ -48,7 +48,11 @@ class SqliteHarvestStoreAdapter:
                 yield connection
         except sqlite3.Error as exc:
             primary = getattr(exc, "sqlite_errorcode", 0) & 0xFF
-            code = "harvest_database_busy" if primary in {sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED} else "harvest_database_error"
+            code = (
+                "harvest_database_busy"
+                if primary in {sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED}
+                else "harvest_database_error"
+            )
             raise HarvestError(code) from None
         finally:
             if connection is not None:
@@ -60,19 +64,33 @@ class SqliteHarvestStoreAdapter:
             raise HarvestError("attempt_missing")
         try:
             data = json.loads(row["response_metadata_json"])
-            if set(data) != {"format_version", "request", "capture"} or type(data["format_version"]) is not int or data["format_version"] != 1:
+            if (
+                set(data) != {"format_version", "request", "capture"}
+                or type(data["format_version"]) is not int
+                or data["format_version"] != 1
+            ):
                 raise HarvestError("invalid_attempt_envelope")
             if row["state"] not in {"running", "captured", "failed"}:
                 raise HarvestError("invalid_attempt_state")
             capture = data["capture"]
             if (capture is None) != (row["state"] == "running"):
                 raise HarvestError("invalid_attempt_state")
-            return HarvestAttempt(row["id"], row["unit_id"], row["attempt_no"], SourcePageRequest(**data["request"]),
-                                  row["started_at"], row["state"], None if capture is None else self._json(capture), row["finished_at"])
+            return HarvestAttempt(
+                row["id"],
+                row["unit_id"],
+                row["attempt_no"],
+                SourcePageRequest(**data["request"]),
+                row["started_at"],
+                row["state"],
+                None if capture is None else self._json(capture),
+                row["finished_at"],
+            )
         except (TypeError, ValueError, KeyError) as exc:
             raise HarvestError("invalid_attempt_envelope") from exc
 
-    def start(self, plan: CompiledSourceQuery, request: SourcePageRequest, attempt_id: str, started_at: datetime) -> HarvestAttempt:
+    def start(
+        self, plan: CompiledSourceQuery, request: SourcePageRequest, attempt_id: str, started_at: datetime
+    ) -> HarvestAttempt:
         self._id(attempt_id)
         now = PrepareHarvestCapture.time(started_at)
         try:
@@ -85,7 +103,11 @@ class SqliteHarvestStoreAdapter:
             config_revision = data["domain"]["revision"]
             start = PrepareHarvestCapture.time(datetime.fromisoformat(data["window_start"]))
             end = PrepareHarvestCapture.time(datetime.fromisoformat(data["window_end"]))
-            if start >= end or not isinstance(profile, str) or re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", profile) is None:
+            if (
+                start >= end
+                or not isinstance(profile, str)
+                or re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", profile) is None
+            ):
                 raise HarvestError("invalid_harvest_definition")
             if any(type(value) is not int or not 1 <= value < 2**63 for value in (revision, config_revision)):
                 raise HarvestError("invalid_harvest_definition")
@@ -94,34 +116,53 @@ class SqliteHarvestStoreAdapter:
         binding_id = "binding:" + plan.query_fingerprint
         unit_id = "unit:" + plan.query_fingerprint
         with self._transaction(write=True) as connection:
-            existing = connection.execute("SELECT 1 FROM harvest_attempts WHERE id=?", (attempt_id,)).fetchone()
+            existing = connection.execute(
+                "SELECT 1 FROM harvest_attempts WHERE id=?", (attempt_id,)
+            ).fetchone()
             if existing is not None:
                 attempt = self._attempt(connection, attempt_id)
                 if attempt.unit_id != unit_id or attempt.request != request:
                     raise HarvestError("attempt_conflict")
                 return attempt
             binding = connection.execute("SELECT * FROM source_bindings WHERE id=?", (binding_id,)).fetchone()
-            expected = (profile, revision, plan.source_id, config_revision, plan.provenance_json, plan.query_fingerprint)
+            expected = (
+                profile,
+                revision,
+                plan.source_id,
+                config_revision,
+                plan.provenance_json,
+                plan.query_fingerprint,
+            )
             if binding is None:
-                connection.execute("INSERT INTO source_bindings VALUES(?,?,?,?,?,?,?,1)", (binding_id, *expected))
+                connection.execute(
+                    "INSERT INTO source_bindings VALUES(?,?,?,?,?,?,?,1)", (binding_id, *expected)
+                )
             elif tuple(binding)[1:7] != expected or binding["enabled"] != 1:
                 raise HarvestError("binding_conflict")
             unit = connection.execute("SELECT * FROM harvest_units WHERE id=?", (unit_id,)).fetchone()
             if unit is None:
                 connection.execute(
-                    "INSERT INTO harvest_units(id,binding_id,window_start,window_end,state,created_at) VALUES(?,?,?,?,'pending',?)",
+                    (
+                        "INSERT INTO harvest_units(id,binding_id,window_start,window_end,state,"
+                        "created_at) VALUES(?,?,?,?,'pending',?)"
+                    ),
                     (unit_id, binding_id, start, end, now),
                 )
             elif (unit["binding_id"], unit["window_start"], unit["window_end"]) != (binding_id, start, end):
                 raise HarvestError("unit_conflict")
             elif unit["state"] in {"succeeded", "verified_empty", "unavailable"}:
                 raise HarvestError("unit_not_open")
-            number = connection.execute("SELECT COALESCE(MAX(attempt_no),0)+1 FROM harvest_attempts WHERE unit_id=?", (unit_id,)).fetchone()[0]
+            number = connection.execute(
+                "SELECT COALESCE(MAX(attempt_no),0)+1 FROM harvest_attempts WHERE unit_id=?", (unit_id,)
+            ).fetchone()[0]
             if number >= 2**63:
                 raise HarvestError("attempt_limit")
             envelope = self._json({"format_version": 1, "request": asdict(request), "capture": None})
             connection.execute(
-                "INSERT INTO harvest_attempts(id,unit_id,attempt_no,state,response_metadata_json,started_at) VALUES(?,?,?,'running',?,?)",
+                (
+                    "INSERT INTO harvest_attempts(id,unit_id,attempt_no,state,response_meta"
+                    "data_json,started_at) VALUES(?,?,?,'running',?,?)"
+                ),
                 (attempt_id, unit_id, number, envelope, now),
             )
             return self._attempt(connection, attempt_id)
@@ -136,13 +177,20 @@ class SqliteHarvestStoreAdapter:
         now = PrepareHarvestCapture.time(recorded_at)
         try:
             capture = json.loads(capture_json)
-            if not isinstance(capture, dict) or capture.get("format_version") != 1 or self._json(capture) != capture_json:
+            if (
+                not isinstance(capture, dict)
+                or capture.get("format_version") != 1
+                or self._json(capture) != capture_json
+            ):
                 raise HarvestError("invalid_capture_metadata")
         except (ValueError, TypeError) as exc:
             raise HarvestError("invalid_capture_metadata") from exc
         with self._transaction(write=True) as connection:
             attempt = self._attempt(connection, attempt_id)
-            if capture.get("request_fingerprint") != attempt.request.request_fingerprint or now < attempt.started_at:
+            if (
+                capture.get("request_fingerprint") != attempt.request.request_fingerprint
+                or now < attempt.started_at
+            ):
                 raise HarvestError("capture_request_mismatch")
             if attempt.capture_json is not None:
                 if attempt.capture_json != capture_json:
@@ -150,9 +198,14 @@ class SqliteHarvestStoreAdapter:
                 return attempt
             failure = capture.get("failure_code")
             state = "captured" if failure is None else "failed"
-            envelope = self._json({"format_version": 1, "request": asdict(attempt.request), "capture": capture})
+            envelope = self._json(
+                {"format_version": 1, "request": asdict(attempt.request), "capture": capture}
+            )
             connection.execute(
-                "UPDATE harvest_attempts SET state=?,error_code=?,response_metadata_json=?,finished_at=? WHERE id=?",
+                (
+                    "UPDATE harvest_attempts SET state=?,error_code=?,response_metadata_jso"
+                    "n=?,finished_at=? WHERE id=?"
+                ),
                 (state, failure, envelope, now, attempt_id),
             )
             return self._attempt(connection, attempt_id)
