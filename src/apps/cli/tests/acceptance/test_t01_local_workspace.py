@@ -52,9 +52,9 @@ def test_cli_initializes_and_reopens_the_same_workspace(tmp_path: Path) -> None:
         assert connection.execute("SELECT version,name FROM schema_migrations").fetchall() == [
             (1, "0001-object-registry.sql")
         ]
-        assert connection.execute(
-            "SELECT name FROM sqlite_master WHERE name='watch_profiles'"
-        ).fetchall() == []
+        assert (
+            connection.execute("SELECT name FROM sqlite_master WHERE name='watch_profiles'").fetchall() == []
+        )
 
 
 def test_cli_resolves_relative_path_from_invocation_directory(tmp_path: Path) -> None:

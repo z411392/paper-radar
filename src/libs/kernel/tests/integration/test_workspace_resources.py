@@ -19,7 +19,9 @@ def test_packaged_migration_matches_the_only_canonical_sql() -> None:
     assert migrations[0].sql.encode("utf-8") == (root / "migrations" / migrations[0].name).read_bytes()
 
 
-def test_missing_resource_is_not_replaced_with_cwd_sql(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_missing_resource_is_not_replaced_with_cwd_sql(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     import libs.kernel.adapters.driven.bundled_workspace_migrations as loader
 
     monkeypatch.setattr(loader, "files", lambda anchor: tmp_path)
