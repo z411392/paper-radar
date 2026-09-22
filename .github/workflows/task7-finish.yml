@@ -1,0 +1,30 @@
+name: Task 7 bounded storage candidate verification
+on:
+  push:
+    branches: ['codex/7-durable-local-storage']
+    paths: ['.github/workflows/task7-finish.yml', '.github/task7_finish.py']
+permissions:
+  contents: write
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          enable-cache: false
+      - name: Install the existing locked development environment
+        run: uv sync --locked
+      - name: Format only new storage files and append the bounded technical record
+        run: uv run --locked --offline python .github/task7_finish.py prepare
+      - name: Run the complete implemented-scope gate
+        run: make ci-fast
+      - name: Preserve the verified tree without moving any branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: uv run --locked --offline python .github/task7_finish.py export
