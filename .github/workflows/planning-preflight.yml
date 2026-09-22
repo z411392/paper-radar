@@ -1,0 +1,27 @@
+name: Planning publication preflight
+on:
+  push:
+    branches: [bootstrap/planning-publication]
+    paths: [.github/workflows/planning-preflight.yml]
+permissions:
+  contents: write
+  issues: write
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Verify target and project read capability without writes
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api repos/z411392/paper-radar --jq '{id,full_name,private,default_branch}'
+          gh api repos/z411392/paper-radar/issues?state=all --jq 'length'
+          if gh api graphql -f 'query=query { user(login:"z411392") { projectsV2(first:100) { nodes { id number title url public } pageInfo { hasNextPage endCursor } } } }' > "$RUNNER_TEMP/project-read.json" 2> "$RUNNER_TEMP/project-read.error"; then
+            jq '{matches:[.data.user.projectsV2.nodes[] | select(.title=="Paper Radar")], pageInfo:.data.user.projectsV2.pageInfo}' "$RUNNER_TEMP/project-read.json"
+          else
+            printf 'PROJECT_READ_UNAVAILABLE\n'
+            cat "$RUNNER_TEMP/project-read.error"
+          fi
