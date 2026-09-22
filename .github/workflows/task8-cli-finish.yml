@@ -1,0 +1,175 @@
+name: Task 8 CLI final regression and owner records
+on:
+  push:
+    branches: [codex/8-watch-profile-cli]
+    paths: [.github/workflows/task8-cli-finish.yml]
+permissions:
+  contents: write
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: 0.10.0
+          enable-cache: false
+      - run: uv sync --locked
+      - name: Reproduce, fix only the wrapper, and update owner documents
+        run: |
+          uv run --locked --offline python - <<'PY'
+          import ast
+          import os
+          import subprocess
+          from pathlib import Path
+          subprocess.run(['git', 'merge-base', '--is-ancestor', 'c67fea5546c5edbf0be529c1d1102a89ca64f02a', 'HEAD'], check=True)
+          test = Path('src/apps/cli/tests/acceptance/test_corrupt_profile_workspace.py')
+          before = ast.dump(ast.parse(test.read_text()))
+          subprocess.run(['uv', 'run', '--locked', '--offline', 'ruff', 'format', str(test)], check=True)
+          assert ast.dump(ast.parse(test.read_text())) == before
+          red = subprocess.run(['uv', 'run', '--locked', '--offline', 'python', '-m', 'pytest', str(test), '-q', '--tb=short'], text=True, capture_output=True)
+          print(red.stdout)
+          print(red.stderr)
+          assert red.returncode == 1 and '2 failed' in red.stdout, 'not the expected database-open regression'
+          source = Path('src/libs/kernel/adapters/driven/sqlite_schema_connection_factory.py')
+          text = source.read_text()
+          old = '        connection = self._factory.connect()\n        try:\n'
+          new = '        try:\n            connection = self._factory.connect()\n        except sqlite3.Error as exc:\n            raise StorageError("schema_verification_failed") from exc\n        try:\n'
+          assert text.count(old) == 1
+          source.write_text(text.replace(old, new), encoding='utf-8')
+          readme = Path('README.md')
+          text = readme.read_text()
+          old = '關注設定、論文來源、FAISS、模型與郵件仍需後續 Task 實作。'
+          new = '本候選另包含五領域設定、版本化關注與 CLI 管理；論文來源、FAISS、模型與郵件仍需後續 Task 實作。'
+          assert text.count(old) == 1
+          text = text.replace(old, new)
+          old = '`init` 只建立 0001 的工作區／物件登錄 schema'
+          assert text.count(old) == 1
+          text = text.replace(old, '`init` 未指定 `--with-profiles` 時只建立 0001 的工作區／物件登錄 schema')
+          old = 'Migration 原文只有 root `migrations/0001-object-registry.sql`；建置時納入 wheel 與 sdist'
+          assert text.count(old) == 1
+          text = text.replace(old, 'Migration 原文位於 root `migrations/`；只將明確啟用的 0001／0002 納入 wheel 與 sdist')
+          readme.write_text(text + '''
+          ## 關注設定 CLI（候選，尚未正式驗收）
+
+          先使用專用測試目錄。SQLite runtime 的正式使用核對仍見 [Issue #50](https://github.com/z411392/paper-radar/issues/50)，不要把功能測試通過當作引擎修補或正式資料使用證明。
+
+          ```bash
+          uv sync --locked
+          uv run --locked python -m apps.cli init --workspace "$HOME/paper-radar-test-data" --with-profiles
+          uv run --locked python -m apps.cli domains import --workspace "$HOME/paper-radar-test-data" --file config/domain-seeds.json
+          uv run --locked python -m apps.cli profile publish --workspace "$HOME/paper-radar-test-data" --file config/watch-profile.example.json
+          uv run --locked python -m apps.cli profile show --workspace "$HOME/paper-radar-test-data" --id personal
+          uv run --locked python -m apps.cli profile pause --workspace "$HOME/paper-radar-test-data" --id personal
+          uv run --locked python -m apps.cli profile resume --workspace "$HOME/paper-radar-test-data" --id personal
+          ```
+
+          `--with-profiles` 明確啟用 0001＋0002，既有第 1 版工作區可以升級且保留身分。升級後再次初始化須帶相同選項；省略時不自動降版。`profile show`、發布與匯入不會順便建立工作區或跑 migration；舊 schema 會回報 `schema_upgrade_required`。
+
+          要修改關注內容，另存 JSON 範例、修改 scope／filters／domains，再使用 `profile publish ... --expected-revision N`，N 是目前讀回的 revision。第一次建立可以不指定；不同新內容不能省略版本檢查。已發布的相同舊內容重試回覆原 revision，但 `current_revision` 不倒退。查看舊版可用 `profile show ... --revision N`；lifecycle 與 current_revision 仍表示目前狀態。
+
+          JSON 是匯入格式，SQLite 才是發布後權威；重新匯入種子只補缺，不能用範例覆蓋新定義。空領域清單是沒有選取領域，不表示選全部。暫停後發布不會偷偷重啟；`resume` 不寄信、不清除歷史。當前沒有 domain 新修訂、active profile 列表、rename 或明示還原舊設定的命令。
+
+          設定檔須為普通 UTF-8 檔案，最多 1,000,000 bytes，不接受最終 symlink 或 FIFO。全部參數先解析，錯誤非零退出；成功才輸出 JSON。真正安裝 wheel 後也能在 repo 外執行，SQL 不依賴目前目錄；範例檔仍須用自己可存取的路徑指定。
+          ''', encoding='utf-8')
+          additions = {
+              'docs/architecture/context-map.md': '''
+          ## Task #8 S4 的 CLI 接線
+
+          `domains import`、`profile publish/show/pause/resume` → CLI driving adapter → watch_profiles 公開 inbound ports → 既有 application／store port → SqliteWatchProfileStoreAdapter。組裝在 apps/cli/module.py；SQLite 連線由 root 注入的 callable 提供，不跨 BC import kernel 私有 adapter，也不外洩到 application。CLI 只擁有參數、設定檔讀取、JSON 顯示與退出碼。
+
+          `init --with-profiles` 明確選擇 canonical 0001＋0002；未指定仍選 0001。新增 kernel driven SqliteSchemaConnectionFactory 在連線上核對已安裝的 migration 序列、名稱、hash 與工作區身分，不執行 migration。查詢／發布不隱式建立或升級資料庫；SQLite 自己的 sidecar 維護不等同業務列寫入。SQL 原文及公開業務規則未變。
+
+          輸入檔案 helper 位於 CLI owner，只接受有界的普通 UTF-8 檔案；schema／資料庫錯誤在 kernel 轉成明確 code。未實作的排程、来源、檢索、模型與寄送不出現在成功回覆中。這是 PR #57 的作者候選接線，不是獨立 ACCEPT。
+          ''',
+              'specs/5-local-workspace/plan.md': '''
+          ## 2026-09-23 Task #8 S4：關注管理 CLI 與明確升級
+
+          本節接續 #8 S1–S3 library，與 #6 S3 初始化接線整合；不取消既有 Subtask 歷史。分支 codex/8-watch-profile-cli、[PR #57](https://github.com/z411392/paper-radar/pull/57)。固定依賴為 #55 `85a7d2704c0958a814e9dea3f15e7f02fb21a5a6`、#56 `a01b87e26491d453105b840eb728e71afd9d701a`；均不是已驗收 main。
+
+          入口：init --workspace PATH --with-profiles；domains import --workspace PATH --file PATH；profile publish --workspace PATH --file PATH [--expected-revision N]；profile show --workspace PATH --id ID [--revision N]；profile pause/resume --workspace PATH --id ID。完整參數先驗證。JSON 只是匯入輸入；發布後由 SQLite 擁有。其餘 library 語意沿用 #56，不在 transport 重作規則。
+
+          只在明確 init 選項啟用 0001＋0002，原 init 行為保留；升級保留身份，不支援降版。查詢／發布使用只驗證不遷移的 schema connection wrapper；缺失工作區不建立、版本不足明確拒絕。配置檔限制 1,000,000 bytes、普通檔案與 UTF-8，拒絕最終 symlink、FIFO／非普通檔案。此防線不宣稱能隔離惡意同 UID 程序替換所有父路徑。
+
+          用例在完整交易成功後才回成功；晚到重試不倒退 current，暫停後發布不重新啟用。相同 bytes 的種子重新匯入不覆盖正式定義。schema wrapper 的開啟與驗證失敗都转为 StorageError，CLI 不輸出 traceback 或原始私人內容；不擅自修復損毀檔案。
+
+          只變更 CLI 接線、新增 kernel schema wrapper／明示 bundle選項、build resources／cache keys、JSON 範例及必要 owner tests／文件。原 migration SQL、uv.lock、Story AC、需求、Roadmap、既有架構／治理測試及 #56 業務規則不改。預先建立的 Protocol 物件用 InstanceProvider，建立 DI／取得 ports 不等於執行命令。
+
+          正反測試：CLI test_watch_profile_cli、設定讀取 test_configuration_file、schema test_schema_connection_factory、組裝 test_watch_profile_composition、非 editable 安裝 test_watch_profile_wheel，以及損毀輸入 test_corrupt_profile_workspace。測試涵蓋升級、只讀不遷移、程序重開、舊重試、衝突、暫停、無效設定不半寫、缺失／特殊檔、wheel＋sdist資源。新增測試是作者產物，不冒作獨立 frozen oracle；全部既有測試也需通過 make ci-fast。
+
+          Writer 是本次使用者授權的對話；允許隔離資料測試及 GitHub 候選／CI。這些接口不代表來源、FAISS、LLM 或發信已完成，沒有正式資料操作。沒有 independent ACCEPT 前不合流 main、不關閉 Task／Story，Project欄位未同步。SQLite runtime修補證據缺口另見 #50。
+          ''',
+              'specs/5-local-workspace/progress.md': '''
+          ## 2026-09-23 Task #8 S4：CLI 整合、探索與驗證
+
+          研究／探索與失敗持續追加於 [Issue #8](https://github.com/z411392/paper-radar/issues/8)，包括 comments 5781290867（限定契約）、5781468364（設定檔有界讀取）、5781495408（文件合併）、5781519488（pytest大型案例名稱）、5781577257（開啟DB的錯誤邊界）。不是只留在聊天，也不建立第二份看板。
+
+          本機9項設定檔unit測試透過uv既存interpreter執行通過，僅是有限子系統證據；完整locked gate由GitHub runner執行。固定技術依賴 #55 `85a7d270`、#56 `a01b87e`，不包含另一條 profile-boundary-hardening 草稿。
+
+          run35764763421 在文件合併檢查停止，未跑產品測試。#55 正確改寫過期規劃段落，#56 為新增段落；修正整合假設，保留完整 #55＋核對共同基線後的 #56 追加內容，不選邊丟棄歷史。
+
+          run35764897506 的實作後完整 gate 為193 passed／1 setup error。超大 bytes 參數被 pytest 自動放入 node ID與PYTEST_CURRENT_TEST，造成子程序啟動前Errno7；這是測試fixture問題，不是產品已通過。修正只提供四個短ids，超大輸入、上限與斷言均保留。當次RED中的該錯誤不算缺少功能的RED。
+
+          [run35765102449](https://github.com/z411392/paper-radar/actions/runs/35765102449) 重跑：CLI在合併後未實作來源為5 failed／8 passed／11 setup errors，皆因新接口不存在；實作後194 passed、ruff check／format通過、pyright零錯誤／警告。真正非editable wheel在repo外初始化第2版、匯入、發布及讀回。其他新測試不冒稱各自已有獨立RED／freeze。
+
+          合併commit `1de9c7da512cc4dc844b6b03f52254bf50ec9acb`；測試commit `9e3a0e0dcc0993fc7bcc9ebb0fc18c151a6cb40f`；程式候選 `44a9d684a5377be276241c3238726612a82f9a26`；tree `608121c36a41321e0d106c4ef84170c0444bf0ea`。該tree比合併依賴多40項測試；122和139共享測試不可直接相加。機械runner只輸出git objects，本對話才非force更新專属分支，沒有移動上游或main。
+
+          其後source readback發現schema wrapper在try外開啟DB，可能漏出sqlite3.Error。作者反例commit `c67fea5546c5edbf0be529c1d1102a89ca64f02a` 新增2項損毀DB案例。此次收尾流程要求兩項先確實失敗，再將開啟sqlite3.Error轉成既有schema_verification_failed；不回顯原始錯誤、不覆蓋合成損毀檔。完整收尾run與最終head由Issue／PR追加讀回，不在尚未執行時填PASS。
+
+          實際測試SQLite為3.49.1，sqlite_source_id為 `2025-02-18 13:38:58 873d4e274b4988d260ba8354a9718324a1c26187a4ab4c1cc0227c03d0f10e70`。這增加runtime識別證據，並未證明WAL-reset已修補；#50風險仍保留。所有來源、模型、FAISS、真郵件與正式資料操作未執行。
+
+          候選 [PR #57](https://github.com/z411392/paper-radar/pull/57) 尚待獨立Reviewer；作者與CI不是ACCEPT，不關閉Task／Story、不合流main。完整命令在README，技術接線在Context Map，本檔只留證據，不存Status／Priority／Sprint。原SQL、lock、Story AC與既有工程防線不變。
+          '''
+          }
+          for name, addition in additions.items():
+              path = Path(name)
+              text = path.read_text(encoding='utf-8')
+              assert addition.strip().splitlines()[0] not in text, name
+              path.write_text(text + '\n' + addition, encoding='utf-8')
+          print('DATABASE_OPEN_RED_CONFIRMED=2')
+          PY
+      - name: Verify exact final code and owner documents
+        run: make ci-fast
+      - name: Export only verified changes and remove the temporary workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          uv run --locked --offline python - <<'PY'
+          import base64
+          import json
+          import os
+          import subprocess
+          import urllib.request
+          repo = 'z411392/paper-radar'
+          assert os.environ['GITHUB_REPOSITORY'] == repo
+          allowed = ['README.md', 'docs/architecture/context-map.md', 'specs/5-local-workspace/plan.md', 'specs/5-local-workspace/progress.md', 'src/libs/kernel/adapters/driven/sqlite_schema_connection_factory.py', 'src/apps/cli/tests/acceptance/test_corrupt_profile_workspace.py']
+          def git(*args):
+              return subprocess.check_output(['git', *args], text=True).strip()
+          assert set(git('diff', '--name-only').splitlines()) <= set(allowed)
+          subprocess.run(['git', 'add', '--', *allowed], check=True)
+          temporary = '.github/workflows/task8-cli-finish.yml'
+          subprocess.run(['git', 'rm', '--', temporary], check=True)
+          head = git('rev-parse', 'HEAD')
+          local_tree = git('write-tree')
+          def api(endpoint, payload):
+              req = urllib.request.Request('https://api.github.com/repos/' + repo + '/' + endpoint, data=json.dumps(payload).encode(), headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'Content-Type': 'application/json', 'Accept': 'application/vnd.github+json'}, method='POST')
+              with urllib.request.urlopen(req, timeout=45) as response:
+                  return json.load(response)
+          entries = []
+          for name in allowed:
+              content = subprocess.check_output(['git', 'show', local_tree + ':' + name])
+              sha = api('git/blobs', {'encoding':'base64','content':base64.b64encode(content).decode()})['sha']
+              assert sha == git('rev-parse', local_tree + ':' + name)
+              entries.append({'path':name,'mode':'100644','type':'blob','sha':sha})
+          entries.append({'path':temporary,'mode':'100644','type':'blob','sha':None})
+          tree = api('git/trees', {'base_tree':git('show','-s','--format=%T',head),'tree':entries})['sha']
+          assert tree == local_tree
+          commit = api('git/commits', {'message':'task-8 S4: normalize database-open failures and publish verified CLI owner records\n\nRefs #8, #50, #5. Two author regressions failed before the fix; full locked ci-fast passed afterwards. Preserve synthetic damaged bytes, original SQL, lock, business rules and prior histories. Remove one-shot workflow. No independent ACCEPT or main integration.','tree':tree,'parents':[head]})['sha']
+          print('CLI_FINISH_TREE=' + tree)
+          print('CLI_FINISH_COMMIT=' + commit)
+          print('No refs, Issues, PRs or Project fields changed by the runner.')
+          PY
