@@ -31,13 +31,23 @@ def test_built_wheel_runs_in_a_clean_noneditable_environment(tmp_path: Path) -> 
     assert uv is not None, "Run this test through the locked uv environment"
     venv = tmp_path / "wheel-env"
     python = venv / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    env = os.environ.copy()
+    env.pop("PYTHONPATH", None)
+    env.pop("VIRTUAL_ENV", None)
+    env.update({"UV_PROJECT_ENVIRONMENT": str(venv), "UV_OFFLINE": "1", "UV_PYTHON": sys.executable})
+
+    # The lock has artifact URLs; an installed cache need not have registry resolution metadata.
+    # Install locked runtime dependencies without the project, then install only the built wheel.
     for command in [
         [uv, "venv", "--python", sys.executable, str(venv)],
-        [uv, "pip", "install", "--offline", "--python", str(python), str(artifacts[0])],
+        [uv, "sync", "--locked", "--offline", "--no-dev", "--no-install-project", "--project", str(root)],
+        [uv, "pip", "install", "--offline", "--no-deps", "--python", str(python), str(artifacts[0])],
+        [uv, "pip", "check", "--python", str(python)],
     ]:
         result = subprocess.run(
             command,
             cwd=tmp_path,
+            env=env,
             capture_output=True,
             text=True,
             timeout=60,
@@ -50,6 +60,7 @@ def test_built_wheel_runs_in_a_clean_noneditable_environment(tmp_path: Path) -> 
     result = subprocess.run(
         [str(python), "-I", "-m", "apps.cli", "version"],
         cwd=cwd,
+        env=env,
         capture_output=True,
         text=True,
         timeout=15,
@@ -57,4 +68,20 @@ def test_built_wheel_runs_in_a_clean_noneditable_environment(tmp_path: Path) -> 
     )
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout)["package_version"] == "0.1.0"
+    location = subprocess.run(
+        [
+            str(python),
+            "-I",
+            "-c",
+            "import apps.cli.entrypoints as e; print(e.__file__)",
+        ],
+        cwd=cwd,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=15,
+        check=False,
+    )
+    assert location.returncode == 0, location.stderr
+    assert Path(location.stdout.strip()).resolve().is_relative_to(venv.resolve())
     assert list(cwd.iterdir()) == []
