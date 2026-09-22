@@ -45,7 +45,14 @@ def domain(**changes):
 
 
 def request(**changes):
-    base = HarvestQueryRequest("personal", "statistics", START, END, page_size=50)
+    base = HarvestQueryRequest(
+        "personal",
+        "statistics",
+        START,
+        END,
+        deferred_mode="defer",
+        page_size=50,
+    )
     return replace(base, **changes)
 
 
