@@ -97,3 +97,20 @@ ImportDomainSeeds、PublishWatchProfile、ReadWatchProfile、SetWatchProfileLife
 暫停／重啟只改目前 lifecycle。發布內容不自動重啟 paused profile。歷史修訂查詢回內容的 revision 與目前 current_revision／lifecycle，後兩者不是假造的歷史狀態。移除領域以新 profile revision 省略對應 reference，舊 reference 仍保留。測試對實際已讀／通知資料表放入合成紀錄，驗證操作前後完全相同；未寄出郵件。
 
 驗證位置：`src/libs/watch_profiles/tests/contract/test_t03_local_workspace.py`。本批尚未新增 CLI 設定管理、來源查詢、模型、推送或其他 Story 功能。來源研究、失敗原因、選擇與修正均追加原 Issue comments；Status／Priority／Sprint 不複製到 Markdown。
+
+
+## 2026-09-23 Task #8 S4：關注管理 CLI 與明確升級
+
+本節接續 #8 S1–S3 library，與 #6 S3 初始化接線整合；不取消既有 Subtask 歷史。分支 codex/8-watch-profile-cli、[PR #57](https://github.com/z411392/paper-radar/pull/57)。固定依賴為 #55 `85a7d2704c0958a814e9dea3f15e7f02fb21a5a6`、#56 `a01b87e26491d453105b840eb728e71afd9d701a`；均不是已驗收 main。
+
+入口：init --workspace PATH --with-profiles；domains import --workspace PATH --file PATH；profile publish --workspace PATH --file PATH [--expected-revision N]；profile show --workspace PATH --id ID [--revision N]；profile pause/resume --workspace PATH --id ID。完整參數先驗證。JSON 只是匯入輸入；發布後由 SQLite 擁有。其餘 library 語意沿用 #56，不在 transport 重作規則。
+
+只在明確 init 選項啟用 0001＋0002，原 init 行為保留；升級保留身份，不支援降版。查詢／發布使用只驗證不遷移的 schema connection wrapper；缺失工作區不建立、版本不足明確拒絕。配置檔限制 1,000,000 bytes、普通檔案與 UTF-8，拒絕最終 symlink、FIFO／非普通檔案。此防線不宣稱能隔離惡意同 UID 程序替換所有父路徑。
+
+用例在完整交易成功後才回成功；晚到重試不倒退 current，暫停後發布不重新啟用。相同 bytes 的種子重新匯入不覆盖正式定義。schema wrapper 的開啟與驗證失敗都转为 StorageError，CLI 不輸出 traceback 或原始私人內容；不擅自修復損毀檔案。
+
+只變更 CLI 接線、新增 kernel schema wrapper／明示 bundle選項、build resources／cache keys、JSON 範例及必要 owner tests／文件。原 migration SQL、uv.lock、Story AC、需求、Roadmap、既有架構／治理測試及 #56 業務規則不改。預先建立的 Protocol 物件用 InstanceProvider，建立 DI／取得 ports 不等於執行命令。
+
+正反測試：CLI test_watch_profile_cli、設定讀取 test_configuration_file、schema test_schema_connection_factory、組裝 test_watch_profile_composition、非 editable 安裝 test_watch_profile_wheel，以及損毀輸入 test_corrupt_profile_workspace。測試涵蓋升級、只讀不遷移、程序重開、舊重試、衝突、暫停、無效設定不半寫、缺失／特殊檔、wheel＋sdist資源。新增測試是作者產物，不冒作獨立 frozen oracle；全部既有測試也需通過 make ci-fast。
+
+Writer 是本次使用者授權的對話；允許隔離資料測試及 GitHub 候選／CI。這些接口不代表來源、FAISS、LLM 或發信已完成，沒有正式資料操作。沒有 independent ACCEPT 前不合流 main、不關閉 Task／Story，Project欄位未同步。SQLite runtime修補證據缺口另見 #50。

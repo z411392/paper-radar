@@ -106,3 +106,24 @@ S1／S2／S3 已有各自作者實作與驗證，但 independent Reviewer 未執
 目前只交付作者候選；不得推導獨立 ACCEPT、main 合流、Task Done、CLI 設定介面完成或 Project 已同步。
 
 輸入邊界額外探索：三個 Unicode／revision 上限反例先 RED，修正後本機子系統 31 passed；真正 kernel factory 整合另留完整 CI，不計入本機已測。來源與推論已記於 Issue #8 comments。
+
+
+## 2026-09-23 Task #8 S4：CLI 整合、探索與驗證
+
+研究／探索與失敗持續追加於 [Issue #8](https://github.com/z411392/paper-radar/issues/8)，包括 comments 5781290867（限定契約）、5781468364（設定檔有界讀取）、5781495408（文件合併）、5781519488（pytest大型案例名稱）、5781577257（開啟DB的錯誤邊界）。不是只留在聊天，也不建立第二份看板。
+
+本機9項設定檔unit測試透過uv既存interpreter執行通過，僅是有限子系統證據；完整locked gate由GitHub runner執行。固定技術依賴 #55 `85a7d270`、#56 `a01b87e`，不包含另一條 profile-boundary-hardening 草稿。
+
+run35764763421 在文件合併檢查停止，未跑產品測試。#55 正確改寫過期規劃段落，#56 為新增段落；修正整合假設，保留完整 #55＋核對共同基線後的 #56 追加內容，不選邊丟棄歷史。
+
+run35764897506 的實作後完整 gate 為193 passed／1 setup error。超大 bytes 參數被 pytest 自動放入 node ID與PYTEST_CURRENT_TEST，造成子程序啟動前Errno7；這是測試fixture問題，不是產品已通過。修正只提供四個短ids，超大輸入、上限與斷言均保留。當次RED中的該錯誤不算缺少功能的RED。
+
+[run35765102449](https://github.com/z411392/paper-radar/actions/runs/35765102449) 重跑：CLI在合併後未實作來源為5 failed／8 passed／11 setup errors，皆因新接口不存在；實作後194 passed、ruff check／format通過、pyright零錯誤／警告。真正非editable wheel在repo外初始化第2版、匯入、發布及讀回。其他新測試不冒稱各自已有獨立RED／freeze。
+
+合併commit `1de9c7da512cc4dc844b6b03f52254bf50ec9acb`；測試commit `9e3a0e0dcc0993fc7bcc9ebb0fc18c151a6cb40f`；程式候選 `44a9d684a5377be276241c3238726612a82f9a26`；tree `608121c36a41321e0d106c4ef84170c0444bf0ea`。該tree比合併依賴多40項測試；122和139共享測試不可直接相加。機械runner只輸出git objects，本對話才非force更新專属分支，沒有移動上游或main。
+
+其後source readback發現schema wrapper在try外開啟DB，可能漏出sqlite3.Error。作者反例commit `c67fea5546c5edbf0be529c1d1102a89ca64f02a` 新增2項損毀DB案例。此次收尾流程要求兩項先確實失敗，再將開啟sqlite3.Error轉成既有schema_verification_failed；不回顯原始錯誤、不覆蓋合成損毀檔。完整收尾run與最終head由Issue／PR追加讀回，不在尚未執行時填PASS。
+
+實際測試SQLite為3.49.1，sqlite_source_id為 `2025-02-18 13:38:58 873d4e274b4988d260ba8354a9718324a1c26187a4ab4c1cc0227c03d0f10e70`。這增加runtime識別證據，並未證明WAL-reset已修補；#50風險仍保留。所有來源、模型、FAISS、真郵件與正式資料操作未執行。
+
+候選 [PR #57](https://github.com/z411392/paper-radar/pull/57) 尚待獨立Reviewer；作者與CI不是ACCEPT，不關閉Task／Story、不合流main。完整命令在README，技術接線在Context Map，本檔只留證據，不存Status／Priority／Sprint。原SQL、lock、Story AC與既有工程防線不變。

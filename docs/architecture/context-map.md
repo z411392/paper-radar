@@ -83,3 +83,12 @@ Runtime objects／SQLite／vectors／index 與備份目錄唯一契約見 [data-
 Root `migrations/0001-object-registry.sql` 是唯一原文，Hatchling 的 force-include 將其映射到安裝套件的 `libs/kernel/resources/migrations/`。`bundled_workspace_migrations.py` 是 kernel driven resource loader，不從 cwd 找備援、不在 src 複製 SQL，不擴大為自動套用全部 migrations。更動 source SQL 也會使 uv 本地建置快取失效。
 
 本批的範圍與作者測試見 [Story plan](../../specs/5-local-workspace/plan.md)／[progress](../../specs/5-local-workspace/progress.md)；關注設定、排程與其他命令依其 Task 後續接線。
+
+
+## Task #8 S4 的 CLI 接線
+
+`domains import`、`profile publish/show/pause/resume` → CLI driving adapter → watch_profiles 公開 inbound ports → 既有 application／store port → SqliteWatchProfileStoreAdapter。組裝在 apps/cli/module.py；SQLite 連線由 root 注入的 callable 提供，不跨 BC import kernel 私有 adapter，也不外洩到 application。CLI 只擁有參數、設定檔讀取、JSON 顯示與退出碼。
+
+`init --with-profiles` 明確選擇 canonical 0001＋0002；未指定仍選 0001。新增 kernel driven SqliteSchemaConnectionFactory 在連線上核對已安裝的 migration 序列、名稱、hash 與工作區身分，不執行 migration。查詢／發布不隱式建立或升級資料庫；SQLite 自己的 sidecar 維護不等同業務列寫入。SQL 原文及公開業務規則未變。
+
+輸入檔案 helper 位於 CLI owner，只接受有界的普通 UTF-8 檔案；schema／資料庫錯誤在 kernel 轉成明確 code。未實作的排程、来源、檢索、模型與寄送不出現在成功回覆中。這是 PR #57 的作者候選接線，不是獨立 ACCEPT。

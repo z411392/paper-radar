@@ -20,7 +20,10 @@ class SqliteSchemaConnectionFactory:
         self._expected = tuple((m.version, m.name, m.sha256) for m in migrations)
 
     def connect(self) -> sqlite3.Connection:
-        connection = self._factory.connect()
+        try:
+            connection = self._factory.connect()
+        except sqlite3.Error as exc:
+            raise StorageError("schema_verification_failed") from exc
         try:
             connection.execute("BEGIN")
             rows = tuple(

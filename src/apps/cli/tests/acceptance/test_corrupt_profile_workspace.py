@@ -30,8 +30,18 @@ def test_schema_factory_normalizes_database_open_failure(tmp_path: Path) -> None
 def test_profile_cli_does_not_leak_corrupt_database_error(tmp_path: Path) -> None:
     root, database, content = corrupt_workspace(tmp_path)
     result = subprocess.run(
-        [sys.executable, "-I", "-m", "apps.cli", "profile", "show", "--workspace", str(root),
-         "--id", "personal"],
+        [
+            sys.executable,
+            "-I",
+            "-m",
+            "apps.cli",
+            "profile",
+            "show",
+            "--workspace",
+            str(root),
+            "--id",
+            "personal",
+        ],
         cwd=tmp_path,
         capture_output=True,
         text=True,
