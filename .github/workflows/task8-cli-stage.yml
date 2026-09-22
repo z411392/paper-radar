@@ -23,7 +23,7 @@ jobs:
           enable-cache: false
       - name: Install existing locked dependencies
         run: uv sync --locked
-      - name: Preserve the reviewed initializer document corrections
+      - name: Apply reviewed assembly and test-label corrections
         run: |
           uv run --locked --offline python - <<'PY'
           from pathlib import Path
@@ -32,6 +32,31 @@ jobs:
           old = 'assert ours.startswith(base) and theirs.startswith(base), name'
           assert source.count(old) == 1
           source = source.replace(old, 'assert theirs.startswith(base), name')
+          old = '    return payload\n'
+          assert source.count(old) == 1
+          patch = '''    test_path = "src/apps/cli/tests/acceptance/test_watch_profile_cli.py"
+              original = payload["files"][test_path]
+              old_label = "])\\ndef test_bad_file_does_not_modify_database"
+              new_label = "], ids=[\"malformed-json\", \"duplicate-keys\", \"invalid-utf8\", \"oversized-file\"])\\ndef test_bad_file_does_not_modify_database"
+              assert original.count(old_label) == 1
+              payload["files"][test_path] = original.replace(old_label, new_label)
+              return payload
+          '''
+          # Generate the source using repr, so quotes inside the replacement stay exact.
+          patch = (
+              '    test_path = "src/apps/cli/tests/acceptance/test_watch_profile_cli.py"\n'
+              '    original = payload["files"][test_path]\n'
+              '    old_label = ' + repr('])\ndef test_bad_file_does_not_modify_database') + '\n'
+              '    new_label = ' + repr('], ids=["malformed-json", "duplicate-keys", "invalid-utf8", "oversized-file"])\ndef test_bad_file_does_not_modify_database') + '\n'
+              '    assert original.count(old_label) == 1\n'
+              '    payload["files"][test_path] = original.replace(old_label, new_label)\n'
+              '    return payload\n'
+          )
+          source = source.replace(old, patch)
+          old = '["git", "rm", "--", name]'
+          assert source.count(old) == 1
+          source = source.replace(old, '["git", "rm", "-f", "--", name]')
+          compile(source, str(path), 'exec')
           path.write_text(source, encoding='utf-8')
           PY
       - name: Assemble exact parents and retain real CLI RED
