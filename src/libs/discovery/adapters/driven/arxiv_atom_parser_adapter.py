@@ -85,17 +85,29 @@ class ArxivAtomParserAdapter:
         if items > request.max_results or len(entries) > items or (entries and items == 0):
             raise SourceParseError("invalid_page_counts", digest)
         records = tuple(self._record(entry, digest) for entry in entries)
-        observation = SourcePageObservation("arxiv", request.query_fingerprint, start, total,
-                                            tuple(record.source_record_id for record in records))
+        observation = SourcePageObservation(
+            "arxiv",
+            request.query_fingerprint,
+            start,
+            total,
+            tuple(record.source_record_id for record in records),
+        )
         try:
             EvaluateSourcePage()(request, observation)
         except SourceQueryError as exc:
             raise SourceParseError(exc.code, digest) from None
         feed_updated = self._text(root, ATOM + "updated", digest)
-        return ParsedArxivPage(observation, records, body, digest, request.request_fingerprint, PARSER_VERSION,
-                               self._text(root, ATOM + "id", digest),
-                               self._timestamp(feed_updated, digest) if feed_updated is not None else None,
-                               items)
+        return ParsedArxivPage(
+            observation,
+            records,
+            body,
+            digest,
+            request.request_fingerprint,
+            PARSER_VERSION,
+            self._text(root, ATOM + "id", digest),
+            self._timestamp(feed_updated, digest) if feed_updated is not None else None,
+            items,
+        )
 
     @staticmethod
     def _request(request: SourcePageRequest, digest: str) -> None:
@@ -103,12 +115,15 @@ class ArxivAtomParserAdapter:
             raise SourceParseError("invalid_page_request", digest)
         counts = (request.start, request.max_results, request.maximum_window_results)
         fingerprints = (request.query_fingerprint, request.request_fingerprint)
-        if (request.source_id != "arxiv" or request.method != "GET"
-                or any(type(n) is not int or n < 0 for n in counts)
-                or not 1 <= request.max_results <= 2000
-                or not 1 <= request.maximum_window_results <= 30000
-                or request.start > request.maximum_window_results
-                or any(not isinstance(s, str) or re.fullmatch(r"[0-9a-f]{64}", s) is None for s in fingerprints)):
+        if (
+            request.source_id != "arxiv"
+            or request.method != "GET"
+            or any(type(n) is not int or n < 0 for n in counts)
+            or not 1 <= request.max_results <= 2000
+            or not 1 <= request.maximum_window_results <= 30000
+            or request.start > request.maximum_window_results
+            or any(not isinstance(s, str) or re.fullmatch(r"[0-9a-f]{64}", s) is None for s in fingerprints)
+        ):
             raise SourceParseError("invalid_page_request", digest)
 
     @staticmethod
@@ -122,8 +137,15 @@ class ArxivAtomParserAdapter:
             return None
         return items[0]
 
-    def _text(self, parent: ET.Element, tag: str, digest: str, *, required: bool = False,
-              preserve_space: bool = False) -> str | None:
+    def _text(
+        self,
+        parent: ET.Element,
+        tag: str,
+        digest: str,
+        *,
+        required: bool = False,
+        preserve_space: bool = False,
+    ) -> str | None:
         node = self._one(parent, tag, digest, required=required)
         if node is None:
             return None
@@ -142,7 +164,9 @@ class ArxivAtomParserAdapter:
 
     @staticmethod
     def _timestamp(value: str | None, digest: str) -> datetime:
-        if value is None or not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})", value):
+        if value is None or not re.fullmatch(
+            r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})", value
+        ):
             raise SourceParseError("invalid_timestamp", digest)
         if value[-1] != "Z" and (int(value[-5:-3]) > 23 or int(value[-2:]) > 59):
             raise SourceParseError("invalid_timestamp", digest)
@@ -159,11 +183,18 @@ class ArxivAtomParserAdapter:
             url = urlsplit(value)
         except ValueError:
             raise SourceParseError("invalid_source_identity", digest) from None
-        if (url.scheme not in {"http", "https"} or url.netloc != "arxiv.org"
-                or url.query or url.fragment or not url.path.startswith("/abs/")):
+        if (
+            url.scheme not in {"http", "https"}
+            or url.netloc != "arxiv.org"
+            or url.query
+            or url.fragment
+            or not url.path.startswith("/abs/")
+        ):
             raise SourceParseError("invalid_source_identity", digest)
-        identity = url.path[len("/abs/"):]
-        match = re.fullmatch(r"((?:[0-9]{4}\.[0-9]{4,5}|[a-z][A-Za-z0-9.-]*/[0-9]{7}))(?:v([1-9][0-9]{0,8}))?", identity)
+        identity = url.path[len("/abs/") :]
+        match = re.fullmatch(
+            r"((?:[0-9]{4}\.[0-9]{4,5}|[a-z][A-Za-z0-9.-]*/[0-9]{7}))(?:v([1-9][0-9]{0,8}))?", identity
+        )
         if match is None:
             raise SourceParseError("invalid_source_identity", digest)
         base = match[1]
@@ -207,11 +238,21 @@ class ArxivAtomParserAdapter:
             if href is None or not href.strip():
                 raise SourceParseError("invalid_link_metadata", digest)
             links.append((href, link.get("rel"), link.get("title"), link.get("type")))
-        return ArxivSourceRecord(identity, source_url, base, version, title, abstract, tuple(authors),
-                                 self._timestamp(self._text(entry, ATOM + "published", digest, required=True), digest),
-                                 self._timestamp(self._text(entry, ATOM + "updated", digest, required=True), digest),
-                                 tuple(categories), primary_term,
-                                 self._text(entry, ARXIV + "doi", digest),
-                                 self._text(entry, ARXIV + "journal_ref", digest),
-                                 self._text(entry, ARXIV + "comment", digest), tuple(links),
-                                 ("abstract",) if abstract is None else ())
+        return ArxivSourceRecord(
+            identity,
+            source_url,
+            base,
+            version,
+            title,
+            abstract,
+            tuple(authors),
+            self._timestamp(self._text(entry, ATOM + "published", digest, required=True), digest),
+            self._timestamp(self._text(entry, ATOM + "updated", digest, required=True), digest),
+            tuple(categories),
+            primary_term,
+            self._text(entry, ARXIV + "doi", digest),
+            self._text(entry, ARXIV + "journal_ref", digest),
+            self._text(entry, ARXIV + "comment", digest),
+            tuple(links),
+            ("abstract",) if abstract is None else (),
+        )

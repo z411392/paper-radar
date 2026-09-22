@@ -22,15 +22,23 @@ ARXIV = "{http://arxiv.org/schemas/atom}"
 def no_network(monkeypatch):
     def fail(*args, **kwargs):
         raise AssertionError("Atom parsing must not open a socket")
+
     monkeypatch.setattr(socket, "socket", fail)
     monkeypatch.setattr(socket, "create_connection", fail)
 
 
 @pytest.fixture
 def request_page():
-    return SourcePageRequest("arxiv", "a" * 64, "b" * 64, "GET",
-                             "https://export.arxiv.org/api/query?search_query=ti:synthetic",
-                             0, 2, 30000)
+    return SourcePageRequest(
+        "arxiv",
+        "a" * 64,
+        "b" * 64,
+        "GET",
+        "https://export.arxiv.org/api/query?search_query=ti:synthetic",
+        0,
+        2,
+        30000,
+    )
 
 
 @pytest.fixture
@@ -40,19 +48,23 @@ def parse():
 
 def atom(ids=("2609.00001v2",), *, start=0, total=None, size=2, modify=None):
     root = ET.Element(ATOM + "feed")
-    for name, value in [("id", "https://arxiv.org/api/synthetic"),
-                        ("updated", "2026-09-23T00:00:00Z")]:
+    for name, value in [("id", "https://arxiv.org/api/synthetic"), ("updated", "2026-09-23T00:00:00Z")]:
         ET.SubElement(root, ATOM + name).text = value
-    for name, value in [("totalResults", len(ids) if total is None else total),
-                        ("startIndex", start), ("itemsPerPage", size)]:
+    for name, value in [
+        ("totalResults", len(ids) if total is None else total),
+        ("startIndex", start),
+        ("itemsPerPage", size),
+    ]:
         ET.SubElement(root, SEARCH + name).text = str(value)
     for identity in ids:
         entry = ET.SubElement(root, ATOM + "entry")
-        for name, value in [("id", "https://arxiv.org/abs/" + identity),
-                            ("title", "Synthetic 羽球 study: 0.42 m ≠ 0.58 m"),
-                            ("summary", "  合成研究 only.\n180 clips; 0.5 s; no clinical claim.  "),
-                            ("published", "2026-09-20T09:00:00+08:00"),
-                            ("updated", "2026-09-22T12:00:00Z")]:
+        for name, value in [
+            ("id", "https://arxiv.org/abs/" + identity),
+            ("title", "Synthetic 羽球 study: 0.42 m ≠ 0.58 m"),
+            ("summary", "  合成研究 only.\n180 clips; 0.5 s; no clinical claim.  "),
+            ("published", "2026-09-20T09:00:00+08:00"),
+            ("updated", "2026-09-22T12:00:00Z"),
+        ]:
             ET.SubElement(entry, ATOM + name).text = value
         for name in ["Synthetic Alpha", "Synthetic Beta"]:
             author = ET.SubElement(entry, ATOM + "author")
@@ -101,8 +113,10 @@ def test_fields_provenance_dates_authors_and_untrusted_links(parse, request_page
         record.version = 7
 
 
-@pytest.mark.parametrize("identity,version", [("2609.00001", None), ("hep-ex/0307015", None),
-                                              ("math.GT/0307015v12", 12), ("0704.0001v1", 1)])
+@pytest.mark.parametrize(
+    "identity,version",
+    [("2609.00001", None), ("hep-ex/0307015", None), ("math.GT/0307015v12", 12), ("0704.0001v1", 1)],
+)
 def test_modern_legacy_and_unknown_version(parse, request_page, identity, version):
     record = parse(request_page, atom((identity,)), http_status=200).records[0]
     assert record.source_record_id == identity
@@ -152,6 +166,7 @@ def test_http_failure_or_partial_never_becomes_empty(parse, request_page, status
 def test_api_error_entry_is_not_a_paper_or_empty(parse, request_page):
     def mutate(root):
         first(root).find(ATOM + "id").text = "http://arxiv.org/api/errors#private-error-message"
+
     raw = atom(modify=mutate)
     with pytest.raises(SourceParseError, match="arxiv_api_error") as caught:
         parse(request_page, raw, http_status=200)
@@ -164,6 +179,7 @@ def test_missing_required_entry_fields_fail(parse, request_page, tag):
     def mutate(root):
         for item in first(root).findall(ATOM + tag):
             first(root).remove(item)
+
     with pytest.raises(SourceParseError):
         parse(request_page, atom(modify=mutate), http_status=200)
 
@@ -174,9 +190,19 @@ def test_duplicate_singleton_fields_fail(parse, request_page, tag):
         parse(request_page, atom(modify=lambda r: ET.SubElement(first(r), ATOM + tag)), http_status=200)
 
 
-@pytest.mark.parametrize("kwargs", [{"start": 1}, {"total": -1}, {"total": "NaN"},
-                                   {"size": 0}, {"size": 3}, {"total": 30001}, {"total": 0},
-                                   {"total": 3}])
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"start": 1},
+        {"total": -1},
+        {"total": "NaN"},
+        {"size": 0},
+        {"size": 3},
+        {"total": 30001},
+        {"total": 0},
+        {"total": 3},
+    ],
+)
 def test_bad_or_incomplete_page_shape_rejected(parse, request_page, kwargs):
     with pytest.raises(SourceParseError):
         parse(request_page, atom(**kwargs), http_status=200)
@@ -187,12 +213,22 @@ def test_duplicate_record_identity_rejected(parse, request_page):
         parse(request_page, atom(("2609.00001v1", "2609.00001v1")), http_status=200)
 
 
-@pytest.mark.parametrize("url", ["http://localhost/abs/2609.00001v1", "https://arxiv.org.evil/abs/2609.00001",
-                                "https://user@arxiv.org/abs/2609.00001", "https://arxiv.org:443/abs/2609.00001",
-                                "https://arxiv.org/abs/2609.00001?next=evil", "https://arxiv.org/abs/2609.00001#v2",
-                                "https://arxiv.org/abs/../secret", "https://arxiv.org/abs/2613.00001",
-                                "https://arxiv.org/abs/2609.00001v0", "https://arxiv.org/abs/%32%36%30%39.00001",
-                                "https://arxiv.org/abs/2609.00001v9999999999999999999"])
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://localhost/abs/2609.00001v1",
+        "https://arxiv.org.evil/abs/2609.00001",
+        "https://user@arxiv.org/abs/2609.00001",
+        "https://arxiv.org:443/abs/2609.00001",
+        "https://arxiv.org/abs/2609.00001?next=evil",
+        "https://arxiv.org/abs/2609.00001#v2",
+        "https://arxiv.org/abs/../secret",
+        "https://arxiv.org/abs/2613.00001",
+        "https://arxiv.org/abs/2609.00001v0",
+        "https://arxiv.org/abs/%32%36%30%39.00001",
+        "https://arxiv.org/abs/2609.00001v9999999999999999999",
+    ],
+)
 def test_invalid_identity_urls_rejected(parse, request_page, url):
     raw = atom(modify=lambda r: setattr(first(r).find(ATOM + "id"), "text", url))
     with pytest.raises(SourceParseError, match="invalid_source_identity"):
@@ -206,15 +242,21 @@ def test_timestamps_require_valid_explicit_timezone(parse, request_page, date):
         parse(request_page, raw, http_status=200)
 
 
-@pytest.mark.parametrize("raw,code", [
-    (b"<feed/>", "invalid_feed_namespace"), (b"<", "malformed_xml"), (b"\xff", "invalid_utf8"),
-    (b"<!DOCTYPE feed [<!ENTITY x 'EXPANSION'>]><feed>&x;</feed>", "xml_doctype_forbidden"),
-    (b"<!DOCTYPE feed SYSTEM 'file:///etc/passwd'><feed/>", "xml_doctype_forbidden"),
-    (("<x>" * 34 + "</x>" * 34).encode(), "xml_depth_limit"),
-    (("<x>" + "<y/>" * 100000 + "</x>").encode(), "xml_node_limit"),
-    (b"x" * 8000001, "response_too_large"),
-    ("<feed/>".encode("utf-16"), "invalid_utf8"),
-], ids=["namespace", "malformed", "utf8", "internal-dtd", "external-dtd", "depth", "nodes", "size", "utf16"])
+@pytest.mark.parametrize(
+    "raw,code",
+    [
+        (b"<feed/>", "invalid_feed_namespace"),
+        (b"<", "malformed_xml"),
+        (b"\xff", "invalid_utf8"),
+        (b"<!DOCTYPE feed [<!ENTITY x 'EXPANSION'>]><feed>&x;</feed>", "xml_doctype_forbidden"),
+        (b"<!DOCTYPE feed SYSTEM 'file:///etc/passwd'><feed/>", "xml_doctype_forbidden"),
+        (("<x>" * 34 + "</x>" * 34).encode(), "xml_depth_limit"),
+        (("<x>" + "<y/>" * 100000 + "</x>").encode(), "xml_node_limit"),
+        (b"x" * 8000001, "response_too_large"),
+        ("<feed/>".encode("utf-16"), "invalid_utf8"),
+    ],
+    ids=["namespace", "malformed", "utf8", "internal-dtd", "external-dtd", "depth", "nodes", "size", "utf16"],
+)
 def test_xml_resource_and_encoding_guards(parse, request_page, raw, code):
     with pytest.raises(SourceParseError, match=code):
         parse(request_page, raw, http_status=200)
@@ -225,8 +267,17 @@ def test_non_bytes_input_rejected(parse, request_page):
         parse(request_page, "<feed/>", http_status=200)
 
 
-@pytest.mark.parametrize("kwargs", [{"source_id": "pubmed"}, {"query_fingerprint": "bad"}, {"start": True},
-                                   {"max_results": 0}, {"method": "POST"}, {"start": -1}])
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"source_id": "pubmed"},
+        {"query_fingerprint": "bad"},
+        {"start": True},
+        {"max_results": 0},
+        {"method": "POST"},
+        {"start": -1},
+    ],
+)
 def test_invalid_request_is_not_silently_coerced(parse, request_page, kwargs):
     with pytest.raises(SourceParseError, match="invalid_page_request"):
         parse(replace(request_page, **kwargs), atom(), http_status=200)
@@ -245,15 +296,17 @@ def test_mixed_content_not_flattened_into_claim(parse, request_page):
 
 
 def test_url_parser_must_not_silently_strip_control_character(parse, request_page):
-    raw = atom(modify=lambda r: setattr(first(r).find(ATOM + "id"), "text",
-                                       "https://arxiv.org/abs/2609.\n00001v2"))
+    raw = atom(
+        modify=lambda r: setattr(first(r).find(ATOM + "id"), "text", "https://arxiv.org/abs/2609.\n00001v2")
+    )
     with pytest.raises(SourceParseError, match="invalid_source_identity"):
         parse(request_page, raw, http_status=200)
 
 
 def test_date_parser_must_not_normalize_invalid_timezone_minutes(parse, request_page):
-    raw = atom(modify=lambda r: setattr(first(r).find(ATOM + "published"), "text",
-                                       "2026-09-23T00:00:00+00:60"))
+    raw = atom(
+        modify=lambda r: setattr(first(r).find(ATOM + "published"), "text", "2026-09-23T00:00:00+00:60")
+    )
     with pytest.raises(SourceParseError, match="invalid_timestamp"):
         parse(request_page, raw, http_status=200)
 
