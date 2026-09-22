@@ -20,17 +20,6 @@ jobs:
           version: '0.10.0'
           enable-cache: false
       - run: uv sync --locked
-      - name: Verify the earlier test-only revision in its own environment
-        run: |
-          git worktree add --detach "$RUNNER_TEMP/journal-red" ec0e162823a7e191844e5144a273d4a3ede32b6c
-          uv sync --locked --offline --project "$RUNNER_TEMP/journal-red"
-          uv run --locked --offline python - <<'PY'
-          import os,subprocess
-          root=os.environ['RUNNER_TEMP']+'/journal-red'
-          run=subprocess.run(['uv','run','--locked','--offline','--project',root,'python','-m','pytest',root+'/src/libs/discovery/tests/contract/test_t06_arxiv_discovery.py','-q'],cwd=root)
-          assert run.returncode==2,run.returncode
-          print('TEST_ONLY_REVISION_COLLECTION_RED=1; THIS_IS_NOT_A_PASS_FOR_EACH_SCENARIO')
-          PY
       - name: Format only newly added journal files
         run: |
           uv run --locked --offline python - <<'PY'
@@ -39,10 +28,17 @@ jobs:
           def git(*args): return subprocess.check_output(['git',*args],text=True).strip()
           base='3a71a0cba2cddad6c50052286764ea3c5e59f515'
           candidate='454d03150d51a1162a26a8d9769ac9f3d33491d8'
-          assert git('rev-parse','HEAD^')==candidate
+          assert git('diff','--name-only',candidate,'HEAD')=='.github/workflows/task12-journal-once.yml'
           paths=git('diff','--name-only',base,candidate).splitlines()
           assert len(paths)==13 and all(p.startswith('src/libs/discovery/') and p.endswith('.py') for p in paths)
           assert not git('diff','--name-only','--diff-filter=MD',base,candidate)
+          p=Path('src/libs/discovery/tests/contract/test_t06_arxiv_discovery.py')
+          text=p.read_text()
+          before='PublishObject(FilesystemObjectBytesAdapter(root),SqliteObjectUnitOfWorkAdapter(SqliteConnectionFactory(root)))(b"synthetic raw; not parsed","raw","application/octet-stream","source-response")'
+          after='PublishObject(\n    FilesystemObjectBytesAdapter(root),\n    SqliteObjectUnitOfWorkAdapter(SqliteConnectionFactory(root)),\n)(b"synthetic raw; not parsed","raw","application/octet-stream","source-response")'
+          assert text.count(before)==1
+          assert ast.dump(ast.parse(before))==ast.dump(ast.parse(after))
+          p.write_text(text.replace(before,after,1))
           for name in paths:
               p=Path(name); text=p.read_text(encoding='utf-8'); original=ast.dump(ast.parse(text))
               values={node.value for node in ast.walk(ast.parse(text)) if isinstance(node,ast.Constant) and isinstance(node.value,str) and len(node.value)>90 and '\n' not in node.value}
@@ -55,8 +51,10 @@ jobs:
               p.write_text(text,encoding='utf-8')
           subprocess.run(['uv','run','--locked','--offline','ruff','check','--select','I,F401','--fix',*paths],check=True)
           subprocess.run(['uv','run','--locked','--offline','ruff','format',*paths],check=True)
-          print('ONLY_NEW_JOURNAL_FILES_FORMATTED; STRING_VALUES_PRESERVED; IMPORT_CLEANUP_LIMITED_TO_I_F401')
+          print('ONLY_NEW_FILES; EMBEDDED_SUBPROCESS_AST_UNCHANGED; ORIGINAL_TEST_EXPECTATIONS_PRESERVED')
           PY
+      - name: Verify journal behavior before the complete gate
+        run: uv run --locked --offline python -m pytest src/libs/discovery/tests/contract/test_t06_arxiv_discovery.py -q
       - name: Full locked offline gate
         run: make ci-fast
       - name: Export tested objects without moving refs
