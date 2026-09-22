@@ -53,9 +53,7 @@ def test_live_composition_uses_shared_gate_and_does_not_refetch_completed_slice(
     from libs.kernel.ports.initialize_workspace_port import InitializeWorkspacePort
 
     workspace = tmp_path / "workspace"
-    Injector([CliModule(str(workspace), with_discovery=True)], auto_bind=False).get(
-        InitializeWorkspacePort
-    )()
+    Injector([CliModule(str(workspace), with_discovery=True)], auto_bind=False).get(InitializeWorkspacePort)()
 
     watch = Injector([WatchProfileCliModule(str(workspace))], auto_bind=False)
     watch.get(ImportDomainSeedsPort)((ROOT / "config/domain-seeds.json").read_text(encoding="utf-8"))
