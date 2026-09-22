@@ -23,6 +23,8 @@ def test_built_wheel_runs_in_a_clean_noneditable_environment(tmp_path: Path) -> 
     assert len(artifacts) == 1
     with zipfile.ZipFile(artifacts[0]) as archive:
         names = archive.namelist()
+        packaged_sql = archive.read("libs/kernel/resources/migrations/0001-object-registry.sql")
+    assert packaged_sql == (root / "migrations/0001-object-registry.sql").read_bytes()
     assert "apps/cli/__main__.py" in names
     assert "libs/research_workflow/ports/read_runtime_version_port.py" in names
     assert not any("/tests/" in name or "__init__.py" in name for name in names)
@@ -69,12 +71,7 @@ def test_built_wheel_runs_in_a_clean_noneditable_environment(tmp_path: Path) -> 
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout)["package_version"] == "0.1.0"
     location = subprocess.run(
-        [
-            str(python),
-            "-I",
-            "-c",
-            "import apps.cli.entrypoints as e; print(e.__file__)",
-        ],
+        [str(python), "-I", "-c", "import apps.cli.entrypoints as e; print(e.__file__)"],
         cwd=cwd,
         env=env,
         capture_output=True,
@@ -84,4 +81,24 @@ def test_built_wheel_runs_in_a_clean_noneditable_environment(tmp_path: Path) -> 
     )
     assert location.returncode == 0, location.stderr
     assert Path(location.stdout.strip()).resolve().is_relative_to(venv.resolve())
+    assert list(cwd.iterdir()) == []
+
+    workspace = tmp_path / "wheel workspace"
+    snapshots = []
+    for _ in range(2):
+        initialized = subprocess.run(
+            [str(python), "-I", "-m", "apps.cli", "init", "--workspace", str(workspace)],
+            cwd=cwd,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        assert initialized.returncode == 0, initialized.stdout + initialized.stderr
+        snapshots.append(json.loads(initialized.stdout))
+    assert snapshots[0] == snapshots[1]
+    assert snapshots[0]["schema_version"] == 1
+    assert snapshots[0]["external_effects_enabled"] is False
+    assert (workspace / "state/app.sqlite3").is_file()
     assert list(cwd.iterdir()) == []

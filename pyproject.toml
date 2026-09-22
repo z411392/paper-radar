@@ -19,13 +19,17 @@ dev = [
 
 [tool.uv]
 package = true
+cache-keys = [{ file = "pyproject.toml" }, { file = "migrations/0001-object-registry.sql" }]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/apps", "src/libs"]
 exclude = ["**/tests/**", "**/__pycache__/**"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"migrations/0001-object-registry.sql" = "libs/kernel/resources/migrations/0001-object-registry.sql"
+
 [tool.hatch.build.targets.sdist]
-include = ["/src", "/pyproject.toml", "/uv.lock", "/.python-version", "/README.md", "/Makefile"]
+include = ["/src", "/migrations/0001-object-registry.sql", "/pyproject.toml", "/uv.lock", "/.python-version", "/README.md", "/Makefile"]
 
 [tool.pytest.ini_options]
 testpaths = ["src"]
