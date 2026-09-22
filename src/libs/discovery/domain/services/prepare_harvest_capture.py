@@ -47,8 +47,13 @@ class PrepareHarvestCapture:
         if type(result.retryable) is not bool:
             raise HarvestError("invalid_capture_retry")
         delay = result.retry_after_seconds
-        if delay is not None and (type(delay) not in (int, float) or not math.isfinite(delay) or delay < 0):
-            raise HarvestError("invalid_capture_retry")
+        if delay is not None:
+            try:
+                valid_delay = type(delay) in (int, float) and math.isfinite(delay) and delay >= 0
+            except OverflowError:
+                valid_delay = False
+            if not valid_delay:
+                raise HarvestError("invalid_capture_retry")
         response = result.response
         if response is None:
             if result.response_sha256 is not None or result.failure_code is None:
