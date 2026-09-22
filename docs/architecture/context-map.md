@@ -92,3 +92,12 @@ Root `migrations/0001-object-registry.sql` 是唯一原文，Hatchling 的 force
 `init --with-profiles` 明確選擇 canonical 0001＋0002；未指定仍選 0001。新增 kernel driven SqliteSchemaConnectionFactory 在連線上核對已安裝的 migration 序列、名稱、hash 與工作區身分，不執行 migration。查詢／發布不隱式建立或升級資料庫；SQLite 自己的 sidecar 維護不等同業務列寫入。SQL 原文及公開業務規則未變。
 
 輸入檔案 helper 位於 CLI owner，只接受有界的普通 UTF-8 檔案；schema／資料庫錯誤在 kernel 轉成明確 code。未實作的排程、来源、檢索、模型與寄送不出現在成功回覆中。這是 PR #57 的作者候選接線，不是獨立 ACCEPT。
+
+
+## Task #10 的來源查詢與分頁前置
+
+workflow後續將公開發布的設定快照映射為discovery.dtos.SourceQueryInput／DomainQuerySnapshot；不是discovery去import watch_profiles或讀其SQLite私有表。當前compiler信任有版本的輸入快照，尚未實作active/current的workflow重查，不能把query fingerprint當權限或簽章。
+
+CompileSourceQuery → SourceQueryCompilerPort → ArxivQueryCompilerAdapter：純provider語法編譯，輸出精確query、provenance、query fingerprint與顯式deferred filters。page方法另輸出request fingerprint與固定provider URL，不執行HTTP。只支持已核對的submittedDate分鐘級UTC窗口，不把updated排序冒充更新窗口。
+
+EvaluateSourcePage只產生PageTraversalDecision；原始觀測持久化及checkpoint前移仍由 #12 負責。此切片無checkpoint寫入、無真來源節流或Atom parser，合成fixtures不冒作live capability。source capability的3秒／單連線限制供 #11 實作，不能由每個domain各自消耗。細節與證據歸specs/9-arxiv-discovery/plan.md／progress.md及Issue #10，不建立另一個產品規則或看板。

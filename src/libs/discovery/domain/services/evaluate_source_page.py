@@ -18,8 +18,13 @@ class EvaluateSourcePage:
             raise SourceQueryError("source_page_failed")
         if (page.source_id, page.query_fingerprint) != (request.source_id, request.query_fingerprint):
             raise SourceQueryError("page_query_mismatch")
-        for value in (request.start, request.max_results, request.maximum_window_results,
-                      page.start_index, page.total_results):
+        for value in (
+            request.start,
+            request.max_results,
+            request.maximum_window_results,
+            page.start_index,
+            page.total_results,
+        ):
             if type(value) is not int or value < 0:
                 raise SourceQueryError("invalid_page_counts")
         if not request.max_results or not request.maximum_window_results:

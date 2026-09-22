@@ -28,8 +28,12 @@ def query():
         profile_revision=1,
         profile_fingerprint="a" * 64,
         domain=DomainQuerySnapshot(
-            domain_id="machine_learning", revision=1, sources=("arxiv",),
-            categories=("cs.LG", "stat.ML"), aliases=("機器學習",), include=("machine learning",),
+            domain_id="machine_learning",
+            revision=1,
+            sources=("arxiv",),
+            categories=("cs.LG", "stat.ML"),
+            aliases=("機器學習",),
+            include=("machine learning",),
         ),
         window_start=datetime(2026, 9, 22, tzinfo=timezone.utc),
         window_end=datetime(2026, 9, 23, tzinfo=timezone.utc),
@@ -39,8 +43,12 @@ def query():
 
 def observation(request, *, total=3, ids=("fixture-a-v1", "fixture-b-v1"), **kwargs):
     return SourcePageObservation(
-        source_id="arxiv", query_fingerprint=request.query_fingerprint,
-        start_index=request.start, total_results=total, record_ids=ids, **kwargs,
+        source_id="arxiv",
+        query_fingerprint=request.query_fingerprint,
+        start_index=request.start,
+        total_results=total,
+        record_ids=ids,
+        **kwargs,
     )
 
 
@@ -61,7 +69,7 @@ def test_exact_query_compilation_through_inbound_use_case(source, query):
     assert plan.search_query == (
         '((cat:cs.LG OR cat:stat.ML) OR (ti:"machine learning" OR abs:"machine learning" '
         'OR ti:"機器學習" OR abs:"機器學習")) '
-        'AND submittedDate:[202609220000 TO 202609230000]'
+        "AND submittedDate:[202609220000 TO 202609230000]"
     )
     assert not plan.deferred_filters
     assert "submission_window_is_not_revision_feed" in plan.warnings
@@ -85,18 +93,24 @@ def test_reordered_sets_produce_identical_request_identity(source, query):
 
 def test_timezone_equivalent_windows_are_identical(source, query):
     taipei = timezone(timedelta(hours=8))
-    other = replace(query, window_start=query.window_start.astimezone(taipei),
-                    window_end=query.window_end.astimezone(taipei))
+    other = replace(
+        query,
+        window_start=query.window_start.astimezone(taipei),
+        window_end=query.window_end.astimezone(taipei),
+    )
     assert source.compile(query) == source.compile(other)
 
 
 def test_filters_are_scoped_and_precedence_is_explicit(source, query):
     domain = replace(query.domain, exclude=("generic sport",))
-    plan = source.compile(replace(query, domain=domain,
-                                  profile_include=("program repair", "C++"),
-                                  profile_exclude=("survey",)))
+    plan = source.compile(
+        replace(query, domain=domain, profile_include=("program repair", "C++"), profile_exclude=("survey",))
+    )
     assert 'AND (ti:"C++" OR abs:"C++" OR ti:"program repair" OR abs:"program repair")' in plan.search_query
-    assert 'ANDNOT (ti:"generic sport" OR abs:"generic sport" OR ti:"survey" OR abs:"survey")' in plan.search_query
+    assert (
+        'ANDNOT (ti:"generic sport" OR abs:"generic sport" OR ti:"survey" OR abs:"survey")'
+        in plan.search_query
+    )
     request = source.page(plan)
     split = urlsplit(request.url)
     assert (split.scheme, split.netloc, split.path) == ("https", "export.arxiv.org", "/api/query")
@@ -108,10 +122,15 @@ def test_filters_are_scoped_and_precedence_is_explicit(source, query):
     assert params["max_results"] == ["200"]
 
 
-@pytest.mark.parametrize("change", [
-    {"languages": ("en",)}, {"free_only": True}, {"allow_preprints": False},
-    {"scope_text": "我只想看可以重現的方法"},
-])
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"languages": ("en",)},
+        {"free_only": True},
+        {"allow_preprints": False},
+        {"scope_text": "我只想看可以重現的方法"},
+    ],
+)
 def test_unsupported_filters_rejected_unless_explicitly_deferred(source, query, change):
     with pytest.raises(SourceQueryError, match="unsupported_filters"):
         source.compile(replace(query, **change))
@@ -129,24 +148,27 @@ def test_update_sort_is_not_a_supported_update_window(source, query):
         source.compile(replace(query, time_basis="lastUpdatedDate"))
 
 
-@pytest.mark.parametrize("change,code", [
-    ({"source_id": "pubmed"}, "unsupported_source"),
-    ({"profile_sources": ("pubmed",)}, "source_not_selected"),
-    ({"profile_revision": True}, "invalid_revision"),
-    ({"profile_revision": 0}, "invalid_revision"),
-    ({"profile_revision": 2**63}, "invalid_revision"),
-    ({"profile_fingerprint": "not-a-hash"}, "invalid_fingerprint"),
-    ({"page_size": True}, "invalid_page_size"),
-    ({"page_size": 0}, "invalid_page_size"),
-    ({"page_size": 2001}, "invalid_page_size"),
-    ({"deferred_mode": "ignore"}, "invalid_deferred_mode"),
-    ({"free_only": "false"}, "invalid_boolean"),
-    ({"allow_preprints": 1}, "invalid_boolean"),
-    ({"profile_include": ["list-not-tuple"]}, "invalid_terms"),
-    ({"window_start": datetime(2026, 9, 22)}, "timezone_required"),
-    ({"window_start": datetime(2026, 9, 24, tzinfo=timezone.utc)}, "invalid_window"),
-    ({"window_end": datetime(2026, 9, 23, 0, 0, 1, tzinfo=timezone.utc)}, "unsupported_time_precision"),
-])
+@pytest.mark.parametrize(
+    "change,code",
+    [
+        ({"source_id": "pubmed"}, "unsupported_source"),
+        ({"profile_sources": ("pubmed",)}, "source_not_selected"),
+        ({"profile_revision": True}, "invalid_revision"),
+        ({"profile_revision": 0}, "invalid_revision"),
+        ({"profile_revision": 2**63}, "invalid_revision"),
+        ({"profile_fingerprint": "not-a-hash"}, "invalid_fingerprint"),
+        ({"page_size": True}, "invalid_page_size"),
+        ({"page_size": 0}, "invalid_page_size"),
+        ({"page_size": 2001}, "invalid_page_size"),
+        ({"deferred_mode": "ignore"}, "invalid_deferred_mode"),
+        ({"free_only": "false"}, "invalid_boolean"),
+        ({"allow_preprints": 1}, "invalid_boolean"),
+        ({"profile_include": ["list-not-tuple"]}, "invalid_terms"),
+        ({"window_start": datetime(2026, 9, 22)}, "timezone_required"),
+        ({"window_start": datetime(2026, 9, 24, tzinfo=timezone.utc)}, "invalid_window"),
+        ({"window_end": datetime(2026, 9, 23, 0, 0, 1, tzinfo=timezone.utc)}, "unsupported_time_precision"),
+    ],
+)
 def test_invalid_input_fails_with_stable_code(source, query, change, code):
     with pytest.raises(SourceQueryError) as result:
         source.compile(replace(query, **change))
@@ -173,12 +195,20 @@ def test_empty_scope_and_disabled_source_do_not_expand_to_everything(source, que
         source.compile(replace(query, domain=replace(query.domain, sources=("pubmed",))))
 
 
-@pytest.mark.parametrize("change", [
-    {"profile_revision": 2}, {"profile_fingerprint": "b" * 64}, {"profile_id": "other"},
-    {"window_end": datetime(2026, 9, 24, tzinfo=timezone.utc)}, {"page_size": 100},
-])
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"profile_revision": 2},
+        {"profile_fingerprint": "b" * 64},
+        {"profile_id": "other"},
+        {"window_end": datetime(2026, 9, 24, tzinfo=timezone.utc)},
+        {"page_size": 100},
+    ],
+)
 def test_reproducibility_identity_changes_when_scope_or_execution_plan_changes(source, query, change):
-    assert source.compile(query).query_fingerprint != source.compile(replace(query, **change)).query_fingerprint
+    assert (
+        source.compile(query).query_fingerprint != source.compile(replace(query, **change)).query_fingerprint
+    )
 
 
 def test_domain_revision_and_definition_are_part_of_identity(source, query):
@@ -204,8 +234,11 @@ def test_invalid_offset_cannot_create_request(source, query, offset):
 
 def test_accidental_plan_tampering_is_detected(source, query):
     plan = source.compile(query)
-    for changed in (replace(plan, search_query="all:*"), replace(plan, page_size=2000),
-                    replace(plan, query_fingerprint="f" * 64)):
+    for changed in (
+        replace(plan, search_query="all:*"),
+        replace(plan, page_size=2000),
+        replace(plan, query_fingerprint="f" * 64),
+    ):
         with pytest.raises(SourceQueryError, match="invalid_compiled_plan"):
             source.page(changed)
 
@@ -237,21 +270,24 @@ def test_only_successful_valid_first_zero_page_is_verified_empty(source, query):
     assert decision.verified_empty and decision.is_last and decision.next_offset is None
 
 
-@pytest.mark.parametrize("change,code", [
-    ({"status": "http_error"}, "source_page_failed"),
-    ({"status": "parse_error"}, "source_page_failed"),
-    ({"start_index": 1}, "page_offset_mismatch"),
-    ({"query_fingerprint": "b" * 64}, "page_query_mismatch"),
-    ({"source_id": "pubmed"}, "page_query_mismatch"),
-    ({"total_results": True}, "invalid_page_counts"),
-    ({"total_results": -1}, "invalid_page_counts"),
-    ({"total_results": 30001}, "query_window_too_large"),
-    ({"record_ids": ()}, "unexpected_empty_page"),
-    ({"record_ids": ("fixture-a-v1",)}, "incomplete_page"),
-    ({"record_ids": ("x", "x")}, "duplicate_page_identity"),
-    ({"record_ids": ("x", "y", "z")}, "invalid_page_counts"),
-    ({"record_ids": ("", "y")}, "invalid_page_identity"),
-])
+@pytest.mark.parametrize(
+    "change,code",
+    [
+        ({"status": "http_error"}, "source_page_failed"),
+        ({"status": "parse_error"}, "source_page_failed"),
+        ({"start_index": 1}, "page_offset_mismatch"),
+        ({"query_fingerprint": "b" * 64}, "page_query_mismatch"),
+        ({"source_id": "pubmed"}, "page_query_mismatch"),
+        ({"total_results": True}, "invalid_page_counts"),
+        ({"total_results": -1}, "invalid_page_counts"),
+        ({"total_results": 30001}, "query_window_too_large"),
+        ({"record_ids": ()}, "unexpected_empty_page"),
+        ({"record_ids": ("fixture-a-v1",)}, "incomplete_page"),
+        ({"record_ids": ("x", "x")}, "duplicate_page_identity"),
+        ({"record_ids": ("x", "y", "z")}, "invalid_page_counts"),
+        ({"record_ids": ("", "y")}, "invalid_page_identity"),
+    ],
+)
 def test_invalid_pages_do_not_produce_success_or_next_page(source, query, change, code):
     request = source.page(source.compile(replace(query, page_size=2)))
     with pytest.raises(SourceQueryError) as result:
@@ -272,8 +308,11 @@ def test_unchanged_total_is_not_a_snapshot_guarantee(source, query):
 
 
 def test_timestamp_format_is_platform_independent_for_four_digit_year(source, query):
-    ancient = replace(query, window_start=datetime(999, 1, 1, tzinfo=timezone.utc),
-                      window_end=datetime(999, 1, 2, tzinfo=timezone.utc))
+    ancient = replace(
+        query,
+        window_start=datetime(999, 1, 1, tzinfo=timezone.utc),
+        window_end=datetime(999, 1, 2, tzinfo=timezone.utc),
+    )
     assert "submittedDate:[099901010000 TO 099901020000]" in source.compile(ancient).search_query
 
 

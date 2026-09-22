@@ -20,10 +20,17 @@ class ArxivQueryCompilerAdapter:
 
     VERSION = "arxiv-query-v1"
     CAPABILITIES = SourceCapabilities(
-        "arxiv", "arxiv-api-manual-20260923-v1",
+        "arxiv",
+        "arxiv-api-manual-20260923-v1",
         ("categories", "title_abstract_terms", "submittedDate"),
         ("languages", "free_only", "allow_preprints", "scope_text"),
-        ("submittedDate",), 3, 1, 2000, 30000, False, False,
+        ("submittedDate",),
+        3,
+        1,
+        2000,
+        30000,
+        False,
+        False,
     )
     WARNINGS = (
         "submission_window_is_not_revision_feed",
@@ -102,13 +109,17 @@ class ArxivQueryCompilerAdapter:
             raise SourceQueryError("unsupported_time_basis")
         if not isinstance(query.deferred_mode, str) or query.deferred_mode not in {"reject", "defer"}:
             raise SourceQueryError("invalid_deferred_mode")
-        if type(query.page_size) is not int or not 1 <= query.page_size <= self.CAPABILITIES.maximum_page_size:
+        if (
+            type(query.page_size) is not int
+            or not 1 <= query.page_size <= self.CAPABILITIES.maximum_page_size
+        ):
             raise SourceQueryError("invalid_page_size")
         if type(query.free_only) is not bool or type(query.allow_preprints) is not bool:
             raise SourceQueryError("invalid_boolean")
-        if not isinstance(query.profile_fingerprint, str) or re.fullmatch(
-            r"[0-9a-f]{64}", query.profile_fingerprint
-        ) is None:
+        if (
+            not isinstance(query.profile_fingerprint, str)
+            or re.fullmatch(r"[0-9a-f]{64}", query.profile_fingerprint) is None
+        ):
             raise SourceQueryError("invalid_fingerprint")
         domain = query.domain
         sources, profile_sources = self._sources(domain.sources), self._sources(query.profile_sources)
@@ -117,7 +128,10 @@ class ArxivQueryCompilerAdapter:
         if not isinstance(domain.categories, tuple) or len(domain.categories) > 100:
             raise SourceQueryError("invalid_category")
         for category in domain.categories:
-            if not isinstance(category, str) or re.fullmatch(r"[a-z][a-z0-9-]*(?:\.[A-Z]{2})?", category) is None:
+            if (
+                not isinstance(category, str)
+                or re.fullmatch(r"[a-z][a-z0-9-]*(?:\.[A-Z]{2})?", category) is None
+            ):
                 raise SourceQueryError("invalid_category")
         start, end = self._time(query.window_start), self._time(query.window_end)
         if start >= end:
@@ -128,18 +142,25 @@ class ArxivQueryCompilerAdapter:
             "profile_revision": self._revision(query.profile_revision),
             "profile_fingerprint": query.profile_fingerprint,
             "domain": {
-                "id": self._identifier(domain.domain_id), "revision": self._revision(domain.revision),
-                "sources": sources, "categories": tuple(sorted(set(domain.categories))),
-                "aliases": self._terms(domain.aliases), "include": self._terms(domain.include),
+                "id": self._identifier(domain.domain_id),
+                "revision": self._revision(domain.revision),
+                "sources": sources,
+                "categories": tuple(sorted(set(domain.categories))),
+                "aliases": self._terms(domain.aliases),
+                "include": self._terms(domain.include),
                 "exclude": self._terms(domain.exclude),
             },
-            "window_start": start.isoformat(), "window_end": end.isoformat(),
+            "window_start": start.isoformat(),
+            "window_end": end.isoformat(),
             "profile_sources": profile_sources,
             "profile_include": self._terms(query.profile_include),
             "profile_exclude": self._terms(query.profile_exclude),
-            "languages": self._terms(query.languages), "free_only": query.free_only,
-            "allow_preprints": query.allow_preprints, "scope_text": self._text(query.scope_text, phrase=False),
-            "deferred_mode": query.deferred_mode, "time_basis": query.time_basis,
+            "languages": self._terms(query.languages),
+            "free_only": query.free_only,
+            "allow_preprints": query.allow_preprints,
+            "scope_text": self._text(query.scope_text, phrase=False),
+            "deferred_mode": query.deferred_mode,
+            "time_basis": query.time_basis,
         }
 
     @staticmethod
@@ -149,10 +170,7 @@ class ArxivQueryCompilerAdapter:
     @staticmethod
     def _timestamp(value: str) -> str:
         moment = datetime.fromisoformat(value)
-        return (
-            f"{moment.year:04d}{moment.month:02d}{moment.day:02d}"
-            f"{moment.hour:02d}{moment.minute:02d}"
-        )
+        return f"{moment.year:04d}{moment.month:02d}{moment.day:02d}{moment.hour:02d}{moment.minute:02d}"
 
     def compile(self, query: SourceQueryInput) -> CompiledSourceQuery:
         data = self._input(query)
@@ -187,33 +205,52 @@ class ArxivQueryCompilerAdapter:
                 deferred.append(DeferredFilter(name, self._json(data[name]), stage))
         if deferred and query.deferred_mode == "reject":
             raise SourceQueryError("unsupported_filters", ",".join(item.name for item in deferred))
-        provenance = self._json({
-            "compiler_version": self.VERSION, "capability_version": self.CAPABILITIES.version,
-            "policy": "category-or-terms-v1", "window_semantics": "inclusive-minutes-utc",
-            "input": data, "search_query": search, "page_size": query.page_size,
-            "maximum_window_results": self.CAPABILITIES.maximum_window_results,
-            "deferred_filters": [asdict(item) for item in deferred], "warnings": self.WARNINGS,
-        })
+        provenance = self._json(
+            {
+                "compiler_version": self.VERSION,
+                "capability_version": self.CAPABILITIES.version,
+                "policy": "category-or-terms-v1",
+                "window_semantics": "inclusive-minutes-utc",
+                "input": data,
+                "search_query": search,
+                "page_size": query.page_size,
+                "maximum_window_results": self.CAPABILITIES.maximum_window_results,
+                "deferred_filters": [asdict(item) for item in deferred],
+                "warnings": self.WARNINGS,
+            }
+        )
         return CompiledSourceQuery(
-            "arxiv", self.VERSION, self.CAPABILITIES.version, self._hash(provenance), provenance,
-            search, query.page_size, self.CAPABILITIES.maximum_window_results, tuple(deferred), self.WARNINGS,
+            "arxiv",
+            self.VERSION,
+            self.CAPABILITIES.version,
+            self._hash(provenance),
+            provenance,
+            search,
+            query.page_size,
+            self.CAPABILITIES.maximum_window_results,
+            tuple(deferred),
+            self.WARNINGS,
         )
 
     def page(self, plan: CompiledSourceQuery, start: int = 0) -> SourcePageRequest:
         try:
             encoded = json.loads(plan.provenance_json)
             expected = {
-                "compiler_version": plan.compiler_version, "capability_version": plan.capability_version,
-                "search_query": plan.search_query, "page_size": plan.page_size,
+                "compiler_version": plan.compiler_version,
+                "capability_version": plan.capability_version,
+                "search_query": plan.search_query,
+                "page_size": plan.page_size,
                 "maximum_window_results": plan.maximum_window_results,
                 "deferred_filters": [asdict(item) for item in plan.deferred_filters],
                 "warnings": list(plan.warnings),
             }
             valid = (
-                plan.source_id == "arxiv" and plan.compiler_version == self.VERSION
+                plan.source_id == "arxiv"
+                and plan.compiler_version == self.VERSION
                 and plan.capability_version == self.CAPABILITIES.version
                 and plan.maximum_window_results == self.CAPABILITIES.maximum_window_results
-                and type(plan.page_size) is int and 1 <= plan.page_size <= self.CAPABILITIES.maximum_page_size
+                and type(plan.page_size) is int
+                and 1 <= plan.page_size <= self.CAPABILITIES.maximum_page_size
                 and all(encoded[key] == value for key, value in expected.items())
                 and self._hash(plan.provenance_json) == plan.query_fingerprint
             )
@@ -225,10 +262,14 @@ class ArxivQueryCompilerAdapter:
             raise SourceQueryError("invalid_offset")
         size = min(plan.page_size, plan.maximum_window_results - start)
         parameters = (
-            ("search_query", plan.search_query), ("start", str(start)), ("max_results", str(size)),
-            ("sortBy", "submittedDate"), ("sortOrder", "ascending"),
+            ("search_query", plan.search_query),
+            ("start", str(start)),
+            ("max_results", str(size)),
+            ("sortBy", "submittedDate"),
+            ("sortOrder", "ascending"),
         )
         url = "https://export.arxiv.org/api/query?" + urlencode(parameters)
         fingerprint = self._hash(self._json({"query": plan.query_fingerprint, "method": "GET", "url": url}))
-        return SourcePageRequest("arxiv", plan.query_fingerprint, fingerprint, "GET", url, start, size,
-                                 plan.maximum_window_results)
+        return SourcePageRequest(
+            "arxiv", plan.query_fingerprint, fingerprint, "GET", url, start, size, plan.maximum_window_results
+        )
