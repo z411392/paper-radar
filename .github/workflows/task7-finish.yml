@@ -20,6 +20,24 @@ jobs:
           enable-cache: false
       - name: Install the existing locked development environment
         run: uv sync --locked
+      - name: Wrap two unchanged SQL literals reported by the formatter gate
+        run: |
+          uv run --locked --offline python - <<'PY'
+          import ast
+          from pathlib import Path
+          path = Path('src/libs/kernel/adapters/driven/sqlite_workspace_bootstrap_adapter.py')
+          text = path.read_text(encoding='utf-8')
+          before = ast.dump(ast.parse(text))
+          text = text.replace(
+              '"SELECT workspace_id,epoch,external_effects_enabled FROM workspace_metadata WHERE singleton=1"',
+              '"SELECT workspace_id,epoch,external_effects_enabled "\n                    "FROM workspace_metadata WHERE singleton=1"'
+          ).replace(
+              '"INSERT INTO workspace_metadata(singleton,workspace_id,epoch,external_effects_enabled,"',
+              '"INSERT INTO workspace_metadata(singleton,workspace_id,epoch,"\n                        "external_effects_enabled,"'
+          )
+          assert before == ast.dump(ast.parse(text))
+          path.write_text(text, encoding='utf-8')
+          PY
       - name: Format only new storage files and append the bounded technical record
         run: uv run --locked --offline python .github/task7_finish.py prepare
       - name: Run the complete implemented-scope gate
