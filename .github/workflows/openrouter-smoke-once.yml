@@ -1,0 +1,36 @@
+name: User-authorized OpenRouter smoke test
+on:
+  push:
+    branches: [codex/19-openrouter-smoke]
+    paths: [.github/workflows/openrouter-smoke-once.yml]
+permissions:
+  contents: read
+concurrency:
+  group: paper-radar-openrouter-smoke-once-20260923
+  cancel-in-progress: false
+jobs:
+  probe:
+    if: >-
+      github.repository == 'z411392/paper-radar' &&
+      github.run_attempt == '1' &&
+      github.event.head_commit.message == 'task-19: run one user-authorized OpenRouter smoke test'
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: a77e395a3a5edb29e5952012ea96ef9156df5c4d
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          enable-cache: false
+      - name: Prepare interpreter without credentials
+        run: uv python install 3.13.5
+      - name: Run offline probe guards without credentials
+        run: uv run --no-project --python 3.13.5 python -I src/libs/paper_explanations/tests/live_support/openrouter_smoke.py --self-test
+      - name: One authorized authentication check and one synthetic completion
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          PAPER_RADAR_LIVE_CONFIRMATION: paper-radar-one-synthetic-completion-20260923
+        run: uv run --no-project --offline --python 3.13.5 python -I src/libs/paper_explanations/tests/live_support/openrouter_smoke.py --live-confirmed
