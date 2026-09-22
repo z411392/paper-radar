@@ -1,0 +1,80 @@
+name: Task 12 retry boundary verification
+on:
+  push:
+    branches: [codex/12-durable-harvest-journal]
+    paths: [.github/workflows/task12-retry-boundary-once.yml]
+permissions:
+  contents: write
+jobs:
+  verify:
+    if: github.repository == 'z411392/paper-radar' && github.run_attempt == '1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          enable-cache: false
+      - run: uv sync --locked
+      - name: Reproduce oversized retry delay as a behavior failure
+        run: |
+          uv run --locked --offline python - <<'PY'
+          import subprocess
+          result=subprocess.run(['uv','run','--locked','--offline','python','-m','pytest','src/libs/discovery/tests/unit/test_harvest_capture_limits.py','-q'])
+          assert result.returncode==1,result.returncode
+          print('RETRY_BOUNDARY_RED_REPRODUCED; NO_EXPECTATIONS_RELAXED')
+          PY
+      - name: Translate numeric overflow to the existing validation error
+        run: |
+          uv run --locked --offline python - <<'PY'
+          import subprocess
+          from pathlib import Path
+          def git(*args): return subprocess.check_output(['git',*args],text=True).strip()
+          assert git('rev-parse','HEAD^')=='9ca19d80d836ab68c2fc017da54de850ba1767d5'
+          p=Path('src/libs/discovery/domain/services/prepare_harvest_capture.py')
+          text=p.read_text(encoding='utf-8')
+          old='        if delay is not None and (type(delay) not in (int, float) or not math.isfinite(delay) or delay < 0):\n            raise HarvestError("invalid_capture_retry")\n'
+          new='        if delay is not None:\n            try:\n                valid_delay = type(delay) in (int, float) and math.isfinite(delay) and delay >= 0\n            except OverflowError:\n                valid_delay = False\n            if not valid_delay:\n                raise HarvestError("invalid_capture_retry")\n'
+          assert text.count(old)==1
+          p.write_text(text.replace(old,new,1),encoding='utf-8')
+          subprocess.run(['uv','run','--locked','--offline','ruff','format',str(p),'src/libs/discovery/tests/unit/test_harvest_capture_limits.py'],check=True)
+          PY
+      - run: make ci-fast
+      - name: Export tested objects without moving refs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          uv run --locked --offline python - <<'PY'
+          import base64,json,os,subprocess,urllib.request
+          repo='z411392/paper-radar'
+          assert os.environ['GITHUB_REPOSITORY']==repo
+          assert os.environ['GITHUB_REF']=='refs/heads/codex/12-durable-harvest-journal'
+          assert 'OPENROUTER_API_KEY' not in os.environ
+          def git(*args): return subprocess.check_output(['git',*args],text=True).strip()
+          def api(endpoint,body):
+              req=urllib.request.Request('https://api.github.com/repos/'+repo+'/'+endpoint,data=json.dumps(body).encode(),headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Content-Type':'application/json','Accept':'application/vnd.github+json'},method='POST')
+              with urllib.request.urlopen(req,timeout=45) as response: return json.load(response)
+          allowed={'src/libs/discovery/domain/services/prepare_harvest_capture.py','src/libs/discovery/tests/unit/test_harvest_capture_limits.py'}
+          changed=git('diff','--name-only').splitlines()
+          assert set(changed)<=allowed and not git('ls-files','--others','--exclude-standard')
+          for name in changed: subprocess.run(['git','add','--',name],check=True)
+          temporary='.github/workflows/task12-retry-boundary-once.yml'
+          subprocess.run(['git','rm','--',temporary],check=True)
+          local_tree=git('write-tree'); parent=git('rev-parse','HEAD'); entries=[]
+          for name in changed:
+              raw=subprocess.check_output(['git','show',local_tree+':'+name])
+              sha=api('git/blobs',{'encoding':'base64','content':base64.b64encode(raw).decode()})['sha']
+              assert sha==git('rev-parse',local_tree+':'+name)
+              entries.append({'path':name,'mode':'100644','type':'blob','sha':sha})
+          entries.append({'path':temporary,'mode':'100644','type':'blob','sha':None})
+          tree=api('git/trees',{'base_tree':git('show','-s','--format=%T',parent),'tree':entries})['sha']
+          assert tree==local_tree
+          commit=api('git/commits',{'message':'task-12 S1: reject overflowing retry delays before side effects\n\nRefs #12. Reproduce stable-error regression, preserve valid delays, validate the complete locked suite and retire one-shot tooling. No live service, paid call, main integration or independent acceptance.','tree':tree,'parents':[parent]})['sha']
+          print('JOURNAL_FINAL_TREE='+tree)
+          print('JOURNAL_FINAL_COMMIT='+commit)
+          print('No refs, Issue/Project fields or product services changed by this job.')
+          PY
