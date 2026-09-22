@@ -42,7 +42,9 @@ class _FileLease:
             raise SourceFetchError("rate_limit_lease_closed")
         proposed = _number(self.clock()) + _number(seconds)
         self.not_before = max(self.not_before, _number(proposed))
-        content = json.dumps({"version": 1, "provider": "arxiv", "not_before": self.not_before}, allow_nan=False).encode("ascii")
+        content = json.dumps(
+            {"version": 1, "provider": "arxiv", "not_before": self.not_before}, allow_nan=False
+        ).encode("ascii")
         os.lseek(self.fd, 0, os.SEEK_SET)
         remaining = memoryview(content)
         while remaining:
@@ -93,14 +95,23 @@ class PosixArxivRateLimitAdapter:
             else:
                 try:
                     data = json.loads(raw, object_pairs_hook=_unique)
-                    if not isinstance(data, dict) or set(data) != {"version", "provider", "not_before"} or type(data["version"]) is not int or data["version"] != 1 or data["provider"] != "arxiv" or len(raw) > 1024:
+                    if (
+                        not isinstance(data, dict)
+                        or set(data) != {"version", "provider", "not_before"}
+                        or type(data["version"]) is not int
+                        or data["version"] != 1
+                        or data["provider"] != "arxiv"
+                        or len(raw) > 1024
+                    ):
                         raise ValueError
                     not_before = _number(data["not_before"])
                 except (ValueError, TypeError, UnicodeError) as exc:
                     raise SourceFetchError("invalid_rate_limit_state") from exc
             now = _number(self._clock())
             if not_before > now:
-                raise SourceFetchError("provider_deferred", retryable=True, retry_after_seconds=not_before - now)
+                raise SourceFetchError(
+                    "provider_deferred", retryable=True, retry_after_seconds=not_before - now
+                )
             lease = _FileLease(fd, self._clock, not_before)
             lease.defer(3.0)
             if created:

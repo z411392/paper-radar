@@ -5,7 +5,6 @@ from email.utils import parsedate_to_datetime
 
 from libs.discovery.exceptions.source_fetch_error import SourceFetchError
 
-
 _HTTP_DATE = re.compile(
     r"(?:[A-Za-z]{3}, [0-9]{2} [A-Za-z]{3} [0-9]{4} [0-9]{2}:[0-9]{2}:[0-9]{2} GMT"
     r"|[A-Za-z]+, [0-9]{2}-[A-Za-z]{3}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} GMT"

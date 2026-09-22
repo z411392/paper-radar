@@ -1,4 +1,5 @@
 """Real POSIX file locks with synthetic time and no network."""
+
 import json
 import os
 import subprocess
@@ -44,7 +45,7 @@ def test_two_gate_instances_cannot_hold_same_source_at_once(tmp_path: Path) -> N
 
 def test_new_process_observes_lock_and_persisted_delay(tmp_path: Path) -> None:
     path = tmp_path / "arxiv.lock"
-    script = '''
+    script = """
 import sys
 from pathlib import Path
 from libs.discovery.adapters.driven.posix_arxiv_rate_limit_adapter import PosixArxivRateLimitAdapter
@@ -54,11 +55,15 @@ try:
         print("acquired")
 except SourceFetchError as exc:
     print(exc.code)
-'''
+"""
+
     def child(now):
-        result = subprocess.run([sys.executable, "-c", script, str(path), str(now)], text=True, capture_output=True, timeout=10)
+        result = subprocess.run(
+            [sys.executable, "-c", script, str(path), str(now)], text=True, capture_output=True, timeout=10
+        )
         assert result.returncode == 0, result.stderr
         return result.stdout.strip()
+
     with PosixArxivRateLimitAdapter(path, clock=lambda: 1000.0).slot():
         assert child(1000) == "provider_busy"
     assert child(1001) == "provider_deferred"
@@ -77,13 +82,13 @@ def test_exception_releases_lock_without_removing_cooldown(tmp_path: Path) -> No
 
 def test_process_exit_keeps_reserved_cooldown(tmp_path: Path) -> None:
     path = tmp_path / "arxiv.lock"
-    script = '''
+    script = """
 import os,sys
 from pathlib import Path
 from libs.discovery.adapters.driven.posix_arxiv_rate_limit_adapter import PosixArxivRateLimitAdapter
 with PosixArxivRateLimitAdapter(Path(sys.argv[1]), clock=lambda: 1000.0).slot():
     os._exit(17)
-'''
+"""
     result = subprocess.run([sys.executable, "-c", script, str(path)], timeout=10)
     assert result.returncode == 17
     with pytest.raises(SourceFetchError, match="provider_deferred"):
@@ -91,7 +96,20 @@ with PosixArxivRateLimitAdapter(Path(sys.argv[1]), clock=lambda: 1000.0).slot():
             pytest.fail("crash is not a rate-limit reset")
 
 
-@pytest.mark.parametrize("raw", [b"", b"broken", b"{}", b"[]", b'{"version":1,"provider":"arxiv","not_before":NaN}', b'{"version":1,"provider":"arxiv","not_before":-1}', b'{"version":1,"provider":"arxiv","not_before":0,"not_before":1}', b'{"version":1,"provider":"pubmed","not_before":0}', b"x" * 1025])
+@pytest.mark.parametrize(
+    "raw",
+    [
+        b"",
+        b"broken",
+        b"{}",
+        b"[]",
+        b'{"version":1,"provider":"arxiv","not_before":NaN}',
+        b'{"version":1,"provider":"arxiv","not_before":-1}',
+        b'{"version":1,"provider":"arxiv","not_before":0,"not_before":1}',
+        b'{"version":1,"provider":"pubmed","not_before":0}',
+        b"x" * 1025,
+    ],
+)
 def test_existing_bad_state_is_preserved_and_rejected(tmp_path: Path, raw: bytes) -> None:
     path = tmp_path / "arxiv.lock"
     path.write_bytes(raw)
