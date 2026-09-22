@@ -1,0 +1,49 @@
+import subprocess
+import sys
+import tarfile
+from pathlib import Path
+
+import pytest
+
+from libs.kernel.exceptions.storage_error import StorageError
+
+
+def test_packaged_migration_matches_the_only_canonical_sql() -> None:
+    from libs.kernel.adapters.driven.bundled_workspace_migrations import load_workspace_migrations
+
+    root = Path(__file__).resolve().parents[5]
+    migrations = load_workspace_migrations()
+    assert len(migrations) == 1
+    assert migrations[0].version == 1
+    assert migrations[0].name == "0001-object-registry.sql"
+    assert migrations[0].sql.encode("utf-8") == (root / "migrations" / migrations[0].name).read_bytes()
+
+
+def test_missing_resource_is_not_replaced_with_cwd_sql(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import libs.kernel.adapters.driven.bundled_workspace_migrations as loader
+
+    monkeypatch.setattr(loader, "files", lambda anchor: tmp_path)
+    with pytest.raises(StorageError, match="migration_resource_error"):
+        loader.load_workspace_migrations()
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_sdist_preserves_the_canonical_migration(tmp_path: Path) -> None:
+    root = Path(__file__).resolve().parents[5]
+    result = subprocess.run(
+        [sys.executable, "-m", "hatchling", "build", "-t", "sdist", "-d", str(tmp_path)],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    archives = list(tmp_path.glob("*.tar.gz"))
+    assert len(archives) == 1
+    with tarfile.open(archives[0]) as archive:
+        matches = [n for n in archive.getnames() if n.endswith("/migrations/0001-object-registry.sql")]
+        assert len(matches) == 1
+        stream = archive.extractfile(matches[0])
+        assert stream is not None
+        assert stream.read() == (root / "migrations/0001-object-registry.sql").read_bytes()
