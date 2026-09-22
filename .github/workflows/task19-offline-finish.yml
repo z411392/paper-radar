@@ -23,20 +23,29 @@ jobs:
       - name: Check fixed scope and format only the new probe files
         run: |
           uv run --locked --offline python - <<'PY'
-          import ast, subprocess
+          import ast,json,subprocess
           from pathlib import Path
           def git(*args): return subprocess.check_output(['git',*args],text=True).strip()
           base='b3f52b1ba5f98a3a991207da3bc8dea0dab58f42'
           candidate='ea13a37b31ba90d7803ff18412989566db00c910'
           temporary='.github/workflows/task19-offline-finish.yml'
-          assert git('rev-parse','HEAD^') == candidate
+          assert git('rev-parse','HEAD^') == 'ccbc0877528d0b28fe7ed6be7b8be6dea3e1c597'
           assert git('diff','--name-only',candidate,'HEAD') == temporary
           paths=['src/libs/paper_explanations/tests/live_support/openrouter_smoke.py','src/libs/paper_explanations/tests/unit/test_openrouter_smoke_probe.py']
           assert set(git('diff','--name-only',base,candidate).splitlines()) == set(paths)|{'.github/workflows/openrouter-smoke-once.yml'}
           before={name:ast.dump(ast.parse(Path(name).read_bytes())) for name in paths}
+          path=Path(paths[0]); text=path.read_text()
+          values=[node.value for node in ast.walk(ast.parse(text)) if isinstance(node,ast.Constant) and isinstance(node.value,str) and len(node.value)>110 and '\n' not in node.value]
+          assert len(values)==2
+          for value in values:
+              literal=json.dumps(value)
+              assert text.count(literal)==1
+              wrapped='(\n'+''.join('                    '+json.dumps(value[i:i+70])+'\n' for i in range(0,len(value),70))+'                )'
+              text=text.replace(literal,wrapped,1)
+          path.write_text(text)
           subprocess.run(['uv','run','--locked','--offline','ruff','format',*paths],check=True)
-          for name, value in before.items(): assert ast.dump(ast.parse(Path(name).read_bytes()))==value
-          print('ONLY_NEW_PROBE_FILES_FORMATTED; AST_UNCHANGED; NO_OPENROUTER_SECRET_IN_THIS_JOB')
+          for name,value in before.items(): assert ast.dump(ast.parse(Path(name).read_bytes()))==value
+          print('TWO_LITERAL_LINES_WRAPPED; AST_AND_PROMPT_VALUES_UNCHANGED; NO_OPENROUTER_SECRET')
           PY
       - name: Full locked offline gate
         run: make ci-fast
