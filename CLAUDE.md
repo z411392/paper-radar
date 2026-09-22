@@ -18,6 +18,6 @@
 
 文件 ownership 唯一依 [Rule 80](.claude/rules/80-documentation.md)，角色、provider/effort、readiness、continuation 和 Project Status 唯一依 [Rule 15](.claude/rules/15-execution-strategy.md#execution-topology-and-dispatch)。本入口不再建立完整角色矩陣。
 
-目前只有規劃與建庫操作授權。取得完整 fresh Task Pack 前，不開啟產品 live 收集、付費模型呼叫、寄信、資料重設或實際 agent 派工。建庫資料包與 deterministic checks 不等於 independent ACCEPT。
+使用者已授權逐批開發並暫由本對話直接實作；適用範圍唯一見 [Rule15 暫行例外](.claude/rules/15-execution-strategy.md#temporary-direct-implementation)。取得當次明示範圍前，不開啟 live 收集、付費模型、寄信、資料重設或實際 agent 派工。deterministic checks 不等於 independent ACCEPT。
 
 同一模組只有一位當次 writer；Commander 是預設唯一 Git writer，保留使用者 dirty work。不同 Task 使用專屬 worktree 與 `codex/<task-id>-<slug>` 分支；每個 S1／S2／S3 Subtask 個別提交，合流不 squash 掉追溯歷史。

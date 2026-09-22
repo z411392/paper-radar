@@ -73,3 +73,7 @@ Runtime objects／SQLite／vectors／index 與備份目錄唯一契約見 [data-
 ## 與前一版輪廓差異
 
 使用者的治理裁決取代先前 docs/product、docs/contexts、docs/operations 的方案。產品語言在 Event Storming；公開交接與 source navigation 在本檔；方案在 Story plan；操作規則在 Rule90／有界 Task。不另外保留平行總計畫。
+
+## Task #6 已接線的工程入口
+
+`apps/cli version` → `research_workflow.ports.ReadRuntimeVersionPort` → `ReadRuntimeVersion` → `RuntimeVersionProviderPort` → `PythonRuntimeVersionAdapter`。DTO 位於該 owner 的 dtos；只有 apps/cli/module.py 引用具體用例與 adapter。此查詢只用於驗證套件安裝／接線，不讀 workspace，也不是產品健康檢查。工作區初始化、排程與其他命令依其 Task 後續接線。

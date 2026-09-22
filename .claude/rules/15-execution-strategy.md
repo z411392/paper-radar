@@ -2,6 +2,21 @@
 
 依 Kaledoxa `6862a93f1a1cc133a5dedfa25ec414b460f3b4ed` 現行 Rule 15 移植。這是 Paper Radar 的唯一 execution routing authority；模型名稱是沿用的派工設定，不是本次對模型可用性作出的查證。不得默默換 provider／model／effort。
 
+<a id="temporary-direct-implementation"></a>
+## 2026-09-22 暫行直接實作
+
+使用者在 [Epic #1](https://github.com/z411392/paper-radar/issues/1#issuecomment-5774317170) 明示暫由本對話實作。此節在明確範圍內優先於下方預設 runtime 矩陣；不是永久撤除 Kaledoxa 的角色治理。
+
+本對話可以在既有產品範圍內整理必要 Task-local 技術契約、實作、以 uv 執行隔離測試、建立候選分支／Subtask commits／PR，以及維護 Issues。Git writer 與批次協調暫由本對話負責，不冒稱 Antigravity Commander 或 Codex agent 已啟動。
+
+若尚無獨立設計 runtime，必要的工程測試由本對話先明列正反結果並保留 RED，再進行實作；這些是作者制定的測試，不標為獨立 Architect frozen receipt。現有 Story AC、產品規則、已凍結外部 oracle 不因本例外而放寬。後續調整測試須說明是修正缺陷或排版，不得修改期待結果換綠燈。
+
+自測與 CI 通過只允許交付候選，不構成 independent ACCEPT。未取得另一位實際隔離且非作者的 Reviewer exact-candidate 收據前，不合流 main、不關閉 Task、不標 Project Done。S1／S2 的已實作和自測證據與待驗收分開記錄。技術依賴仍可使用已明示為未驗收的候選，不冒充已接受基線。
+
+不取得付費模型、真來源、模型下載、真實郵件、正式資料變更、部署或永久刪除歷史的額外授權。Project 的寫入需要實際工具／權限與 readback；Issue 操作不代表 Project 欄位已同步。既有 roster 留 UNBOUND，不填造 runtime IDs。
+
+本輪第一批為 Task #6 的 S1／S2 工程基礎，S3 實際初始化仍需要 #7 的公開契約與儲存實作。收束到已測、已推送的候選分支／PR即可結束本批；這不是整張 Task 或 Roadmap 已完成。使用者收回暫行委派或實際綁定獨立 runtime 時，後續派工回到下方預設拓撲。
+
 <a id="execution-topology-and-dispatch"></a>
 ## 執行拓撲與控制面
 
@@ -89,7 +104,7 @@ leaf queue 為空須重讀 Roadmap、OPEN Epic／Story、PO handoff 和 main；�
 
 真正外部 blocker 必須有 exact scope、dependency、為何本機無法解決、owner 與 clear condition；局部阻塞不凍結全案。若 runtime 無法取得 route completion，明示 LOCAL_RUNTIME_CONTINUATION_UNAVAILABLE，不能虛構稍後會自動喚醒。
 
-本次授權僅規劃與建庫；規劃包完成不自動授權整條產品 backlog 實作，未來由 Commander 依當次 PO scope 接續。
+先前規劃／建庫批次的授權不自動等於整條 backlog 完成；後續逐批開發依最新 PO 授權與本檔暫行直接實作條款執行。
 
 <a id="project-status-synchronization"></a>
 ## GitHub Project Status

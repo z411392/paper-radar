@@ -8,7 +8,7 @@ live source／provider／模型下載／寄信／reset／資料刪除／外部�
 
 使用者明示 Python 統一使用 uv。Interpreter 選擇由 `.python-version` 管理，相容範圍由 `pyproject.toml` 定義，依賴解析由工具產生的 `uv.lock` 鎖定。日常安裝使用 `uv sync --locked`；執行與測試使用 `uv run --locked ...`。新增／移除依賴使用 `uv add`／`uv remove`；刻意更新 lock 後同批提交 pyproject 與 lock，不用系統 pip 或另一個環境管理器維護第二套依賴。
 
-目前只發布規劃與環境 manifest，沒有產品 Python 套件。`package = false` 僅限此規劃基線；T01 引入正式 source 時須同批設定 build backend、apps/libs 可安裝套件與完整 gate，不能靠 PYTHONPATH 或執行時 sys.path 修補。新增依賴前需驗證本機 macOS／Apple Silicon 及 CI 平台，不把此包的 Linux／Python 3.13 離線結果外推至全部平台或模型。
+Task #6 開始正式套件化：`package = true`，Hatchling 安裝 `src/apps`／`src/libs` namespace packages，不使用 PYTHONPATH 或執行時 sys.path 修補。`.python-version` 固定 3.13.5；支援範圍和檢查版本以 pyproject／實際 CI 矩陣為準。`uv sync --locked` 安裝依賴後，`make ci-fast` 採離線執行，不偷偷升級 lock。執行環境、平台與是否實測分別記收據，不把 CI 上的 macOS 當作使用者本人 Mac 已測。
 
 建庫工具本身也使用 uv；其 env check／schema check 不等於產品 `make ci-fast`。排除 `.venv`、runtime data 和 secrets 後才允許發布。鎖檔不同步應明確失敗，不在驗證時靜默升級。
 
@@ -26,4 +26,4 @@ Task 合流需行為正反 tests、owner focused 驗證、同批必要文件更�
 
 Task Done 還需所有必要 Subtasks、main 遠端 readback 與 Issue／Project 真正結案。checkpoint 記 commit、rollback、dirty classification、背景程序、run/artifact identity。沒有真正派工就不寫「正在等待 agent」。
 
-本次規劃發布只寫入使用者明示建立的 private repository `z411392/paper-radar`，並沿用既有 `Paper Radar` Project；先核對精確 repository ID、main SHA 與既有內容。禁止改 Kaledoxa、建立替代 Project、提升公開可見性、覆蓋未經核對的既有工作、套用舊狀態到已開始的工作，或執行產品 live 工作。
+後續開發只寫入使用者明示的 private repository `z411392/paper-radar`，並沿用既有 `Paper Radar` Project；暫行直接實作的候選交付與驗收界線依 Rule15。先核對精確 repository ID、main SHA 與既有內容。禁止改 Kaledoxa、建立替代 Project、提升公開可見性、覆蓋未經核對的既有工作、套用舊狀態到已開始的工作，或執行產品 live 工作。
