@@ -4,6 +4,8 @@
 
 ## 本文
 
+開單先看成果與不確定性，不先湊層級。Epic 寫共同目標與整體驗收；Story 指定正式規格位置、適用版本、涉及 BC、協調責任及整合驗收；Task 明列輸入成果、可寫/保持不變/禁止範圍、使用方、步驟和正反結果；Spike 明列問題、嘗試上限、證據、停止點及誰決定/接受後回寫哪裡。既有 [Issue Forms](../../.github/ISSUE_TEMPLATE/) 是填寫入口，非另一份已接受規格；保留 human/contract 與既有 type 標籤。Bug 入口沿用既有工具類型，但責任和完成條件按有界修正，不強迫補造 Story。
+
 常用 Epic/Story/Task/Spike，依需要使用。Story 列成果、Affected BCs、Delivery Owner、適用規格及整合驗收；Task 列成果、依據、範圍、步驟、失敗處理、驗證及停止條件。小 Task 不強制有 Story。
 
 分開已接受規格、目前計畫與未接受提案。GIT_RETAINED 階段引用 Git 的 Story SC/AC，不複製第二份規格。修改本文不等於核可；缺少可驗證接受來源時明寫未接受。指派讀指定 Issue/PR 欄位，Project Status/Priority/Sprint/Views 不抄入本文或 Markdown。

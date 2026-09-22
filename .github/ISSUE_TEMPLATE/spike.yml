@@ -1,18 +1,36 @@
 name: Spike
-description: 繁體中文導讀與可追溯正式契約
+description: "有上限的探索研究，證據與方案接受分開"
 labels: ["type:spike"]
 body:
   - type: textarea
     id: human
     attributes:
       label: 白話說明
-      description: 問題、原因、成果與不代表什麼。
+      description: "研究問題是什麼？查清楚後支持哪個決定？"
     validations:
       required: true
   - type: textarea
     id: contract
     attributes:
-      label: Formal Contract
-      description: Authority、parent、scope、AC 連結、inputs/outputs、依賴、writer、writable/frozen、GWT 與停止點；Task Subtask 留在本卡。
+      label: Formal Contract／正式依據與工作內容
+      description: 只填本次必要內容；不要貼上秘密或複製另一份現行規格。
+      value: |
+        關聯工作：<有需要才引用>
+        影響範圍：<涉及領域或合作規格>
+        指派來源：<目前指派與進度只讀指定欄位>
+
+        ## 研究問題
+        <需要回答的具體不確定性>
+        ## 資料與工具限制
+        <允許/禁止資料、工具、外部操作與預算>
+        ## 時間或嘗試上限
+        <明確限制，不做無界探索>
+        ## 研究方式與交付物
+        <比較方案、可比性、證據、建議、限制與未解問題>
+        ## 停止條件
+        <何時足夠；何時證據不足並停止擴大>
+        ## 決策去向
+        <誰有權接受具體版本；接受後回寫哪個正式位置>
+        未接受提案與研究過程留 comments；不建議採用也可結束研究，不假稱已核可方案。
     validations:
       required: true

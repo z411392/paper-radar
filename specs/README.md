@@ -4,6 +4,8 @@
 
 ## 目前採 GIT_RETAINED
 
+規格留 Git 是可長期使用的正式選擇，不必為形式一致搬進 Issue。開單使用既有 [Issue Forms](../.github/ISSUE_TEMPLATE/)，按成果或研究問題選型，不為每件小事補造 Epic/Story。
+
 既有 spec.md 保留 SC/AC，必要 plan.md 保留版本化設計，不能因治理更新先刪除。Issue 引用適用版本，不把最新本文當已接受規格。新 Story 不強制建立三檔；新正式規格先指定一個 Git owner，版本保存/核可/恢復與切換能力驗收後才可改由 Issue 承擔。
 
 progress.md 不再追加手動進度或重複收據；原檔與 Git 歷史保留。研究、失敗、驗證寫 comments；Issue 關閉不使仍適用的規格自動失效。必要長期設計按責任回 BC/合作規格，不在 Story 形成另一套永久規則。

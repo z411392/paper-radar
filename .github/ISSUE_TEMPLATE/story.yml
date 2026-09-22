@@ -1,18 +1,37 @@
 name: Story
-description: 繁體中文導讀與可追溯正式契約
+description: "可驗收的成果、適用 Git 規格與跨領域合作"
 labels: ["type:story"]
 body:
   - type: textarea
     id: human
     attributes:
       label: 白話說明
-      description: 問題、原因、成果與不代表什麼。
+      description: "誰在什麼情境需要什麼成果？"
     validations:
       required: true
   - type: textarea
     id: contract
     attributes:
-      label: Formal Contract
-      description: Authority、parent、scope、AC 連結、inputs/outputs、依賴、writer、writable/frozen、GWT 與停止點；Task Subtask 留在本卡。
+      label: Formal Contract／正式依據與工作內容
+      description: 只填本次必要內容；不要貼上秘密或複製另一份現行規格。
+      value: |
+        規格識別：<專案與工作單的穩定身分>
+        正式規格位置：<Git 路徑及適用版本；不另抄 SC/AC>
+        接受狀態：<未接受，或可查驗的具體接受來源；不得預填通過>
+        所屬 Epic：<需要時才填>
+        交付協調責任：<角色；目前指派與進度只讀指定欄位>
+        涉及領域：<實際 BC；可跨領域>
+
+        ## 目標與範圍
+        <可觀察成果與不做事項>
+        ## 情境與整合驗收
+        <引用指定 Git 規格；成功、失敗、邊界與合作結果>
+        ## 合作責任與正式依據
+        <本次涉及方、提供方規格及精確適用版本>
+        ## 設計與執行計畫
+        <已接受設計引用；目前工作順序不得默默改需求>
+        ## 子任務與驗收來源
+        <真實 Task/Spike；測試/審查/整合證據引用>
+        未接受提案留 comments；Git 規格可以長期沿用，並非一定要搬到 Issue。
     validations:
       required: true

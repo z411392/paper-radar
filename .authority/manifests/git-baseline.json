@@ -33,7 +33,7 @@
     {
       "id": "paper-radar:1381086277:rule:16",
       "path": ".claude/rules/16-github-human-readable-records.md",
-      "sha256": "d6ae6059c9088644243702b009aa3ed3a9b5da037a05458890ed651da5154f4f",
+      "sha256": "30e3e4ef0363eb588c48adfc0301e39ce25ab45deb2c626ac137d89890661877",
       "source_status": "preserve_source_declaration"
     },
     {
@@ -75,7 +75,7 @@
     {
       "id": "paper-radar:1381086277:rule:80",
       "path": ".claude/rules/80-documentation.md",
-      "sha256": "1b0e9ac1d3f739f9e9801a17be8279fcf28ac99d7c2c6b8506ba79fd518c6c2e",
+      "sha256": "7248a1d4f62faf3514a9a50538d1aef9f37a0d6ac9dcadf8b677afd83b1d12f0",
       "source_status": "preserve_source_declaration"
     },
     {

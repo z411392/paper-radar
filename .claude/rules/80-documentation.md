@@ -4,9 +4,9 @@
 
 ## 採用範圍
 
-來源：Fractal Authority Hierarchy 2.0-draft，原檔 fractal-authority-hierarchy-methodology-integrated.zh-TW(5).md，SHA-256 a599a2e49c9908cba710e54a8917ddeb033fcf5bcb93f0652b0a3d8ce45dd532。原附件仍是 REFERENCE_METHODOLOGY，不自行授權操作；本次使用者指示授權適用原則的專案化，作者轉錄不是獨立核可來源。
+來源：使用者本輪提供《分層式正式依據管理方法論(2).md》，3.0-draft／2026-09-23，SHA-256 ad1d4a126b4648c241b9f133cd2dbcacd8db225a240e84bd07e87096bf701059。原附件仍是 REFERENCE_METHODOLOGY；本次指示授權文件歸屬、工作分類及按需查找的專案化，不自行擴張操作權或構成獨立驗收。先前2.0採用與差異來歷保留在 Task #60 及 PR #61 的歷史；不以新附件倒改舊程式適用規格。
 
-本階段為 GIT_RETAINED：先分清規則歸屬、停止重抄、按需查找並保留歷史。正式 Story spec 與必要 plan 暫留 Git，Issue 引用。取消強制 Story 三檔、禁止 BC 文件及每批重寫 progress 的舊限制；不先刪 spec，不啟用 Issue 作唯一規格。
+本專案採 GIT_RETAINED：正式 Story spec 與必要 plan 留 Git，Issue 引用適用版本。此方式可長期沿用，不是必須淘汰的過渡方案。先分清規則歸屬、停止重抄、按需查找並保留歷史。取消強制 Story 三檔、禁止 BC 文件及每批重寫 progress 的舊限制；不先刪 spec，不啟用 Issue 作唯一規格。
 
 保留 Kaledoxa 式獨立審查、單一 Git writer、uv、安全與操作限制。不重切 BC、不更換 agents、不改檔案系統/SQLite/FAISS 或 OpenRouter Gemini 選型。新方法不擴大 live、付費、寄信、資料存取或刪除授權。
 
@@ -22,7 +22,7 @@
 | BC 上下游、合作及 import 邊界 | docs/architecture/context-map.md |
 | BC 長期規則、公開合作契約 | 既有 BC 章節或正式 ports；需要獨立維護時 docs/domains/<bc>.md |
 | 儲存一致性、精確資料結構 | docs/data-model.md；精確 schema 由 migrations/ 擁有，不手抄欄位 |
-| Story 目標、SC/AC、必要設計 | 切換前 specs/<number>-<slug>/spec.md 與必要 plan.md；Issue 引用 |
+| Story 目標、SC/AC、必要設計 | 本專案指定的 specs/<number>-<slug>/spec.md 與必要 plan.md；Issue 引用，可長期沿用 |
 | Task 本次要求、步驟、範圍及驗證 | Task Issue 本文，不另維護相同 Task Pack |
 | 研究、提案、實作與審查回報 | Issue/PR comments 及必要版本化附件 |
 | 即時實作者、審查指派與工作關係 | 指定 Issue/PR 欄位，使用時讀取 |
@@ -33,6 +33,8 @@
 Canonical Home、Authority Owner、Approver、Delivery Owner 分開識別。負責交付不等於能改全部 BC 規則。Git 版本以讀取的 commit 表達；來源文件原本的提案/接受狀態保留，不由索引或清單升格。
 
 ## 工作分類與按需查找
+
+Epic 只在多張需求共同交付一個大成果時建立；Story 是可整體驗收的成果，不按資料庫、後端或資料夾機械拆單；Task 是授權範圍內的具體修改；Spike 必須有研究問題、資料/工具限制、時間或嘗試上限、交付物、停止條件及決策去向。證據不足或不建議採用可以是研究結論，不等於產品規格已接受。範本供填寫必要內容，不要求保留所有空章節；既有機器欄位與類型不為翻譯強制改名。
 
 常用 Epic、Story、Task、Spike。Bug/Docs/Refactor 可作分類，不為套模板改寫既有歷史；小 Task 可沒有 Parent Story。Subtask 是關係或 Task 內有限步驟，不另設格式。BC 不是資料夾、微服務或工作單大小；Story/Epic 可跨 BC，子任務結案不代替整合驗收。
 
@@ -52,7 +54,7 @@ Task 本文完整時，派工只引用來源、具體內容版本、角色、程
 
 Issue authority 尚未啟用；acceptance_receipts 為空，不造 accepted_by 或宣稱完整 Receipt 工具已驗收。正式移轉前需固定規範章節/格式，保存完整必要內容、hash、scope、依賴和前版關係，以及可驗證、綁具體版本的核可來源。必要 Task 限制同樣保存。
 
-另需驗收單一寫入/版本比對、合併前原文重查、最終 commit 解析、匯出備份與還原、適當權限/保護。Receipt 新增不覆寫；hash 不證明核可人、不阻止刪除，也不保證永久取得。沒有跨工具原子性保證時明示限制。
+若選擇改由 Issue 保存正式規格，另需驗收單一寫入/版本比對、合併前適用規格重查、最終 commit 解析、匯出備份與還原、適當權限/保護。只因別的分支或尚未接受的提案更新，不自動推翻本次仍有效的規格版本。讀取、寫入、再讀回不等於防止並行覆寫；目前由單一寫入者序列修改本文，不宣稱任何 API 自帶 CAS 或跨工具交易。Receipt 新增不覆寫；hash 不證明核可人、不阻止刪除，也不保證永久取得。沒有跨工具原子性保證時明示限制。
 
 按盤點→分類→草稿→接受與切換→驗證/恢復→清理推進。切換前舊來源有效，新位置只能是草稿；切換中暫停受影響工作。失敗回到明確舊來源並通知使用方，不先刪檔再補歷史。一般已授權工作不因全套工具未完成而停擺。
 

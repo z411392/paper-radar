@@ -1,18 +1,41 @@
 name: Task
-description: 繁體中文導讀與可追溯正式契約
+description: "具體修改的授權範圍、使用方及正反驗證"
 labels: ["type:task"]
 body:
   - type: textarea
     id: human
     attributes:
       label: 白話說明
-      description: 問題、原因、成果與不代表什麼。
+      description: "已知輸入是什麼？完成後會有哪個可觀察差異？"
     validations:
       required: true
   - type: textarea
     id: contract
     attributes:
-      label: Formal Contract
-      description: Authority、parent、scope、AC 連結、inputs/outputs、依賴、writer、writable/frozen、GWT 與停止點；Task Subtask 留在本卡。
+      label: Formal Contract／正式依據與工作內容
+      description: 只填本次必要內容；不要貼上秘密或複製另一份現行規格。
+      value: |
+        所屬需求（可省略）：<獨立小任務不補造 Story>
+        目標版本：<程式基線及適用規格版本>
+        涉及領域：<實際 BC/技術責任>
+        指派來源：<目前指派與進度只讀指定欄位>
+
+        ## 正式依據
+        <必要需求/領域/介面/共同限制及適用版本>
+        ## 修改範圍
+        允許修改：<有界檔案或模組>
+        保持不變：<不得放寬的條件與測試>
+        禁止修改：<未授權資料、操作或範圍>
+        受影響使用方：<直接與必要間接使用者>
+        ## 執行步驟與失敗處理
+        <有限步驟；小 Subtasks 留本卡，不另做相同 Task Pack>
+        ## 驗證
+        正常結果：<應成功什麼>
+        反例結果：<應拒絕什麼，不得有何副作用>
+        檢查命令：<可執行命令；未執行不填通過>
+        未驗證事項：<缺件與原因>
+        ## 完成與升級處理
+        <送審/完成門檻，未知問題交誰決定>
+        未接受提案、研究、失敗與驗證結果追加 comments。
     validations:
       required: true
