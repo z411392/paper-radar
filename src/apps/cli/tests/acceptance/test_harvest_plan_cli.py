@@ -122,9 +122,7 @@ def test_discovery_upgrade_preserves_identity_and_profile_commands_still_work(tm
             str(profile_file(tmp_path)),
         )
     )
-    shown = ok(
-        cli(tmp_path, "profile", "show", "--workspace", str(workspace), "--id", "personal")
-    )
+    shown = ok(cli(tmp_path, "profile", "show", "--workspace", str(workspace), "--id", "personal"))
     assert shown == published
 
 
