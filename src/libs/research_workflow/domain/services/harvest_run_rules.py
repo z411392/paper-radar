@@ -17,8 +17,32 @@ class HarvestRunRules:
             raise HarvestWorkflowError("invalid_retry_policy")
 
     @staticmethod
+    def _unique_filters(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        result: dict[str, object] = {}
+        for key, value in pairs:
+            if key in result:
+                raise HarvestWorkflowError("invalid_profile_snapshot")
+            result[key] = value
+        return result
+
+    @staticmethod
     def profile_matches(query: SourceQueryInput, profile: ProfileRevision) -> bool:
         if not isinstance(profile, ProfileRevision):
+            raise HarvestWorkflowError("invalid_profile_snapshot")
+        domains = profile.domains
+        if (
+            not isinstance(domains, tuple)
+            or any(
+                not isinstance(item, tuple)
+                or len(item) != 2
+                or not isinstance(item[0], str)
+                or not item[0]
+                or type(item[1]) is not int
+                or not 1 <= item[1] < 2**63
+                for item in domains
+            )
+            or len({item[0] for item in domains}) != len(domains)
+        ):
             raise HarvestWorkflowError("invalid_profile_snapshot")
         if (
             profile.profile_id != query.profile_id
@@ -33,7 +57,7 @@ class HarvestRunRules:
         ):
             return False
         try:
-            data = json.loads(profile.filters_json)
+            data = json.loads(profile.filters_json, object_pairs_hook=HarvestRunRules._unique_filters)
             if not isinstance(data, dict) or set(data) != {
                 "sources",
                 "include",

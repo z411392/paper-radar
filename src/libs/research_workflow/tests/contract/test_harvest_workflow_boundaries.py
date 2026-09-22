@@ -20,10 +20,15 @@ def env(tmp_path):
     return base.env.__wrapped__(tmp_path)
 
 
-@pytest.mark.parametrize("domains", [
-    (("statistics", True),), (("statistics", 1.0),),
-    (("statistics", 1), ("statistics", 1)), None,
-])
+@pytest.mark.parametrize(
+    "domains",
+    [
+        (("statistics", True),),
+        (("statistics", 1.0),),
+        (("statistics", 1), ("statistics", 1)),
+        None,
+    ],
+)
 def test_malformed_profile_domain_references_fail_before_effects(env, domains):
     profile = replace(env.profiles("personal"), domains=domains)
     source = Mock()
@@ -38,7 +43,9 @@ def test_duplicate_filter_keys_are_not_silently_resolved_by_last_value(env):
     profile = env.profiles("personal")
     duplicate = '{"sources":[], ' + profile.filters_json[1:]
     source = Mock()
-    run, _, _ = base.workflow(env, source, profiles=Mock(return_value=replace(profile, filters_json=duplicate)))
+    run, _, _ = base.workflow(
+        env, source, profiles=Mock(return_value=replace(profile, filters_json=duplicate))
+    )
     with pytest.raises(HarvestWorkflowError):
         run(env.query, max_pages=1)
     source.assert_not_called()
@@ -62,8 +69,9 @@ class Transport:
 def connected(env, clock):
     # Real local gate and source classification; only the remote transport is synthetic.
     transport = Transport(clock)
-    gate = PosixArxivRateLimitAdapter(env.root.parent / "arxiv-shared-gate.json",
-                                     clock=lambda: clock.now().timestamp())
+    gate = PosixArxivRateLimitAdapter(
+        env.root.parent / "arxiv-shared-gate.json", clock=lambda: clock.now().timestamp()
+    )
     fetch = FetchSourcePage(ArxivSourceAdapter(transport, gate, enabled=True))
     return base.workflow(env, fetch, clock)[0], transport, gate
 
@@ -89,8 +97,9 @@ def test_real_source_gate_is_shared_across_independent_query_windows(env):
     clock = base.Runtime()
     run, transport, _ = connected(env, clock)
     first = run(env.query, max_pages=1)
-    other = replace(env.query, window_start=base.NOW + timedelta(days=1),
-                    window_end=base.NOW + timedelta(days=2))
+    other = replace(
+        env.query, window_start=base.NOW + timedelta(days=1), window_end=base.NOW + timedelta(days=2)
+    )
     second = run(other, max_pages=1)
     assert second.progress.unit_id != first.progress.unit_id
     assert second.progress.next_start == 0 and second.progress.state == "failed"
@@ -130,16 +139,19 @@ def test_two_workflows_keep_only_one_committed_page_under_contention(env):
     clock = base.Runtime()
     rendezvous = Barrier(2, timeout=15)
     record = RecordHarvestCapture(env.journal, env.publish)
+
     def recorded(*args):
         result = record(*args)
         rendezvous.wait()
         return result
+
     def execute():
         run, _, _ = base.workflow(env, runtime=clock, record=recorded)
         try:
             return run(env.query, max_pages=1).stop_reason
         except HarvestError as exc:
             return exc.code
+
     with ThreadPoolExecutor(max_workers=2) as pool:
         results = list(pool.map(lambda _: execute(), range(2)))
     assert sorted(results) == ["checkpoint_conflict", "page_budget"]
@@ -166,20 +178,28 @@ def test_new_parser_version_replays_saved_parse_failure_without_fetch(env):
     clock = base.Runtime()
     source = base.Source(clock)
     bad_parser = Mock()
-    from libs.discovery.exceptions.source_parse_error import SourceParseError
+    from libs.discovery.adapters.driven.sqlite_harvest_resume_adapter import SqliteHarvestResumeAdapter
     from libs.discovery.application.commands.process_harvest_page import ProcessHarvestPage
+    from libs.discovery.application.commands.start_harvest_attempt import StartHarvestAttempt
     from libs.discovery.application.queries.read_harvest_attempt import ReadHarvestAttempt
     from libs.discovery.application.queries.read_harvest_resume import ReadHarvestResume
-    from libs.discovery.adapters.driven.sqlite_harvest_resume_adapter import SqliteHarvestResumeAdapter
+    from libs.discovery.exceptions.source_parse_error import SourceParseError
     from libs.research_workflow.application.commands.run_harvest_slice import RunHarvestSlice
-    from libs.discovery.application.commands.start_harvest_attempt import StartHarvestAttempt
+
     bad_parser.side_effect = SourceParseError("synthetic_parser_defect")
-    broken = ProcessHarvestPage(ReadHarvestAttempt(env.journal), env.objects, bad_parser, env.store,
-                                "arxiv-atom-broken-test")
+    broken = ProcessHarvestPage(
+        ReadHarvestAttempt(env.journal), env.objects, bad_parser, env.store, "arxiv-atom-broken-test"
+    )
     broken_run = RunHarvestSlice(
-        env.compiler, ReadHarvestResume(SqliteHarvestResumeAdapter(env.factory.connect, env.compiler)),
-        StartHarvestAttempt(env.journal), source, RecordHarvestCapture(env.journal, env.publish),
-        broken, env.profiles, clock, "arxiv-atom-broken-test",
+        env.compiler,
+        ReadHarvestResume(SqliteHarvestResumeAdapter(env.factory.connect, env.compiler)),
+        StartHarvestAttempt(env.journal),
+        source,
+        RecordHarvestCapture(env.journal, env.publish),
+        broken,
+        env.profiles,
+        clock,
+        "arxiv-atom-broken-test",
     )
     assert broken_run(env.query, max_pages=1).stop_reason == "processing_failed"
     repaired, _, _ = base.workflow(env, source, clock)
