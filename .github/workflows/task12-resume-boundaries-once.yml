@@ -1,0 +1,97 @@
+name: Task 12 resume boundaries and shared gate
+on:
+  push:
+    branches: [codex/12-resumable-harvest-workflow]
+    paths: [.github/workflows/task12-resume-boundaries-once.yml]
+permissions:
+  contents: write
+jobs:
+  verify:
+    if: github.repository == 'z411392/paper-radar' && github.run_attempt == '1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          enable-cache: false
+      - run: uv sync --locked
+      - name: Reproduce boundary behavior on the unmodified candidate
+        run: |
+          uv run --locked --offline python - <<'PY'
+          import subprocess
+          result=subprocess.run(['uv','run','--locked','--offline','python','-m','pytest','src/libs/research_workflow/tests/contract/test_harvest_workflow_boundaries.py','-q'])
+          assert result.returncode == 1, result.returncode
+          print('BOUNDARY_BEHAVIOR_RED_CONFIRMED; NO_EXPECTATIONS_RELAXED')
+          PY
+      - name: Repair only invalid profile admission and format new tests
+        run: |
+          uv run --locked --offline python - <<'PY'
+          import ast, subprocess
+          from pathlib import Path
+          def git(*args): return subprocess.check_output(['git',*args],text=True).strip()
+          assert git('diff','--name-only','de4adcf66df3f8e12ab4d9034fa71c4dc68f9359','HEAD') == '.github/workflows/task12-resume-boundaries-once.yml'
+          path=Path('src/libs/research_workflow/domain/services/harvest_run_rules.py')
+          assert git('hash-object',str(path)) == '2693f4910c2e2f85ea38aa00ff19ce929c36eebf'
+          text=path.read_text()
+          marker='    @staticmethod\n    def profile_matches('
+          helper='    @staticmethod\n    def _unique_filters(pairs: list[tuple[str, object]]) -> dict[str, object]:\n        result: dict[str, object] = {}\n        for key, value in pairs:\n            if key in result:\n                raise HarvestWorkflowError("invalid_profile_snapshot")\n            result[key] = value\n        return result\n\n'
+          assert text.count(marker)==1
+          text=text.replace(marker,helper+marker,1)
+          marker='        if (\n            profile.profile_id != query.profile_id'
+          validation='        domains = profile.domains\n        if (\n            not isinstance(domains, tuple)\n            or any(\n                not isinstance(item, tuple) or len(item) != 2\n                or not isinstance(item[0], str) or not item[0]\n                or type(item[1]) is not int or not 1 <= item[1] < 2**63\n                for item in domains\n            )\n            or len({item[0] for item in domains}) != len(domains)\n        ):\n            raise HarvestWorkflowError("invalid_profile_snapshot")\n'
+          assert text.count(marker)==1
+          text=text.replace(marker,validation+marker,1)
+          marker='json.loads(profile.filters_json)'
+          assert text.count(marker)==1
+          text=text.replace(marker,'json.loads(profile.filters_json, object_pairs_hook=HarvestRunRules._unique_filters)',1)
+          compile(text,str(path),'exec')
+          path.write_text(text)
+          paths=[str(path),'src/libs/research_workflow/tests/contract/test_harvest_workflow_boundaries.py']
+          for name in paths: ast.parse(Path(name).read_text())
+          subprocess.run(['uv','run','--locked','--offline','ruff','check','--select','I,F401','--fix',*paths],check=True)
+          subprocess.run(['uv','run','--locked','--offline','ruff','format',*paths],check=True)
+          print('PROFILE_ADMISSION_ONLY; ORIGINAL_SQL_AND_TESTS_UNCHANGED')
+          PY
+      - name: Verify all new workflow contracts
+        run: uv run --locked --offline python -m pytest src/libs/research_workflow/tests/contract/test_resumable_harvest.py src/libs/research_workflow/tests/contract/test_harvest_workflow_boundaries.py -q
+      - name: Complete locked offline gate
+        run: make ci-fast
+      - name: Export verified Git objects without changing refs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          uv run --locked --offline python - <<'PY'
+          import base64, json, os, subprocess, urllib.request
+          repo='z411392/paper-radar'
+          assert os.environ['GITHUB_REPOSITORY']==repo
+          assert os.environ['GITHUB_REF']=='refs/heads/codex/12-resumable-harvest-workflow'
+          assert 'OPENROUTER_API_KEY' not in os.environ
+          def git(*args): return subprocess.check_output(['git',*args],text=True).strip()
+          def api(endpoint,body):
+              req=urllib.request.Request('https://api.github.com/repos/'+repo+'/'+endpoint,data=json.dumps(body).encode(),headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Content-Type':'application/json','Accept':'application/vnd.github+json'},method='POST')
+              with urllib.request.urlopen(req,timeout=45) as response: return json.load(response)
+          allowed={'src/libs/research_workflow/domain/services/harvest_run_rules.py','src/libs/research_workflow/tests/contract/test_harvest_workflow_boundaries.py'}
+          changed=git('diff','--name-only').splitlines()
+          assert set(changed)<=allowed and not git('ls-files','--others','--exclude-standard')
+          for name in changed: subprocess.run(['git','add','--',name],check=True)
+          temporary='.github/workflows/task12-resume-boundaries-once.yml'
+          subprocess.run(['git','rm','--',temporary],check=True)
+          local_tree=git('write-tree'); parent=git('rev-parse','HEAD'); entries=[]
+          for name in changed:
+              raw=subprocess.check_output(['git','show',local_tree+':'+name])
+              sha=api('git/blobs',{'encoding':'base64','content':base64.b64encode(raw).decode()})['sha']
+              assert sha==git('rev-parse',local_tree+':'+name)
+              entries.append({'path':name,'mode':'100644','type':'blob','sha':sha})
+          entries.append({'path':temporary,'mode':'100644','type':'blob','sha':None})
+          tree=api('git/trees',{'base_tree':git('show','-s','--format=%T',parent),'tree':entries})['sha']
+          assert tree==local_tree
+          commit=api('git/commits',{'message':'task-12 S3: reject ambiguous profiles and retain verified shared-gate integration\n\nRefs #12. Preserve author regression expectations, original SQL and source adapters. No live external service, secret access, main integration or independent ACCEPT.','tree':tree,'parents':[parent]})['sha']
+          print('RESUME_FINAL_TREE='+tree)
+          print('RESUME_FINAL_COMMIT='+commit)
+          print('No refs, Issue/Project fields or product services changed by this job.')
+          PY
