@@ -1,0 +1,94 @@
+name: Task 11 bounded Atom parser verification
+on:
+  push:
+    branches: [codex/11-arxiv-atom-parser]
+    paths: [.github/workflows/task11-parser-check.yml]
+permissions:
+  contents: write
+concurrency:
+  group: task11-atom-parser
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: 0.10.0
+          enable-cache: false
+      - run: uv sync --locked
+      - name: Verify author files and format without changing executable content
+        run: |
+          uv run --locked --offline python - <<'PY'
+          import ast
+          import hashlib
+          import subprocess
+          from pathlib import Path
+          expected = {
+              'src/libs/discovery/dtos/arxiv_source_record.py': '3867e7b644663100e364d7acc1b2250dd57f34e4',
+              'src/libs/discovery/dtos/parsed_arxiv_page.py': '89ae5dfc58123d4e4046e2535f4f040b47778189',
+              'src/libs/discovery/exceptions/source_parse_error.py': 'd04c50c05b0866753b07d847e85f2d7f2a16d3e8',
+              'src/libs/discovery/ports/source_page_parser_port.py': 'bfbb4e4b3e7db5a025c3d353a3a9ab97b554cdc0',
+              'src/libs/discovery/ports/parse_source_page_port.py': '9f7582af15d318cb99b94a9c396df795aa4a1240',
+              'src/libs/discovery/application/queries/parse_source_page.py': '6c6901ff6cef0fe8ace2cdc0d9905abef636bc84',
+              'src/libs/discovery/adapters/driven/arxiv_atom_parser_adapter.py': '3688dfb21ad62959b17e2ae9b03b0060069b3eb2',
+              'src/libs/discovery/tests/contract/test_t05_arxiv_discovery.py': '8990246d7cc317fdcefb10a121309f3bf027f03e',
+          }
+          changed = set(subprocess.check_output(['git','diff','--name-only','4bedf76de673e94bcd25a76d1d38b18e1ab76bfb','HEAD'],text=True).splitlines())
+          assert changed == set(expected) | {'.github/workflows/task11-parser-check.yml'}
+          before = {}
+          for name, digest in expected.items():
+              raw=Path(name).read_bytes()
+              assert hashlib.sha1(b'blob '+str(len(raw)).encode()+b'\0'+raw).hexdigest()==digest, name
+              before[name]=ast.dump(ast.parse(raw))
+          subprocess.run(['uv','run','--locked','--offline','ruff','format',*sorted(expected)],check=True)
+          for name, tree in before.items():
+              assert ast.dump(ast.parse(Path(name).read_bytes()))==tree,name
+          print('EXACT_PARSER_FILES=8; EXISTING_CODE_SPECS_MANIFESTS_TESTS_UNCHANGED=1')
+          PY
+      - name: Run complete locked offline validation
+        run: make ci-fast
+      - name: Export exact tested candidate without moving refs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          uv run --locked --offline python - <<'PY'
+          import base64
+          import json
+          import os
+          import subprocess
+          import urllib.request
+          repo='z411392/paper-radar'
+          assert os.environ['GITHUB_REPOSITORY']==repo
+          assert os.environ['GITHUB_REF']=='refs/heads/codex/11-arxiv-atom-parser'
+          def git(*args): return subprocess.check_output(['git',*args],text=True).strip()
+          def api(endpoint,body):
+              request=urllib.request.Request('https://api.github.com/repos/'+repo+'/'+endpoint,data=json.dumps(body).encode(),headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Content-Type':'application/json','Accept':'application/vnd.github+json'},method='POST')
+              with urllib.request.urlopen(request,timeout=45) as response: return json.load(response)
+          allowed=set(git('diff','--name-only','4bedf76de673e94bcd25a76d1d38b18e1ab76bfb','b067d26d3e71a636565c4f8a249cd14e0942d0d5').splitlines())
+          changed=git('diff','--name-only').splitlines()
+          assert set(changed)<=allowed
+          assert not git('ls-files','--others','--exclude-standard')
+          for name in changed: subprocess.run(['git','add','--',name],check=True)
+          temporary='.github/workflows/task11-parser-check.yml'
+          subprocess.run(['git','rm','--',temporary],check=True)
+          local_tree=git('write-tree'); parent=git('rev-parse','HEAD')
+          entries=[]
+          for name in changed:
+              raw=subprocess.check_output(['git','show',local_tree+':'+name])
+              sha=api('git/blobs',{'encoding':'base64','content':base64.b64encode(raw).decode()})['sha']
+              assert sha==git('rev-parse',local_tree+':'+name)
+              entries.append({'path':name,'mode':'100644','type':'blob','sha':sha})
+          entries.append({'path':temporary,'mode':'100644','type':'blob','sha':None})
+          tree=api('git/trees',{'base_tree':git('show','-s','--format=%T',parent),'tree':entries})['sha']
+          assert tree==local_tree
+          commit=api('git/commits',{'message':'task-11 S1: retain locked verified Atom parser candidate\n\nRefs #11, #60. Verify original and new tests with the staged Git-retained governance. Keep executable AST, source evidence and separate error semantics. Remove bounded verification workflow; no HTTP collection, persistence, main merge or independent ACCEPT.','tree':tree,'parents':[parent]})['sha']
+          print('PARSER_FINAL_TREE='+tree)
+          print('PARSER_FINAL_COMMIT='+commit)
+          print('No refs, Issues, PRs or Project fields changed by the runner.')
+          PY
