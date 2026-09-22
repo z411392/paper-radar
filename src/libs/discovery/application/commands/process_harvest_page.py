@@ -16,8 +16,12 @@ from libs.kernel.ports.read_object_port import ReadObjectPort
 
 class ProcessHarvestPage:
     def __init__(
-        self, attempts: ReadHarvestAttemptPort, objects: ReadObjectPort,
-        parser: ParseSourcePagePort, store: HarvestProcessingStorePort, parser_version: str,
+        self,
+        attempts: ReadHarvestAttemptPort,
+        objects: ReadObjectPort,
+        parser: ParseSourcePagePort,
+        store: HarvestProcessingStorePort,
+        parser_version: str,
     ) -> None:
         HarvestPageRules.key(parser_version)
         self._attempts, self._objects, self._parser = attempts, objects, parser
@@ -46,17 +50,30 @@ class ProcessHarvestPage:
                 if not isinstance(raw_id, str) or raw_id != "raw:" + str(digest):
                     raise HarvestError("invalid_capture_metadata")
                 body = self._objects(raw_id)
-                if not isinstance(body, bytes) or len(body) != capture["byte_size"] or hashlib.sha256(body).hexdigest() != digest:
+                if (
+                    not isinstance(body, bytes)
+                    or len(body) != capture["byte_size"]
+                    or hashlib.sha256(body).hexdigest() != digest
+                ):
                     raise HarvestError("capture_hash_mismatch")
                 response = SourceHttpResponse(
-                    capture["status"], body, tuple(tuple(pair) for pair in capture["headers"]),
-                    datetime.fromisoformat(capture["received_at"]), capture["capture_error"],
+                    capture["status"],
+                    body,
+                    tuple(tuple(pair) for pair in capture["headers"]),
+                    datetime.fromisoformat(capture["received_at"]),
+                    capture["capture_error"],
                 )
             result = SourceFetchResult(
-                capture["request_fingerprint"], response, capture["response_sha256"],
-                capture["failure_code"], capture["retryable"], capture["retry_after_seconds"],
+                capture["request_fingerprint"],
+                response,
+                capture["response_sha256"],
+                capture["failure_code"],
+                capture["retryable"],
+                capture["retry_after_seconds"],
             )
-            prepared = PrepareHarvestCapture()(attempt, result, datetime.fromisoformat(attempt.finished_at or ""))
+            prepared = PrepareHarvestCapture()(
+                attempt, result, datetime.fromisoformat(attempt.finished_at or "")
+            )
             if prepared.metadata_json != attempt.capture_json:
                 raise HarvestError("invalid_capture_metadata")
         except (KeyError, TypeError, ValueError, OverflowError):

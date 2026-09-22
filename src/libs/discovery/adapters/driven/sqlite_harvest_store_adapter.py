@@ -65,7 +65,12 @@ class SqliteHarvestStoreAdapter:
         try:
             data = json.loads(row["response_metadata_json"])
             if (
-                set(data) != {"format_version", "request", "capture"}
+                set(data)
+                not in (
+                    {"format_version", "request", "capture"},
+                    {"format_version", "request", "capture", "processing"},
+                )
+                or ("processing" in data and not isinstance(data["processing"], dict))
                 or type(data["format_version"]) is not int
                 or data["format_version"] != 1
             ):

@@ -35,7 +35,10 @@ class HarvestPageRules:
 
     @classmethod
     def key(cls, parser_version: str) -> str:
-        if not isinstance(parser_version, str) or re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}", parser_version) is None:
+        if (
+            not isinstance(parser_version, str)
+            or re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}", parser_version) is None
+        ):
             raise HarvestError("invalid_parser_version")
         return cls.VERSION + "/" + parser_version
 
@@ -53,23 +56,40 @@ class HarvestPageRules:
             cls.checkpoint(result.expected_checkpoint_version)
             cls.checkpoint(result.checkpoint_version)
             if (
-                result.attempt_id != attempt_id or result.unit_id != unit_id
-                or result.processor_version != cls.VERSION or result.parser_version != parser_version
-                or type(result.next_start) is not int or not 0 <= result.next_start <= 30000
-                or (result.total_results is not None and (
-                    type(result.total_results) is not int or not 0 <= result.total_results <= 30000
-                    or result.next_start > result.total_results
-                ))
+                result.attempt_id != attempt_id
+                or result.unit_id != unit_id
+                or result.processor_version != cls.VERSION
+                or result.parser_version != parser_version
+                or type(result.next_start) is not int
+                or not 0 <= result.next_start <= 30000
+                or (
+                    result.total_results is not None
+                    and (
+                        type(result.total_results) is not int
+                        or not 0 <= result.total_results <= 30000
+                        or result.next_start > result.total_results
+                    )
+                )
                 or len(result.observation_ids) > 2000
-                or any(not isinstance(i, str) or re.fullmatch(r"observation:[0-9a-f]{64}", i) is None for i in result.observation_ids)
+                or any(
+                    not isinstance(i, str) or re.fullmatch(r"observation:[0-9a-f]{64}", i) is None
+                    for i in result.observation_ids
+                )
                 or len(set(result.observation_ids)) != len(result.observation_ids)
             ):
                 raise HarvestError("invalid_processing_receipt")
             PrepareHarvestCapture.code(result.error_code)
             if result.error_code is None:
-                if result.state not in {"succeeded", "verified_empty", "partial"} or result.checkpoint_version != result.expected_checkpoint_version + 1:
+                if (
+                    result.state not in {"succeeded", "verified_empty", "partial"}
+                    or result.checkpoint_version != result.expected_checkpoint_version + 1
+                ):
                     raise HarvestError("invalid_processing_receipt")
-            elif result.state not in {"failed", "partial"} or result.observation_ids or result.checkpoint_version != result.expected_checkpoint_version:
+            elif (
+                result.state not in {"failed", "partial"}
+                or result.observation_ids
+                or result.checkpoint_version != result.expected_checkpoint_version
+            ):
                 raise HarvestError("invalid_processing_receipt")
             if PrepareHarvestCapture.time(datetime.fromisoformat(result.processed_at)) != result.processed_at:
                 raise HarvestError("invalid_processing_receipt")
@@ -95,8 +115,11 @@ class HarvestPageRules:
 
     @classmethod
     def result(
-        cls, snapshot: HarvestProcessingSnapshot, page: ParsedArxivPage | None,
-        error_code: str | None, processed_at: datetime,
+        cls,
+        snapshot: HarvestProcessingSnapshot,
+        page: ParsedArxivPage | None,
+        error_code: str | None,
+        processed_at: datetime,
     ) -> HarvestPageResult:
         cls.ready(snapshot, snapshot.checkpoint_version, processed_at)
         PrepareHarvestCapture.code(error_code)
@@ -123,7 +146,9 @@ class HarvestPageRules:
             ):
                 raise HarvestError("parsed_capture_mismatch")
             try:
-                decision = EvaluateSourcePage()(attempt.request, page.observation, expected_total_results=total)
+                decision = EvaluateSourcePage()(
+                    attempt.request, page.observation, expected_total_results=total
+                )
             except SourceQueryError as exc:
                 raise HarvestError(exc.code) from None
             if set(page.observation.record_ids) & set(snapshot.record_ids):
@@ -132,18 +157,41 @@ class HarvestPageRules:
                 PrepareHarvestCapture.time(record.updated_at)
                 PrepareHarvestCapture.time(record.published_at)
             ids = tuple(
-                "observation:" + hashlib.sha256(cls.encode([
-                    attempt.unit_id, attempt.request.source_id, record.source_record_id,
-                    capture["raw_object_id"], page.parser_version,
-                ]).encode("utf-8")).hexdigest()
+                "observation:"
+                + hashlib.sha256(
+                    cls.encode(
+                        [
+                            attempt.unit_id,
+                            attempt.request.source_id,
+                            record.source_record_id,
+                            capture["raw_object_id"],
+                            page.parser_version,
+                        ]
+                    ).encode("utf-8")
+                ).hexdigest()
                 for record in page.records
             )
             next_start = attempt.request.start + len(page.records)
             total = page.observation.total_results
-            state = "verified_empty" if decision.verified_empty else "succeeded" if decision.is_last else "partial"
+            state = (
+                "verified_empty"
+                if decision.verified_empty
+                else "succeeded"
+                if decision.is_last
+                else "partial"
+            )
             version = snapshot.checkpoint_version + 1
         return HarvestPageResult(
-            attempt.attempt_id, attempt.unit_id, cls.VERSION, snapshot.parser_version,
-            snapshot.checkpoint_version, version, next_start, total, state, ids, error_code,
+            attempt.attempt_id,
+            attempt.unit_id,
+            cls.VERSION,
+            snapshot.parser_version,
+            snapshot.checkpoint_version,
+            version,
+            next_start,
+            total,
+            state,
+            ids,
+            error_code,
             PrepareHarvestCapture.time(processed_at),
         )
