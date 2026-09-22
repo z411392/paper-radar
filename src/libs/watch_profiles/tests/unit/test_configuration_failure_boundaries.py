@@ -12,7 +12,7 @@ def test_integer_decoder_limit_becomes_a_configuration_error() -> None:
     previous = sys.get_int_max_str_digits()
     try:
         sys.set_int_max_str_digits(640)
-        document = '{"domains":' + '9' * 641 + '}'
+        document = '{"domains":' + "9" * 641 + "}"
         normalize = NormalizeWatchConfiguration(frozenset({"arxiv"}))
         with pytest.raises(WatchConfigurationError) as caught:
             normalize("domains", document)
