@@ -37,11 +37,14 @@ def test_equal_python_values_do_not_hide_wrong_persisted_types(env, field, value
         process(env)("page-a", 0, AT)
 
 
-@pytest.mark.parametrize("change,expected", [
-    ({"expected_checkpoint_version": 1, "checkpoint_version": 2}, 1),
-    ({"observation_ids": ["observation:" + "f" * 64]}, 0),
-    ({"next_start": 0, "total_results": None}, 0),
-])
+@pytest.mark.parametrize(
+    "change,expected",
+    [
+        ({"expected_checkpoint_version": 1, "checkpoint_version": 2}, 1),
+        ({"observation_ids": ["observation:" + "f" * 64]}, 0),
+        ({"next_start": 0, "total_results": None}, 0),
+    ],
+)
 def test_receipt_must_agree_with_actual_committed_observations(env, change, expected):
     saved(env)
     process(env)("page-a", 0, AT)
@@ -64,18 +67,22 @@ def test_two_attempts_for_same_page_have_one_winner(env):
     saved(env, "first")
     saved(env, "second")
     barrier = Barrier(2)
+
     class Synchronized:
         def snapshot(self, attempt, parser_version):
             value = env.store.snapshot(attempt, parser_version)
             barrier.wait(timeout=10)
             return value
+
         def commit(self, *args):
             return env.store.commit(*args)
+
     def run(identity):
         try:
             return process(env, store=Synchronized())(identity, 0, AT).state
         except HarvestError as exc:
             return exc.code
+
     with ThreadPoolExecutor(max_workers=2) as pool:
         results = list(pool.map(run, ("first", "second")))
     assert sorted(results) == ["checkpoint_conflict", "partial"]
@@ -92,12 +99,15 @@ def test_recorded_parse_failure_replays_without_running_parser(env):
 
 def test_disabled_binding_is_rechecked_inside_write_transaction(env):
     saved(env)
+
     class Disabled:
         def snapshot(self, attempt, parser_version):
             return env.store.snapshot(attempt, parser_version)
+
         def commit(self, *args):
             database(env, "UPDATE source_bindings SET enabled=0")
             return env.store.commit(*args)
+
     with pytest.raises(HarvestError, match="binding_conflict"):
         process(env, store=Disabled())("page-a", 0, AT)
     assert state(env)[1] == 0 and database(env, "SELECT * FROM source_observations") == []
@@ -105,17 +115,21 @@ def test_disabled_binding_is_rechecked_inside_write_transaction(env):
 
 def test_missing_foreign_key_enforcement_cannot_commit(env):
     attempt, _ = saved(env)
+
     def connect():
         return sqlite3.connect(env.root / "state/app.sqlite3", isolation_level=None)
+
     with pytest.raises(HarvestError, match="foreign_keys_required"):
         SqliteHarvestProcessingAdapter(connect).snapshot(attempt, VERSION)
 
 
 def test_process_death_between_observations_and_checkpoint_rolls_back(env):
     saved(env)
-    database(env, "CREATE TRIGGER crash_processing BEFORE UPDATE ON harvest_units "
-                  "BEGIN SELECT crash_fixture(); END")
-    code = '''
+    database(
+        env,
+        "CREATE TRIGGER crash_processing BEFORE UPDATE ON harvest_units BEGIN SELECT crash_fixture(); END",
+    )
+    code = """
 import os, sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -142,9 +156,10 @@ command = ProcessHarvestPage(ReadHarvestAttempt(journal), objects,
     ParseSourcePage(ArxivAtomParserAdapter()), SqliteHarvestProcessingAdapter(connect), "arxiv-atom-v1")
 command("page-a", 0, datetime(2026, 9, 22, 0, 0, 5, tzinfo=timezone.utc))
 raise AssertionError("the fixture trigger must terminate this process")
-'''
-    result = subprocess.run([sys.executable, "-I", "-c", code, str(env.root)],
-                            capture_output=True, text=True, timeout=20)
+"""
+    result = subprocess.run(
+        [sys.executable, "-I", "-c", code, str(env.root)], capture_output=True, text=True, timeout=20
+    )
     assert result.returncode == 23, result.stderr
     assert state(env)[1:] == (0, None, "{}")
     assert database(env, "SELECT * FROM source_observations") == []

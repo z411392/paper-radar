@@ -78,12 +78,14 @@ class SqliteHarvestProcessingAdapter:
         if not isinstance(processing, dict) or len(processing) > 32:
             raise HarvestError("invalid_processing_receipt")
         previous = None
+        receipts: list[HarvestPageResult] = []
         for stored_key, value in processing.items():
             if not isinstance(stored_key, str) or not stored_key.startswith(HarvestPageRules.VERSION + "/"):
                 raise HarvestError("invalid_processing_receipt")
             stored_version = stored_key.split("/", 1)[1]
             HarvestPageRules.key(stored_version)
             receipt = HarvestPageRules.receipt(value, attempt.attempt_id, attempt.unit_id, stored_version)
+            receipts.append(receipt)
             if stored_key == key:
                 previous = receipt
         unit = connection.execute("SELECT * FROM harvest_units WHERE id=?", (attempt.unit_id,)).fetchone()
@@ -120,6 +122,14 @@ class SqliteHarvestProcessingAdapter:
             ):
                 raise HarvestError("invalid_checkpoint_state")
         else:
+            if state in {"pending", "running", "failed"}:
+                raise HarvestError("invalid_checkpoint_state")
+            if (
+                type(coverage.get("format_version")) is not int
+                or type(coverage.get("record_count")) is not int
+                or type(coverage.get("complete")) is not bool
+            ):
+                raise HarvestError("invalid_checkpoint_state")
             cursor = HarvestPageRules.decode(unit["cursor_json"])
             if (
                 set(cursor) != {"format_version", "next_start", "total_results"}
@@ -148,15 +158,30 @@ class SqliteHarvestProcessingAdapter:
                 or (state == "partial" and next_start >= total)
             ):
                 raise HarvestError("invalid_checkpoint_state")
-        records = tuple(
-            row[0]
-            for row in connection.execute(
-                "SELECT native_id FROM source_observations WHERE unit_id=? ORDER BY native_id LIMIT 30001",
-                (attempt.unit_id,),
-            )
-        )
+        observations = connection.execute(
+            "SELECT id,native_id FROM source_observations WHERE unit_id=? ORDER BY native_id LIMIT 30001",
+            (attempt.unit_id,),
+        ).fetchall()
+        records = tuple(item["native_id"] for item in observations)
+        available_ids = {item["id"] for item in observations}
         if len(records) != next_start or len(set(records)) != len(records):
             raise HarvestError("invalid_checkpoint_observations")
+        if version > max(1, next_start):
+            raise HarvestError("invalid_checkpoint_state")
+        for receipt in receipts:
+            if (
+                receipt.checkpoint_version > version
+                or receipt.next_start > next_start
+                or not set(receipt.observation_ids).issubset(available_ids)
+            ):
+                raise HarvestError("invalid_processing_receipt")
+            if receipt.error_code is None:
+                if receipt.total_results != total or receipt.next_start != attempt.request.start + len(
+                    receipt.observation_ids
+                ):
+                    raise HarvestError("invalid_processing_receipt")
+            elif receipt.next_start != attempt.request.start:
+                raise HarvestError("invalid_processing_receipt")
         return HarvestProcessingSnapshot(
             attempt,
             version,

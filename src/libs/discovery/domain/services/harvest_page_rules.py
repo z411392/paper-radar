@@ -91,6 +91,37 @@ class HarvestPageRules:
                 or result.checkpoint_version != result.expected_checkpoint_version
             ):
                 raise HarvestError("invalid_processing_receipt")
+            if result.error_code is None:
+                total = result.total_results
+                if total is None:
+                    raise HarvestError("invalid_processing_receipt")
+                if result.state == "verified_empty":
+                    if (
+                        total != 0
+                        or result.next_start != 0
+                        or result.observation_ids
+                        or result.expected_checkpoint_version != 0
+                    ):
+                        raise HarvestError("invalid_processing_receipt")
+                elif (
+                    not result.observation_ids
+                    or total <= 0
+                    or (result.state == "succeeded" and result.next_start != total)
+                    or (result.state == "partial" and not 0 < result.next_start < total)
+                ):
+                    raise HarvestError("invalid_processing_receipt")
+            elif (
+                result.state == "failed"
+                and (
+                    result.expected_checkpoint_version != 0
+                    or result.next_start != 0
+                    or result.total_results is not None
+                )
+            ) or (
+                result.state == "partial"
+                and (result.expected_checkpoint_version == 0 or result.next_start == 0)
+            ):
+                raise HarvestError("invalid_processing_receipt")
             if PrepareHarvestCapture.time(datetime.fromisoformat(result.processed_at)) != result.processed_at:
                 raise HarvestError("invalid_processing_receipt")
             return result
@@ -181,6 +212,7 @@ class HarvestPageRules:
                 else "partial"
             )
             version = snapshot.checkpoint_version + 1
+        cls.checkpoint(version)
         return HarvestPageResult(
             attempt.attempt_id,
             attempt.unit_id,
