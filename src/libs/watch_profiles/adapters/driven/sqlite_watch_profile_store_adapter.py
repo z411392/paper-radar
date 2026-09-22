@@ -1,10 +1,12 @@
 import json
+import re
 import sqlite3
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
 from libs.watch_profiles.dtos.configuration_document import ConfigurationDocument
+from libs.watch_profiles.dtos.domain_definition import DomainDefinition
 from libs.watch_profiles.dtos.domain_seed_outcome import DomainSeedOutcome
 from libs.watch_profiles.dtos.profile_revision import ProfileRevision
 from libs.watch_profiles.exceptions.watch_configuration_error import WatchConfigurationError
@@ -63,6 +65,92 @@ class SqliteWatchProfileStoreAdapter:
                 )
                 results.append(DomainSeedOutcome(item["id"], 1, "created"))
         return tuple(results)
+
+
+    @staticmethod
+    def _domain_identifier(value: object) -> str:
+        if not isinstance(value, str) or re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", value) is None:
+            raise WatchConfigurationError("invalid_domain_definition")
+        return value
+
+    @staticmethod
+    def _domain_text(value: object) -> str:
+        if not isinstance(value, str) or not value or value != value.strip() or "\x00" in value:
+            raise WatchConfigurationError("invalid_domain_definition")
+        try:
+            value.encode("utf-8")
+        except UnicodeEncodeError as exc:
+            raise WatchConfigurationError("invalid_domain_definition") from exc
+        return value
+
+    @classmethod
+    def _domain_strings(cls, value: object) -> tuple[str, ...]:
+        if not isinstance(value, list):
+            raise WatchConfigurationError("invalid_domain_definition")
+        items = tuple(cls._domain_text(item) for item in value)
+        if len(items) != len(set(items)) or tuple(sorted(items)) != items:
+            raise WatchConfigurationError("invalid_domain_definition")
+        return items
+
+    @staticmethod
+    def _unique_domain_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        result: dict[str, object] = {}
+        for key, value in pairs:
+            if key in result:
+                raise WatchConfigurationError("invalid_domain_definition")
+            result[key] = value
+        return result
+
+    def read_domain(self, domain_id: str, revision: int) -> DomainDefinition:
+        self._revision(revision)
+        domain_id = self._domain_identifier(domain_id)
+        with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT name,definition_json FROM domain_definitions WHERE id=? AND revision=?",
+                (domain_id, revision),
+            ).fetchone()
+            if row is None:
+                raise WatchConfigurationError("domain_revision_missing", domain_id)
+            try:
+                raw = json.loads(row[1], object_pairs_hook=self._unique_domain_keys)
+                expected = {
+                    "id",
+                    "name",
+                    "aliases",
+                    "include",
+                    "exclude",
+                    "sources",
+                    "source_categories",
+                }
+                if not isinstance(raw, dict) or set(raw) != expected:
+                    raise WatchConfigurationError("invalid_domain_definition")
+                if raw["id"] != domain_id or self._domain_text(raw["name"]) != row[0]:
+                    raise WatchConfigurationError("invalid_domain_definition")
+                sources = self._domain_strings(raw["sources"])
+                for source in sources:
+                    self._domain_identifier(source)
+                categories = raw["source_categories"]
+                if not isinstance(categories, dict) or not set(categories) <= set(sources):
+                    raise WatchConfigurationError("invalid_domain_definition")
+                normalized_categories = tuple(
+                    (self._domain_identifier(source), self._domain_strings(values))
+                    for source, values in sorted(categories.items())
+                )
+                canonical = self._json(raw)
+                if canonical != row[1]:
+                    raise WatchConfigurationError("invalid_domain_definition")
+                return DomainDefinition(
+                    domain_id,
+                    revision,
+                    row[0],
+                    self._domain_strings(raw["aliases"]),
+                    self._domain_strings(raw["include"]),
+                    self._domain_strings(raw["exclude"]),
+                    sources,
+                    normalized_categories,
+                )
+            except (json.JSONDecodeError, TypeError, KeyError, RecursionError, UnicodeError):
+                raise WatchConfigurationError("invalid_domain_definition") from None
 
     def publish(self, document: ConfigurationDocument, expected_revision: int | None) -> ProfileRevision:
         if document.kind != "profile":
