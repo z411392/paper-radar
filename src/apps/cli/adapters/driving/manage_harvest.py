@@ -5,6 +5,7 @@ import sys
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
+from typing import NoReturn
 
 from injector import Injector
 
@@ -96,7 +97,7 @@ def _request(arguments: argparse.Namespace) -> HarvestQueryRequest:
     )
 
 
-def _error(code: str, *, hint: str | None = None) -> None:
+def _error(code: str, *, hint: str | None = None) -> NoReturn:
     error = {"code": code}
     if hint is not None:
         error["hint"] = hint
