@@ -24,7 +24,11 @@ class SqliteObjectUnitOfWorkAdapter:
                 yield SqliteObjectRegistryAdapter(connection)
         except sqlite3.Error as exc:
             primary = getattr(exc, "sqlite_errorcode", 0) & 0xFF
-            code = "database_busy" if primary in {sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED} else "database_error"
+            code = (
+                "database_busy"
+                if primary in {sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED}
+                else "database_error"
+            )
             raise StorageError(code, str(exc)) from exc
         finally:
             if connection is not None:

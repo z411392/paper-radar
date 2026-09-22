@@ -19,8 +19,14 @@ class FilesystemObjectBytesAdapter:
             raise StorageError("invalid_object", "content must be bytes")
         digest = hashlib.sha256(content).hexdigest()
         ref = ObjectRef(
-            f"{kind}:{digest}", digest, f"objects/{kind}/{digest[:2]}/{digest}", kind, media_type,
-            len(content), datetime.now(timezone.utc).isoformat(), retention_policy
+            f"{kind}:{digest}",
+            digest,
+            f"objects/{kind}/{digest[:2]}/{digest}",
+            kind,
+            media_type,
+            len(content),
+            datetime.now(timezone.utc).isoformat(),
+            retention_policy,
         )
         try:
             if not self._paths.database().is_file():
@@ -77,7 +83,9 @@ class FilesystemObjectBytesAdapter:
                     path = Path(directory) / name
                     if path.is_symlink():
                         dirs.remove(name)
-                        problems.append(StorageProblem("unsafe_path", path.relative_to(self._paths.root).as_posix()))
+                        problems.append(
+                            StorageProblem("unsafe_path", path.relative_to(self._paths.root).as_posix())
+                        )
                 for name in filenames:
                     path = Path(directory) / name
                     relative = path.relative_to(self._paths.root).as_posix()

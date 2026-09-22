@@ -27,7 +27,10 @@ class SqliteWorkspaceBootstrapAdapter:
             database = self._paths.database()
             if not database.exists():
                 allowed = {"state", "objects", "tmp"}
-                if any(p.name not in allowed for p in root.iterdir()) and not self._paths.database().is_file():
+                if (
+                    any(p.name not in allowed for p in root.iterdir())
+                    and not self._paths.database().is_file()
+                ):
                     raise StorageError("foreign_workspace", "not an empty or interrupted bootstrap directory")
                 for relative in ("objects", "tmp", "state"):
                     directory = self._paths.path(relative)
@@ -43,7 +46,9 @@ class SqliteWorkspaceBootstrapAdapter:
                         # Another initializer may have published a complete database
                         # since the initial existence check. Validate it below.
                         if not self._paths.database().is_file():
-                            raise StorageError("foreign_workspace", "existing data without a recognized database")
+                            raise StorageError(
+                                "foreign_workspace", "existing data without a recognized database"
+                            )
                 state = self._paths.directory("state")
                 self._paths.directory("objects")
                 self._paths.directory("tmp")
@@ -52,7 +57,8 @@ class SqliteWorkspaceBootstrapAdapter:
             try:
                 version = self._runner.apply(connection)
                 rows = connection.execute(
-                    "SELECT workspace_id,epoch,external_effects_enabled FROM workspace_metadata WHERE singleton=1"
+                    "SELECT workspace_id,epoch,external_effects_enabled "
+                    "FROM workspace_metadata WHERE singleton=1"
                 ).fetchall()
                 if len(rows) != 1:
                     raise StorageError("invalid_workspace", "missing singleton identity")
@@ -79,7 +85,8 @@ class SqliteWorkspaceBootstrapAdapter:
                 with connection:
                     connection.execute(f"PRAGMA application_id={APPLICATION_ID}")
                     connection.execute(
-                        "INSERT INTO workspace_metadata(singleton,workspace_id,epoch,external_effects_enabled,"
+                        "INSERT INTO workspace_metadata(singleton,workspace_id,epoch,"
+                        "external_effects_enabled,"
                         "created_at) VALUES(1,?,1,0,?)",
                         (str(uuid.uuid4()), datetime.now(timezone.utc).isoformat()),
                     )

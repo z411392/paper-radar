@@ -20,7 +20,10 @@ class PublishObject:
                     raise StorageError("object_unavailable", existing.object_id)
                 expected = (ref.relative_path, ref.byte_size, ref.media_type, ref.retention_policy)
                 actual = (
-                    existing.relative_path, existing.byte_size, existing.media_type, existing.retention_policy
+                    existing.relative_path,
+                    existing.byte_size,
+                    existing.media_type,
+                    existing.retention_policy,
                 )
                 if actual != expected:
                     raise StorageError("metadata_conflict", ref.object_id)

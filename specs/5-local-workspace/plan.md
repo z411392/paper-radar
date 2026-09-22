@@ -49,3 +49,18 @@ S3：保留原定「真實 CLI 工作區初始化」。先由 #7 提供 Initiali
 本次 writer：本對話；branch `codex/6-engineering-foundation`；base `76e822b40d240884cc4c1e58c3ac94c6e22563f8`；本次隔離工作目錄 `/mnt/data/paper-radar-work/checkout`（只識別本次執行，不是後續 agent 的路徑依賴）。可寫範圍是 Python／uv manifest、Makefile、CLI 啟動與 version driving adapter、research_workflow 的 RuntimeVersion DTO／ports／query／adapter、各自測試、kernel 架構／治理測試，以及直接受影響的 Rule15／40／90、CLAUDE、README、Context Map 和本 Story plan／progress。不改 spec、共通需求、Roadmap、migrations 或其他產品 Task 的實作。設計與測試屬作者產物，尚無既存 frozen tests 的寫權。
 
 本次技術候選允許安裝開發依賴並在 GitHub Actions 執行隔離驗證；不做 source／model／mail live。驗證工具與 CI 是機械執行，不是獨立 Reviewer。每次改動保留原 Subtask 與修正原因；未獨立驗收前只發布分支／PR。
+
+
+## 2026-09-23 Task #7 本機儲存切片
+
+延續使用者的暫行直接實作委派；作者自行建立正反測試，沒有獨立 Architect freeze 或 Reviewer ACCEPT。#7 基於 #53 的未驗收候選 `69249a59a7d0dca49b84ace6a6ed8fa37c06a05e`，分支 `codex/7-durable-local-storage`，不移動 #53 或 main。
+
+S1：InitializeWorkspace inbound port → InitializeWorkspace command → WorkspaceBootstrapPort → SqliteWorkspaceBootstrapAdapter。組裝時明示 Migration 序列，本批只驗證 0001，沒有掃描並自動套用全部 migration。新 DB 在同磁碟暫存檔完成 schema 與身份後，以不覆蓋既有目標的發布方式成為正式 DB；競爭初始化者讀回勝出身份，掃描期間出現的 DB 也必須驗證 application_id 與 schema。一般連線不自動建立遺失 DB。WAL、FULL、foreign_keys、busy_timeout 由連線 factory 明確設定。Migration runner 擁有短交易，逐 statement 執行、檢查已套用檔案雜湊；script 不得自行 COMMIT／ATTACH／PRAGMA。
+
+S2：PublishObject 先呼叫 ObjectBytesPort 寫入及校驗完整 bytes，再由 ObjectUnitOfWorkPort 的短交易登錄 ObjectRegistryPort。SQL 連線不穿出 adapter。相同 kind/hash 使用穩定 ObjectRef；重複回傳原紀錄，metadata 衝突失敗。ReadObject 只按 registry identity 取引用，離開 SQL transaction 後才讀檔及驗證 hash／長度。
+
+S3：InspectStorage 讀取 registry 快照，再檢查內容；回報 missing、corrupt、unsafe_path、unregistered、temporary 等診斷，不修改 registry、不修復、不刪除。真程序以 os._exit 中斷在檔案發布後，後續重試接回既有完整檔案，跨程序讀回相同 bytes。診斷屬觀測結果，不是跨 DB／FS 原子快照，也不是刪除許可。
+
+測試位置：`src/libs/kernel/tests/integration/test_sqlite_workspace.py`、`test_local_storage.py`、`test_bootstrap_race.py` 及 `src/libs/kernel/tests/unit/test_object_ref.py`；包含並行初始化／重複發布、唯讀 transaction、rollback、失敗 migration、陌生 DB、遺失 DB 但保留內容、symlink、fsync 失敗與錯誤 metadata。正式完整驗證仍是 `make ci-fast`。
+
+本批可寫 kernel 新增檔案與本 plan／progress／data-model 的必要技術補充；原 migrations、共通需求、Story spec、Roadmap、Event Storming、架構／治理防線和 #53 程式不變。#6 S3 CLI handler、#8 profile、FAISS／來源／模型／郵件不在此切片，不以 library 測試冒稱那些能力完成。

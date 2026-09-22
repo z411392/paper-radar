@@ -53,3 +53,18 @@ S1 修正先以 `uv sync --locked --offline --no-dev --no-install-project` 將 l
 [push run 35714287554](https://github.com/z411392/paper-radar/actions/runs/35714287554) 實際 checkout `aa36f9a570c37b032751ca77b6bc7ed61f57f3fa`。Ubuntu Python 3.12、Ubuntu Python 3.13.5、macOS Python 3.13.5 三個 jobs 的依賴安裝、`make ci-fast` 與 `git diff --exit-code` 全部成功。Linux Python 3.13.5 job `106701977097` 的完整 log 顯示 `56 passed`、pyright `0 errors, 0 warnings`、ruff check 與 format 通過；命令 exit 0。另 [PR run 35714292053](https://github.com/z411392/paper-radar/actions/runs/35714292053) 完成 success。
 
 這是 2026-09-22 的工程候選證據，不是永久測試數量契約、使用者本人 Mac 實測或獨立 Reviewer ACCEPT。S1／S2 已有程式與自測候選；S3、#7／#8 的產品行為及 Task／Story 結案仍未完成。本次文件收據提交不修改 source；若 reviewer 或後續工作改動 candidate，必須重新核對 exact SHA 與適用測試。
+
+
+## 2026-09-23 Task #7 SQLite／檔案候選
+
+延續 #7 既有開工紀錄與使用者「繼續」要求。本批實作 workspace identity、短 SQLite transaction、explicit migration bundle、hash 內容發布、登錄去重、跨程序讀取與唯讀完整性診斷。未合流 main，沒有獨立 Reviewer、Task Done 或 Project 欄位操作收據。
+
+直接基線為 #53 的未驗收候選 `69249a59a7d0dca49b84ace6a6ed8fa37c06a05e`。本次隔離施工目錄 `/mnt/data/paper-radar-next/checkout` 僅記錄當次執行，不是使用者機器的路徑依賴。
+
+本機透過 uv 的 subsystem RED 首次因未實作 adapter 無法 import；實作後修正測試自己的 repo-root 定位錯誤，再有 27 passed。補強的反例得到 4 failed／42 passed（DB 遺失後誤採用舊內容、陌生 state 檔、未診斷暫存檔與 metadata 控制字元）；修正 production 後 46 passed。另用固定時序重現初始化者在掃描期間完成 DB 發布，使另一個初始化者誤報 foreign_workspace，該反例先失敗；修正重新核對後 subsystem 為 47 passed。這些是作者測試，不是獨立 oracle。
+
+S1 初始提交 `d654e9ff30e10300b6bf74ecc76ce496d59e4227`；S2 提交 `2aefa49ae892eb228e185619cde7669faf074562`；S3 提交 `b947c1b66a32fcc69ae6fbec1c50a1dc0ea69e9e`；初始化競爭修正 `ad622cdf01f9bee890983e32e6988ed85fa120dc`。後續格式／文件提交保留這些歷史，不 squash。
+
+本機套件站 DNS 不可用，subsystem 使用 `uv run --no-project --python /opt/pyvenv/bin/python python -m pytest` 在隔離 src 下執行；不稱為 locked 全庫 gate。完整鎖定環境、ruff／pyright／全庫測試由 GitHub runner 執行，正式結果以本卡與 PR 的 exact candidate CI readback 為準。原始 log 雜湊由 #7 append-only 收據保存，不以 hash 冒稱原始檔永久可下載。
+
+需求、Roadmap、Event Storming、Story AC、原 migrations 與架構／治理測試未變；技術補充放本 Story plan 和 data-model。CLI 初始化、profile、FAISS、真來源、模型與郵件未執行。所有階段只交付已測候選，沒有自我 ACCEPT。

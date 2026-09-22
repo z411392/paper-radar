@@ -4,7 +4,6 @@ from pathlib import Path
 from libs.kernel.adapters.driven.workspace_paths import WorkspacePaths
 from libs.kernel.exceptions.storage_error import StorageError
 
-
 APPLICATION_ID = 0x50524452
 
 

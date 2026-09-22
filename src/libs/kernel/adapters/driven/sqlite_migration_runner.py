@@ -8,15 +8,24 @@ from libs.kernel.exceptions.storage_error import StorageError
 class SqliteMigrationRunner:
     def __init__(self, migrations: tuple[Migration, ...]) -> None:
         if not migrations or [m.version for m in migrations] != list(range(1, len(migrations) + 1)):
-            raise StorageError("invalid_migrations", "an explicit contiguous sequence starting at 1 is required")
+            raise StorageError(
+                "invalid_migrations", "an explicit contiguous sequence starting at 1 is required"
+            )
         if len({m.name for m in migrations}) != len(migrations):
             raise StorageError("invalid_migrations", "duplicate names")
         self._migrations = migrations
 
     @staticmethod
-    def _authorize(action: int, arg1: str | None, arg2: str | None, db: str | None, source: str | None) -> int:
-        prohibited = {sqlite3.SQLITE_TRANSACTION, sqlite3.SQLITE_SAVEPOINT, sqlite3.SQLITE_ATTACH,
-                      sqlite3.SQLITE_DETACH, sqlite3.SQLITE_PRAGMA}
+    def _authorize(
+        action: int, arg1: str | None, arg2: str | None, db: str | None, source: str | None
+    ) -> int:
+        prohibited = {
+            sqlite3.SQLITE_TRANSACTION,
+            sqlite3.SQLITE_SAVEPOINT,
+            sqlite3.SQLITE_ATTACH,
+            sqlite3.SQLITE_DETACH,
+            sqlite3.SQLITE_PRAGMA,
+        }
         return sqlite3.SQLITE_DENY if action in prohibited else sqlite3.SQLITE_OK
 
     @staticmethod
@@ -41,17 +50,23 @@ class SqliteMigrationRunner:
                 exists = connection.execute(
                     "SELECT 1 FROM sqlite_master WHERE type='table' AND name='schema_migrations'"
                 ).fetchone()
-                rows = connection.execute(
-                    "SELECT version,name,sha256 FROM schema_migrations ORDER BY version"
-                ).fetchall() if exists else []
+                rows = (
+                    connection.execute(
+                        "SELECT version,name,sha256 FROM schema_migrations ORDER BY version"
+                    ).fetchall()
+                    if exists
+                    else []
+                )
                 if [row[0] for row in rows] != list(range(1, len(rows) + 1)):
                     raise StorageError("migration_drift", "non-contiguous installed history")
                 if len(rows) > len(self._migrations):
-                    raise StorageError("unsupported_schema", "installed schema is newer than the selected bundle")
+                    raise StorageError(
+                        "unsupported_schema", "installed schema is newer than the selected bundle"
+                    )
                 for row, migration in zip(rows, self._migrations):
                     if tuple(row) != (migration.version, migration.name, migration.sha256):
                         raise StorageError("migration_drift", migration.name)
-                for migration in self._migrations[len(rows):]:
+                for migration in self._migrations[len(rows) :]:
                     connection.set_authorizer(self._authorize)
                     try:
                         for statement in self._statements(migration.sql):
@@ -60,7 +75,12 @@ class SqliteMigrationRunner:
                         connection.set_authorizer(None)
                     connection.execute(
                         "INSERT INTO schema_migrations(version,name,sha256,applied_at) VALUES(?,?,?,?)",
-                        (migration.version, migration.name, migration.sha256, datetime.now(timezone.utc).isoformat()),
+                        (
+                            migration.version,
+                            migration.name,
+                            migration.sha256,
+                            datetime.now(timezone.utc).isoformat(),
+                        ),
                     )
         except sqlite3.Error as exc:
             raise StorageError("migration_failed", str(exc)) from exc

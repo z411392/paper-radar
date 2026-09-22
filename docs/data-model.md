@@ -937,3 +937,14 @@ verified_at TEXT
 ## 七、schema 草案的明確限制
 
 schema 通過解析／外鍵測試不代表 SQL adapter 或業務 invariant 已完成。WorkAlias 不成環、source-observation provenance 指向有效來源、digest 只使用 QA/current 資料、index membership count 和所存檔案相符、配置 revision 指紋一致，均需 owning Task 的 application/contract 驗收。不得把這些未實作條件寫成 production PASS。
+
+
+## Task #7：本機儲存 adapter 契約
+
+本段補足 schema 草案的執行契約，不改 0001 SQL 內容。SQLite application_id 為 `0x50524452`；現有非本產品 DB 拒絕採用。缺 DB 且留有物件或不明 state 檔案時拒絕重新初始化，以免用新 identity 隱藏遺失的帳本。
+
+ObjectRef 以 `kind:sha256` 為 object_id，relative_path 為 `objects/<kind>/<sha256[:2]>/<sha256>`；副檔名不參與身份，媒體型別存 registry。相同 kind/hash 若媒體或保留政策不同，回 metadata_conflict；內容變更必須得到不同 hash，不覆寫既有物件。檔案採同檔案系統暫存、完整 fsync、不覆蓋式 hard-link 發布與父目錄 fsync；之後才提交 registry。SQL 失敗留下完整未登錄內容，重跑可以接回。缺失／損毀不自動回填或改狀態，保留診斷及復原決策邊界。
+
+本批目標為單一使用者管理的本機 POSIX filesystem（Linux／macOS），要求 hard links、目錄 fsync 與 SQLite WAL 所需能力；平台證據以 exact candidate CI 為準。不宣稱支援 Windows、網路檔案系統、雲端同步工作區或不可靠 fsync 硬體。不將 SQLite／FS 描述為跨資源單一交易。靜態 root／managed path／sidecar symlink 被拒絕；可信 OS 祖先如 macOS /var 可解析。這不是對可同時修改 workspace 的惡意同 UID 程序提供完整 TOCTOU 隔離，工作區必須由同一使用者受控管理。
+
+InspectStorage 為唯讀觀測：registry snapshot 與 FS 掃描並非同一時刻，並行發布可能暫時顯示 unregistered；禁止據此直接 GC。ReadObject 依預期長度限制讀取，bytes 與 SHA256 不符即拒絕；不把缺資料當空內容。應用只透過 registry／bytes／unit-of-work ports 使用能力，不任意跨 BC 寫表。備份／正式復原及 ledger 保護仍由後續工作驗證。
