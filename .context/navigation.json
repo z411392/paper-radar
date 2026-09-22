@@ -1,0 +1,105 @@
+{
+  "format_version": 1,
+  "kind": "navigation_only",
+  "repository_id": 1381086277,
+  "access": "private_repository",
+  "common": [
+    ".claude/rules/80-documentation.md",
+    ".claude/rules/15-execution-strategy.md",
+    ".claude/rules/90-operations.md"
+  ],
+  "owners": {
+    "watch_profiles": {
+      "role": "business_context",
+      "references": [
+        "docs/architecture/event-storming.md",
+        "docs/architecture/context-map.md"
+      ],
+      "code_and_tests": [
+        "src/libs/watch_profiles/ports",
+        "src/libs/watch_profiles/dtos",
+        "src/libs/watch_profiles/application",
+        "src/libs/watch_profiles/adapters",
+        "src/libs/watch_profiles/tests"
+      ]
+    },
+    "discovery": {
+      "role": "business_context",
+      "references": [
+        "docs/domains/discovery.md"
+      ],
+      "code_and_tests": [
+        "src/libs/discovery/ports",
+        "src/libs/discovery/dtos",
+        "src/libs/discovery/application",
+        "src/libs/discovery/adapters",
+        "src/libs/discovery/tests"
+      ]
+    },
+    "scholarly_catalog": {
+      "role": "business_context",
+      "references": [
+        "docs/architecture/event-storming.md",
+        "docs/architecture/context-map.md"
+      ],
+      "code_and_tests": []
+    },
+    "paper_explanations": {
+      "role": "business_context",
+      "references": [
+        "docs/architecture/event-storming.md",
+        "docs/architecture/context-map.md"
+      ],
+      "code_and_tests": []
+    },
+    "delivery": {
+      "role": "business_context",
+      "references": [
+        "docs/architecture/event-storming.md",
+        "docs/architecture/context-map.md"
+      ],
+      "code_and_tests": []
+    },
+    "retrieval": {
+      "role": "technical_owner",
+      "references": [
+        "docs/architecture/event-storming.md",
+        "docs/architecture/context-map.md"
+      ],
+      "code_and_tests": []
+    },
+    "research_workflow": {
+      "role": "technical_owner",
+      "references": [
+        "docs/architecture/event-storming.md",
+        "docs/architecture/context-map.md"
+      ],
+      "code_and_tests": [
+        "src/libs/research_workflow/ports",
+        "src/libs/research_workflow/dtos",
+        "src/libs/research_workflow/application",
+        "src/libs/research_workflow/adapters",
+        "src/libs/research_workflow/tests"
+      ]
+    },
+    "kernel": {
+      "role": "technical_owner",
+      "references": [
+        "docs/architecture/event-storming.md",
+        "docs/architecture/context-map.md"
+      ],
+      "code_and_tests": [
+        "src/libs/kernel/ports",
+        "src/libs/kernel/dtos",
+        "src/libs/kernel/application",
+        "src/libs/kernel/adapters",
+        "src/libs/kernel/tests"
+      ]
+    }
+  },
+  "entrypoints": [
+    "src/apps/cli/entrypoints.py",
+    "src/apps/cli/module.py",
+    "src/apps/cli/tests"
+  ]
+}

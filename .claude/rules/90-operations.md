@@ -14,7 +14,7 @@ Task #6 開始正式套件化：`package = true`，Hatchling 安裝 `src/apps`�
 
 ## Task 分支與 Subtask commit
 
-基線之後所有修改先綁真實 Task／Bug／Spike 與 parent Story。Commander 指定 `codex/<task-id>-<slug>`、base SHA、cwd；每 Task 獨立 worktree，不在共用 main 施工。
+基線之後所有修改先綁真實 Task/Spike，需要時引用 parent Story。Bug/Docs/Refactor 作分類，不要求獨立小 Task 補造 Story。Commander 指定 `codex/<task-id>-<slug>`、base SHA、cwd；每 Task 獨立 worktree，不在共用 main 施工。
 
 S1、S2、S3 等有限 Subtask 留在 Task body。每個 Subtask 固定輸入、exact writable/frozen、commands、預期值和停止點，形成一個可理解英文 commit，例如 `task-12 S1: persist immutable evidence objects`。不同 Task／Subtask 不混提交，不作空 commit 偽造進展。
 

@@ -47,57 +47,14 @@ research_workflow → delivery, discovery, watch_profiles,
 
 Root composition 在 apps/cli/module.py 注入 adapters。學術來源只用明示 source adapters；不借用 Kaledoxa browser session／私有資料。
 
-## 程式輪廓
+## 導航與供應方規格
 
-```text
-src/apps/cli/{__main__.py,entrypoints.py,module.py,adapters/driving,tests}
-src/libs/{watch_profiles,discovery,scholarly_catalog,paper_explanations,
-          delivery,retrieval,research_workflow,kernel}/
-  application/{commands,queries,policies}
-  domain/services
-  ports
-  dtos
-  adapters/driven
-  exceptions
-  tests/{unit,integration,contract,fixtures}
-```
-
-只建立已用到的目錄，無 `__init__.py`。CLI 的 run-worker 是長駐入口：clock lifecycle 在 app，due jobs／lease／補抓政策在 workflow。未設獨立 apps/worker。未來有真實 HTTP contract 才加入 apps/http；不為展示目錄先建立假 endpoint。
-
-Runtime objects／SQLite／vectors／index 與備份目錄唯一契約見 [data-model](../data-model.md)。技術資料模型和 migrations 有各 owner；不能用共用 DB 繞過邊界。
+程式/測試路徑由 [.context](../../.context/README.md) 維護，不在本圖保存目前 Task/PR 或每個函式。來源合作邊界見 [discovery](../domains/discovery.md)；其他 BC 沿用既有模型/儲存/正式介面，不按每個 lib 造 BC 文件。
 
 ## Agents 與工程 ownership
 
 角色拓撲唯一引用 [Rule15](../../.claude/rules/15-execution-strategy.md#execution-topology-and-dispatch)；本檔不複製模型矩陣。BC-local implementer 依 path ownership 組織；shared Architect／Reviewer 不因 BC 數量複製。並行時 migrations、composition、shared docs 必須指定唯一 writer 或序列合流。
 
-## 與前一版輪廓差異
+## 治理採用
 
-使用者的治理裁決取代先前 docs/product、docs/contexts、docs/operations 的方案。產品語言在 Event Storming；公開交接與 source navigation 在本檔；方案在 Story plan；操作規則在 Rule90／有界 Task。不另外保留平行總計畫。
-
-## Task #6 已接線的工程入口
-
-`apps/cli version` → `research_workflow.ports.ReadRuntimeVersionPort` → `ReadRuntimeVersion` → `RuntimeVersionProviderPort` → `PythonRuntimeVersionAdapter`。DTO 位於該 owner 的 dtos；只有 apps/cli/module.py 引用具體用例與 adapter。此查詢只用於驗證套件安裝／接線，不讀 workspace，也不是產品健康檢查。
-
-`apps/cli init --workspace PATH` → `kernel.ports.InitializeWorkspacePort` → `InitializeWorkspace` → `WorkspaceBootstrapPort` → `SqliteWorkspaceBootstrapAdapter`。CLI 先解析完整參數，再組裝明確 InstanceProvider；只有呼叫 inbound port 才初始化，建立 Injector 本身不寫入。SQLite、migration、檔案發布與錯誤分類仍由 kernel adapters 擁有；CLI 只轉換參數、JSON、stderr 與 exit code。
-
-Root `migrations/0001-object-registry.sql` 是唯一原文，Hatchling 的 force-include 將其映射到安裝套件的 `libs/kernel/resources/migrations/`。`bundled_workspace_migrations.py` 是 kernel driven resource loader，不從 cwd 找備援、不在 src 複製 SQL，不擴大為自動套用全部 migrations。更動 source SQL 也會使 uv 本地建置快取失效。
-
-本批的範圍與作者測試見 [Story plan](../../specs/5-local-workspace/plan.md)／[progress](../../specs/5-local-workspace/progress.md)；關注設定、排程與其他命令依其 Task 後續接線。
-
-
-## Task #8 S4 的 CLI 接線
-
-`domains import`、`profile publish/show/pause/resume` → CLI driving adapter → watch_profiles 公開 inbound ports → 既有 application／store port → SqliteWatchProfileStoreAdapter。組裝在 apps/cli/module.py；SQLite 連線由 root 注入的 callable 提供，不跨 BC import kernel 私有 adapter，也不外洩到 application。CLI 只擁有參數、設定檔讀取、JSON 顯示與退出碼。
-
-`init --with-profiles` 明確選擇 canonical 0001＋0002；未指定仍選 0001。新增 kernel driven SqliteSchemaConnectionFactory 在連線上核對已安裝的 migration 序列、名稱、hash 與工作區身分，不執行 migration。查詢／發布不隱式建立或升級資料庫；SQLite 自己的 sidecar 維護不等同業務列寫入。SQL 原文及公開業務規則未變。
-
-輸入檔案 helper 位於 CLI owner，只接受有界的普通 UTF-8 檔案；schema／資料庫錯誤在 kernel 轉成明確 code。未實作的排程、来源、檢索、模型與寄送不出現在成功回覆中。這是 PR #57 的作者候選接線，不是獨立 ACCEPT。
-
-
-## Task #10 的來源查詢與分頁前置
-
-workflow後續將公開發布的設定快照映射為discovery.dtos.SourceQueryInput／DomainQuerySnapshot；不是discovery去import watch_profiles或讀其SQLite私有表。當前compiler信任有版本的輸入快照，尚未實作active/current的workflow重查，不能把query fingerprint當權限或簽章。
-
-CompileSourceQuery → SourceQueryCompilerPort → ArxivQueryCompilerAdapter：純provider語法編譯，輸出精確query、provenance、query fingerprint與顯式deferred filters。page方法另輸出request fingerprint與固定provider URL，不執行HTTP。只支持已核對的submittedDate分鐘級UTC窗口，不把updated排序冒充更新窗口。
-
-EvaluateSourcePage只產生PageTraversalDecision；原始觀測持久化及checkpoint前移仍由 #12 負責。此切片無checkpoint寫入、無真來源節流或Atom parser，合成fixtures不冒作live capability。source capability的3秒／單連線限制供 #11 實作，不能由每個domain各自消耗。細節與證據歸specs/9-arxiv-discovery/plan.md／progress.md及Issue #10，不建立另一個產品規則或看板。
+2026-09-23 依 Rule80 分階段採用。本圖保留模型/上下游/import邊界，程式導航與候選歷史不再追加。原 Task #6/#8/#10 的方案仍可從原 Git 版本、相應 Story plan 與 Issues 取回；不由舊圖上文字推論現況，未驗收內容不因搬移而升格。

@@ -1,17 +1,17 @@
 # GitHub 人類可讀記錄
 
-上層用繁體中文說明，下層保留 exact formal contract。白話導讀不是第二份 authority；衝突時修正導讀，不以摘要推翻來源。Companion 導覽在 `docs/delivery/github-human-readable-history.md`。
+文件歸屬依 [Rule80](80-documentation.md)，角色依 [Rule15](15-execution-strategy.md)。用繁體中文說明目的、原因與成果，再保留精確契約，不堆同內容的第二份摘要。
 
-## 新 Issue 必備
+## 本文
 
-依序為：白話說明、完成後代表什麼、不代表什麼、為什麼現在做、Formal Contract。人類層解釋當前問題、影響、方案理由、依賴與成果邊界，不能只是把 title 重寫。專屬 AC 只引用 Story spec 的 anchor，不在 Issue 複製第二版本。
+常用 Epic/Story/Task/Spike，依需要使用。Story 列成果、Affected BCs、Delivery Owner、適用規格及整合驗收；Task 列成果、依據、範圍、步驟、失敗處理、驗證及停止條件。小 Task 不強制有 Story。
 
-Formal Contract 記 authority、scope/non-scope、parent、owner、輸入／輸出、dependencies、SC／AC／Roadmap effect、exact writable/frozen、GWT、所需命令與 stop。Status／Priority／Sprint 只連到 Project，不在 body 維護影子值。
+分開已接受規格、目前計畫與未接受提案。GIT_RETAINED 階段引用 Git 的 Story SC/AC，不複製第二份規格。修改本文不等於核可；缺少可驗證接受來源時明寫未接受。指派讀指定 Issue/PR 欄位，Project Status/Priority/Sprint/Views 不抄入本文或 Markdown。
 
-## 歷史及 comment
+## 留言與證據
 
-Comment 採 append-only，若記錄錯誤另加更正說明。重大轉折用 HUMAN_CHECKPOINT 保存原因與前後差異；回顧 HUMAN_HISTORY_SUMMARY 必有 As of、Last substantive event、CURRENT／HISTORICAL／SUPERSEDED 與關鍵 issue／SHA／comment 引用。
+研究、探索、原型、失敗、修正和審查追加 comments；局部研究不強制另開 Spike。長期規則接受具體版本後回最近 owner，保留來歷，不整篇變成全局規範。
 
-不能重寫舊 summary 假裝當時已知道後續結果；不能把 human-readable migration 冒充產品進展。交付先說實際改變，再列 SHA／commands／result；REJECT 解釋哪個具體行為不成立、修復方向與不受影響部分。
+append-only 是團隊政策，GitHub 留言可修改/刪除，不是不可變事件庫。錯誤用新留言更正；重要核可與必要內容依 Rule80 保存，只有URL/hash或自己填accepted_by不算核可證明。
 
-沒有工程歷史的新建 Issue 不偽造反轉或曾經通過；直接說規劃已記錄、實作尚未開始、何者不能由本卡推導。繁體中文敘述保留必要識別字與命令。
+HUMAN_CHECKPOINT/HUMAN_HISTORY_SUMMARY 可作歷史導航，標日期、版本、真實SHA與證據範圍，不把舊回報當即時狀態。先說具體變更，再列驗證與未做事項；CI不等於獨立驗收。

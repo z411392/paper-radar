@@ -33,7 +33,7 @@
 
 不採每 BC 一個 Architect／Reviewer，也不採一個全能 agent 兼 Design→Implement→Accept。真正獨立產品可有自己的角色 sessions；禁止把 Kaledoxa 既有 session IDs 複製進本產品。`.agents/roster.json` 是 noncanonical projection，task IDs 未建立時用 null，不能偽造 ID 或宣稱 agent 已啟動。
 
-BC 隔離靠每次完整 fresh Task Pack。共享角色以序列或實際可隔離的 runtime 使用；Implementers 可以按 owner 拆開，不能同時寫相同檔案。優先重用本產品既有適任 named task。只有角色衝突、review isolation、context 污染、session 失效、安全隔離或真正不同產品才新建，不因不同 BC 新建 Astra 角色。
+BC 隔離靠當次 Task 的版本化引用、Affected BCs 與按需展開。共享角色以序列或實際可隔離的 runtime 使用；Implementers 可以按 owner 拆開，不能同時寫相同檔案。優先重用本產品既有適任 named task。只有角色衝突、review isolation、context 污染、session 失效、安全隔離或真正不同產品才新建，不因不同 BC 新建 Astra 角色。
 
 ## Effort
 
@@ -41,40 +41,13 @@ Medium 是 analysis、普通 design／review／schema 審查的預設。High 必
 
 禁止 Low、xhigh、max、ultra。Commander 決定 escalation，worker 不自行升級。真實 runtime 不支援指定模型時，回報路由缺件，不以替代模型假裝相同收據。
 
-## Fresh Task Pack 必填
+## Task 本文與最小派工信封
 
-```text
-ROLE:
-ASTRA_EFFORT: MEDIUM | HIGH
-ESCALATION_REASON:
-CURRENT_TASK:
-CURRENT_SUBTASK:
-CURRENT_BC:
-current_main_sha:
-candidate_sha:
-branch:
-cwd:
-AUTHORITIES:
-SC_AND_AC:
-ROADMAP_PHASE_AND_EXIT:
-ROADMAP_EFFECT:
-INPUTS:
-OUTPUTS:
-WRITABLE:
-READ_ONLY_DEPENDENCIES:
-FROZEN:
-POSITIVE_ORACLES:
-NEGATIVE_ORACLES:
-REQUIRED_READSET:
-REQUIRED_COMMANDS:
-GIT_WRITER:
-INTEGRATION_OWNER:
-SIDE_EFFECT_AUTHORITY:
-ROLE_BOUNDARY:
-ROUTE_RETURN_CONDITION:
-```
+依 Rule80，Task 本文是施工資訊唯一維護處，不另存內容相同的完整 Task Pack。信封只引用 Task URL、適用規格版本/body checksum、程式 base/candidate、角色/effort、branch/cwd、必要操作授權及返回條件。缺件補 owning Task，不維護兩份各自演化的內容。
 
-Persistent context 只能作背景，不取代最新 authority。當前 seed Task 是派工前契約，不包含真實 branch/cwd/candidate 或 route receipt；Commander dispatch 前必須補實際值。
+Task 需能找到成果、正式依據、修改範圍、Affected BCs、步驟、失敗處理、檢查與停止條件。獨立小 Task 可無 Parent Story；只展開必要契約、使用方和測試，安全仍必讀。hash 識別版本，不證明核可。
+
+修改本文前 fresh-read 與版本比對；單一 writer 序列更新後讀回。沒有跨工具原子更新保證時明示限制。新規範不沿用舊核可，今天的 Issue 不覆蓋舊分支適用規格。
 
 <a id="task-local-readiness"></a>
 ## Task-local readiness

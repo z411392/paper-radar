@@ -26,8 +26,15 @@ def checked_path(root, value):
 
 
 def manifest_errors(root, data):
-    required = {"format_version", "repository_id", "mode", "resolution", "issue_authority_enabled",
-                "acceptance_receipts", "git_sources"}
+    required = {
+        "format_version",
+        "repository_id",
+        "mode",
+        "resolution",
+        "issue_authority_enabled",
+        "acceptance_receipts",
+        "git_sources",
+    }
     if not isinstance(data, dict) or set(data) != required:
         return ["manifest_shape"]
     errors = []
@@ -81,8 +88,16 @@ def navigation_errors(root, data):
     if data["repository_id"] != 1381086277 or data["access"] != "private_repository":
         errors.append("navigation_access")
     owners = data["owners"]
-    names = {"watch_profiles", "discovery", "scholarly_catalog", "paper_explanations", "delivery",
-             "retrieval", "research_workflow", "kernel"}
+    names = {
+        "watch_profiles",
+        "discovery",
+        "scholarly_catalog",
+        "paper_explanations",
+        "delivery",
+        "retrieval",
+        "research_workflow",
+        "kernel",
+    }
     if not isinstance(owners, dict) or set(owners) != names:
         return errors + ["owner_set"]
     values = [data["common"], data["entrypoints"]]
@@ -90,7 +105,9 @@ def navigation_errors(root, data):
         if not isinstance(owner, dict) or set(owner) != {"role", "references", "code_and_tests"}:
             errors.append("owner_shape")
             continue
-        role = "technical_owner" if name in {"retrieval", "research_workflow", "kernel"} else "business_context"
+        role = (
+            "technical_owner" if name in {"retrieval", "research_workflow", "kernel"} else "business_context"
+        )
         if owner["role"] != role:
             errors.append("owner_role")
         values += [owner["references"], owner["code_and_tests"]]
@@ -120,31 +137,45 @@ def test_current_navigation_resolves_without_becoming_specs_or_assignment():
 def sample(tmp_path):
     (tmp_path / "docs").mkdir()
     (tmp_path / "docs/rule.md").write_text("scope is a fixture", encoding="utf-8")
-    data = {"format_version": 1, "repository_id": 1381086277, "mode": "git-retained",
-            "resolution": "same-commit-tree", "issue_authority_enabled": False, "acceptance_receipts": [],
-            "git_sources": [{"id": "paper-radar:1381086277:bc:fixture", "path": "docs/rule.md",
-                             "sha256": hashlib.sha256((tmp_path / "docs/rule.md").read_bytes()).hexdigest(),
-                             "source_status": "preserve_source_declaration"}]}
+    data = {
+        "format_version": 1,
+        "repository_id": 1381086277,
+        "mode": "git-retained",
+        "resolution": "same-commit-tree",
+        "issue_authority_enabled": False,
+        "acceptance_receipts": [],
+        "git_sources": [
+            {
+                "id": "paper-radar:1381086277:bc:fixture",
+                "path": "docs/rule.md",
+                "sha256": hashlib.sha256((tmp_path / "docs/rule.md").read_bytes()).hexdigest(),
+                "source_status": "preserve_source_declaration",
+            }
+        ],
+    }
     assert manifest_errors(tmp_path, data) == []
     return tmp_path, data
 
 
-@pytest.mark.parametrize("mutate", [
-    lambda d: d.update(issue_authority_enabled=True),
-    lambda d: d.update(acceptance_receipts=[{"accepted_by": "self-declared"}]),
-    lambda d: d.update(code_sha="0" * 40),
-    lambda d: d.update(repository_id=1),
-    lambda d: d.update(format_version=True),
-    lambda d: d.update(resolution="latest-main"),
-    lambda d: d.update(git_sources=[]),
-    lambda d: d["git_sources"].append(copy.deepcopy(d["git_sources"][0])),
-    lambda d: d["git_sources"][0].update(source_status="accepted"),
-    lambda d: d["git_sources"][0].update(sha256="0" * 64),
-    lambda d: d["git_sources"][0].update(path="../external.md"),
-    lambda d: d["git_sources"][0].update(path="/tmp/external.md"),
-    lambda d: d["git_sources"][0].update(path="docs/missing.md"),
-    lambda d: d["git_sources"][0].update(id="paper-radar:1381086277:docs/rule.md"),
-])
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda d: d.update(issue_authority_enabled=True),
+        lambda d: d.update(acceptance_receipts=[{"accepted_by": "self-declared"}]),
+        lambda d: d.update(code_sha="0" * 40),
+        lambda d: d.update(repository_id=1),
+        lambda d: d.update(format_version=True),
+        lambda d: d.update(resolution="latest-main"),
+        lambda d: d.update(git_sources=[]),
+        lambda d: d["git_sources"].append(copy.deepcopy(d["git_sources"][0])),
+        lambda d: d["git_sources"][0].update(source_status="accepted"),
+        lambda d: d["git_sources"][0].update(sha256="0" * 64),
+        lambda d: d["git_sources"][0].update(path="../external.md"),
+        lambda d: d["git_sources"][0].update(path="/tmp/external.md"),
+        lambda d: d["git_sources"][0].update(path="docs/missing.md"),
+        lambda d: d["git_sources"][0].update(id="paper-radar:1381086277:docs/rule.md"),
+    ],
+)
 def test_invalid_authority_does_not_pass_as_current(sample, mutate):
     root, data = sample
     mutate(data)

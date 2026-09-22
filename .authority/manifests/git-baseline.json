@@ -1,0 +1,268 @@
+{
+  "format_version": 1,
+  "repository_id": 1381086277,
+  "mode": "git-retained",
+  "resolution": "same-commit-tree",
+  "issue_authority_enabled": false,
+  "acceptance_receipts": [],
+  "git_sources": [
+    {
+      "id": "paper-radar:1381086277:rule:00",
+      "path": ".claude/rules/00-index.md",
+      "sha256": "48727da2ffb8837b90e852b42bbae4a3b6723f7b9a27c2791dc02d672cac6661",
+      "source_status": "preserve_source_declaration"
+    },
+    {
+      "id": "paper-radar:1381086277:rule:05",
+      "path": ".claude/rules/05-methodology.md",
+      "sha256": "b0cbb77662a8ea390ffeff277967b1e31001e6ac04af307f0df0cc86f9089dee",
+      "source_status": "preserve_source_declaration"
+    },
+    {
+      "id": "paper-radar:1381086277:rule:10",
+      "path": ".claude/rules/10-architecture.md",
+      "sha256": "87e2c439d929fe9da8f58b71f6413eb048976e249ca1ef0570881f02ce8fe061",
+      "source_status": "preserve_source_declaration"
+    },
+    {
+      "id": "paper-radar:1381086277:rule:15",
+      "path": ".claude/rules/15-execution-strategy.md",
+      "sha256": "ef6a11ae81997d5345603e60d23fc69cb20920fd76df4c609cb3ff4a7ae737e2",
+      "source_status": "preserve_source_declaration"
+    },
+    {
+      "id": "paper-radar:1381086277:rule:16",
+      "path": ".claude/rules/16-github-human-readable-records.md",
+      "sha256": "d6ae6059c9088644243702b009aa3ed3a9b5da037a05458890ed651da5154f4f",
+      "source_status": "preserve_source_declaration"
+    },
+    {
+      "id": "paper-radar:1381086277:rule:20",
+      "path": ".claude/rules/20-code-style.md",
+      "sha256": "2acbf3cac7a278963cae8fc8af9e768b310f6a578dd92b4cc2ffd60af20afd09",
+      "source_status": "preserve_source_declaration"
+    },
+    {
+      "id": "paper-radar:1381086277:rule:30",
+      "path": ".claude/rules/30-application-domain.md",
+      "sha256": "fb50e4f97f68a391cd3c2b6cf33ff0010459a72918e89067d712000c2044175f",
+      "source_status": "preserve_source_declaration"
+    },
+    {
+      "id": "paper-radar:1381086277:rule:40",
+      "path": ".claude/rules/40-ports-adapters-di.md",
+      "sha256": "76722a247997d3d6772927dfd9d877a1f9a7f35f8a276c4144bd9da49a34f21a",
+      "source_status": "preserve_source_declaration"
+    },
+    {
+      "id": "paper-radar:1381086277:rule:50",
+      "path": ".claude/rules/50-dtos-errors-http.md",
+      "sha256": "778d9bdaafcf430d268018cb61522190b914af37737c438fe3f99554a7b07bf7",
+      "source_status": "preserve_source_declaration"
+    },
+    {
+      "id": "paper-radar:1381086277:rule:60",
+      "path": ".claude/rules/60-configuration-data.md",
+      "sha256": "298803a356c8ef68be3f458da703faff428fad06a035a80331dd687af95411ed",
+      "source_status": "preserve_source_declaration"
+    },
+    {
+      "id": "paper-radar:1381086277:rule:70",
+      "path": ".claude/rules/70-testing.md",
+      "sha256": "e16f8d2b2cbfb09ed8bb3ccfa934ec8b8ff889c636792504982d66c9d87891a1",
+      "source_status": "preserve_source_declaration"
+    },
+    {
+      "id": "paper-radar:1381086277:rule:80",
+      "path": ".claude/rules/80-documentation.md",
+      "sha256": "1b0e9ac1d3f739f9e9801a17be8279fcf28ac99d7c2c6b8506ba79fd518c6c2e",
+      "source_status": "preserve_source_declaration"
+    },
+    {
+      "id": "paper-radar:1381086277:rule:90",
+      "path": ".claude/rules/90-operations.md",
+      "sha256": "582efdb2e1e86ace6198f0d5539eb1ee7e52b77f5746ab9e7664bbb8ed426777",
+      "source_status": "preserve_source_declaration"
+    },
+    {
+      "id": "paper-radar:1381086277:architecture:contexts",
+      "path": "docs/architecture/context-map.md",
+      "sha256": "26f8f3e61c413d241132b612dd08d0060b5cb679aadd5579a38bfb079bdbd287",
+      "source_status": "preserve_source_declaration"
+    },
+    {
+      "id": "paper-radar:1381086277:architecture:events",
+      "path": "docs/architecture/event-storming.md",
+      "sha256": "304e5a1a0f887d5d3a31a938158f288878c302e6331ac63cede1b6d6f9f2c622",
+      "source_status": "preserve_source_declaration"
+    },
+    {
+      "id": "paper-radar:1381086277:architecture:storage",
+      "path": "docs/data-model.md",
+      "sha256": "5014a4446a69be6684774746b4f35aadf85dc33e6638f768283e106776bba19a",
+      "source_status": "preserve_source_declaration"
+    },
+    {
+      "id": "paper-radar:1381086277:product:roadmap",
+      "path": "docs/delivery/mvp-phases.md",
+      "sha256": "149d47197647947b3ff30250414b7bb8a59f59c3ddf2fe957665a760273f1d3d",
+      "source_status": "preserve_source_declaration"
+    },
+    {
+      "id": "paper-radar:1381086277:product:requirements",
+      "path": "docs/delivery/requirements-specification.md",
+      "sha256": "93af37db233200b99d880b7d1e21ea9a3188c1260d97ed0f7a121f643e756ff1",
+      "source_status": "preserve_source_declaration"
+    },
+    {
+      "id": "paper-radar:1381086277:bc:discovery",
+      "path": "docs/domains/discovery.md",
+      "sha256": "2e39a1d09806f3c1e55fbe204f133a3d8143accd63ac08e3bfcf9270d4414c4a",
+      "source_status": "preserve_source_declaration"
+    },
+    {
+      "id": "paper-radar:1381086277:story:13:design",
+      "path": "specs/13-versioned-evidence/plan.md",
+      "sha256": "cac5d41085298c5655470d775bf0a71fecdaf08f495bc353544875edfc9864f8",
+      "source_status": "preserve_source_declaration"
+    },
+    {
+      "id": "paper-radar:1381086277:story:13:requirements",
+      "path": "specs/13-versioned-evidence/spec.md",
+      "sha256": "26f35c4878c639c2ce33e90c4c86c695ac194e53016100762761b0d9dbab1694",
+      "source_status": "preserve_source_declaration"
+    },
+    {
+      "id": "paper-radar:1381086277:story:17:design",
+      "path": "specs/17-grounded-explanations/plan.md",
+      "sha256": "8ce4838e5b644ac69cbe764989ee1be94bbd17a3c595649233fbed2514e0f50b",
+      "source_status": "preserve_source_declaration"
+    },
+    {
+      "id": "paper-radar:1381086277:story:17:requirements",
+      "path": "specs/17-grounded-explanations/spec.md",
+      "sha256": "68ec5e04f5fa538eb39436473c9257e188c274aea22444edba54c3fcc7a8dbde",
+      "source_status": "preserve_source_declaration"
+    },
+    {
+      "id": "paper-radar:1381086277:story:21:design",
+      "path": "specs/21-daily-email-digest/plan.md",
+      "sha256": "ce9a1b9ea1a30cda2eb7fed49b17047027498b8f2f65807551068c6f898b5fcf",
+      "source_status": "preserve_source_declaration"
+    },
+    {
+      "id": "paper-radar:1381086277:story:21:requirements",
+      "path": "specs/21-daily-email-digest/spec.md",
+      "sha256": "880d5997876b2b39b7c33f6f762d75b1184d30f802278c6f604c579081ee813c",
+      "source_status": "preserve_source_declaration"
+    },
+    {
+      "id": "paper-radar:1381086277:story:25:design",
+      "path": "specs/25-durable-cli-worker/plan.md",
+      "sha256": "505a88c1985360a4fe5bf795517abf7b29c662f322d53eb9e3bee7f733576d43",
+      "source_status": "preserve_source_declaration"
+    },
+    {
+      "id": "paper-radar:1381086277:story:25:requirements",
+      "path": "specs/25-durable-cli-worker/spec.md",
+      "sha256": "ac2f0fb84322b67d2be9962965a442eba5ad336f3afdef3f8cc91e26aabd5c66",
+      "source_status": "preserve_source_declaration"
+    },
+    {
+      "id": "paper-radar:1381086277:story:29:design",
+      "path": "specs/29-five-domain-coverage/plan.md",
+      "sha256": "b325d0024fa3dfd8f3da54295039e1c74fd50e3237a166ac387dca1ef10d8754",
+      "source_status": "preserve_source_declaration"
+    },
+    {
+      "id": "paper-radar:1381086277:story:29:requirements",
+      "path": "specs/29-five-domain-coverage/spec.md",
+      "sha256": "697ea63bca35ab4a090cb707d0897c420263de48c576167268245d1779f91bd2",
+      "source_status": "preserve_source_declaration"
+    },
+    {
+      "id": "paper-radar:1381086277:story:33:design",
+      "path": "specs/33-local-hybrid-retrieval/plan.md",
+      "sha256": "d706445ca046ec9e0d5a1529089d656a9986a35bf39c4485842b616b255930fd",
+      "source_status": "preserve_source_declaration"
+    },
+    {
+      "id": "paper-radar:1381086277:story:33:requirements",
+      "path": "specs/33-local-hybrid-retrieval/spec.md",
+      "sha256": "0fa637d8a082636d3665fb7023462c6b93bc3d3c9020bfd007aa00844bab3d4f",
+      "source_status": "preserve_source_declaration"
+    },
+    {
+      "id": "paper-radar:1381086277:story:37:design",
+      "path": "specs/37-revision-correction-notices/plan.md",
+      "sha256": "4d89cb04f0c6f94b56aa05f932f13c266ed44ac6a50d10b4b5ac1a5c712387b6",
+      "source_status": "preserve_source_declaration"
+    },
+    {
+      "id": "paper-radar:1381086277:story:37:requirements",
+      "path": "specs/37-revision-correction-notices/spec.md",
+      "sha256": "87b2121a6c3cd97cbd0734139839314f40015c091916b2a6fdec1ba7b034bf07",
+      "source_status": "preserve_source_declaration"
+    },
+    {
+      "id": "paper-radar:1381086277:story:41:design",
+      "path": "specs/41-local-reading-feedback/plan.md",
+      "sha256": "e04d2a3fb0c2b63ce0ed6165e167cdd52bfdde1a8f7b3e2b8703ec05c054c902",
+      "source_status": "preserve_source_declaration"
+    },
+    {
+      "id": "paper-radar:1381086277:story:41:requirements",
+      "path": "specs/41-local-reading-feedback/spec.md",
+      "sha256": "978f064bdb34e446340bad3d460a5065e0730255cd1fff443023ebd5b92fb05c",
+      "source_status": "preserve_source_declaration"
+    },
+    {
+      "id": "paper-radar:1381086277:story:45:design",
+      "path": "specs/45-consistent-backup-restore/plan.md",
+      "sha256": "c3fa194b852ccf49089f4d3169d0cf81de3184a4f0b88968b683c20fcd91d3b0",
+      "source_status": "preserve_source_declaration"
+    },
+    {
+      "id": "paper-radar:1381086277:story:45:requirements",
+      "path": "specs/45-consistent-backup-restore/spec.md",
+      "sha256": "90c834ef6964aca29a4afb85d63aedade81d548d3c3d240e5a71753c1eed5f0e",
+      "source_status": "preserve_source_declaration"
+    },
+    {
+      "id": "paper-radar:1381086277:story:49:design",
+      "path": "specs/49-operational-evidence/plan.md",
+      "sha256": "d991f1549c07b1fb18a29fc3075f42db2fecd5686d35dcd630cad9d8e767705a",
+      "source_status": "preserve_source_declaration"
+    },
+    {
+      "id": "paper-radar:1381086277:story:49:requirements",
+      "path": "specs/49-operational-evidence/spec.md",
+      "sha256": "5ed0a00bbfbe3b05510f92a678bcd73a197c64255ee15751385c620a0c2995fb",
+      "source_status": "preserve_source_declaration"
+    },
+    {
+      "id": "paper-radar:1381086277:story:5:design",
+      "path": "specs/5-local-workspace/plan.md",
+      "sha256": "1bfb8177f8ddcb01da19d1e26855058adfd2ea386e9425c07c1ba03c7d04e52d",
+      "source_status": "preserve_source_declaration"
+    },
+    {
+      "id": "paper-radar:1381086277:story:5:requirements",
+      "path": "specs/5-local-workspace/spec.md",
+      "sha256": "e0a40a9d3b6e22605e3ca568153c4bedd10999cdfbc0008dba0681da147eb98d",
+      "source_status": "preserve_source_declaration"
+    },
+    {
+      "id": "paper-radar:1381086277:story:9:design",
+      "path": "specs/9-arxiv-discovery/plan.md",
+      "sha256": "7ddafb01696e5d44006b460c14441f9d514b62a37c8a207e708e11ba877ef53f",
+      "source_status": "preserve_source_declaration"
+    },
+    {
+      "id": "paper-radar:1381086277:story:9:requirements",
+      "path": "specs/9-arxiv-discovery/spec.md",
+      "sha256": "54fbd6d0017670a1a824581876cfb8e8e484de2d852784a89b66f5c7f05783a4",
+      "source_status": "preserve_source_declaration"
+    }
+  ]
+}

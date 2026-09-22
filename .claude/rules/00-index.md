@@ -17,4 +17,4 @@
 - [80-documentation.md](80-documentation.md)
 - [90-operations.md](90-operations.md)
 
-當前 bootstrap 是規劃交付，不是 architecture freeze、runtime dispatch 或 independent ACCEPT。個別 Task 仍須依 Rule 15 完成 Ready 證據。
+2026-09-23 文件與查找方式由 Rule80 分階段採用取代指明的舊限制；其餘工程與獨立審查保留。規劃、實作、自測、規格接受與獨立 ACCEPT 分開，Task 仍核對必要 readiness。
