@@ -90,6 +90,11 @@ class SqliteWorkspaceBootstrapAdapter:
                         "created_at) VALUES(1,?,1,0,?)",
                         (str(uuid.uuid4()), datetime.now(timezone.utc).isoformat()),
                     )
+                # Switch while this complete database is still private. Published
+                # readers must not race to acquire an exclusive mode-change lock.
+                mode = connection.execute("PRAGMA journal_mode=WAL").fetchone()[0]
+                if mode != "wal":
+                    raise StorageError("unsupported_journal_mode", str(mode))
             finally:
                 connection.close()
             fd = os.open(staging, os.O_RDONLY | os.O_NOFOLLOW)

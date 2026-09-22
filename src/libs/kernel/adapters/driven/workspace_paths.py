@@ -49,7 +49,11 @@ class WorkspacePaths:
         path = self.path("state/app.sqlite3")
         for suffix in ("-wal", "-shm", "-journal"):
             sidecar = self.path(f"state/app.sqlite3{suffix}")
-            if sidecar.exists() and not sidecar.is_file():
+            try:
+                mode = sidecar.lstat().st_mode
+            except FileNotFoundError:
+                continue
+            if not stat.S_ISREG(mode):
                 raise StorageError("unsafe_path", sidecar.name)
         if path.exists() and not path.is_file():
             raise StorageError("unsafe_path", "database is not a regular file")
