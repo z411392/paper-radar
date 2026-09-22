@@ -31,10 +31,12 @@ class BuildHarvestQueryInput:
         ):
             raise HarvestWorkflowError("profile_not_current")
         revision = HarvestQueryRules.profile_domain_revision(profile, request.domain_id)
+        filters = HarvestQueryRules.filters(profile)
+        if request.source_id not in filters["sources"]:
+            raise HarvestWorkflowError("source_not_selected")
         domain = self._domains(request.domain_id, revision)
         HarvestQueryRules.domain(domain, request.domain_id, revision)
-        filters = HarvestQueryRules.filters(profile)
-        if request.source_id not in filters["sources"] or request.source_id not in domain.sources:
+        if request.source_id not in domain.sources:
             raise HarvestWorkflowError("source_not_selected")
         categories = dict(domain.source_categories).get(request.source_id, ())
         return SourceQueryInput(
