@@ -50,9 +50,7 @@ def payload() -> str:
 
 def test_read_exact_published_domain_revision(store):
     adapter, _ = store
-    ImportDomainSeeds(
-        NormalizeWatchConfiguration(frozenset({"arxiv", "crossref"})), adapter
-    )(payload())
+    ImportDomainSeeds(NormalizeWatchConfiguration(frozenset({"arxiv", "crossref"})), adapter)(payload())
     domain = ReadDomainDefinition(adapter)("statistics", 1)
     assert domain.domain_id == "statistics"
     assert domain.revision == 1
