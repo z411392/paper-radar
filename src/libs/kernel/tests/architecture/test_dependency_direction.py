@@ -91,8 +91,7 @@ def is_inbound_port(root: Path, target: str) -> bool:
             return any(
                 isinstance(node, ast.ClassDef)
                 and any(
-                    isinstance(method, (ast.FunctionDef, ast.AsyncFunctionDef))
-                    and method.name == "__call__"
+                    isinstance(method, (ast.FunctionDef, ast.AsyncFunctionDef)) and method.name == "__call__"
                     for method in node.body
                 )
                 for node in tree.body

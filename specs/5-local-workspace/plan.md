@@ -28,7 +28,7 @@ Apps 只呼叫 feature inbound port；libs 不讀 apps transport DTO。跨模組
 
 ## 驗證方法
 
-各 Task body 的每個 S1／S2／S3 應有對應 Given／When／Then 與反例；不可複製整個 Story 的結果來冒充每個工程切片。Task #6 下節已限定工程 oracle，#7／#8 仍需在其施工前固定。測試檔须先建立並證明因缺少目標行為而失敗；不得將不存在的命令寫成 PASS。
+各 Task body 的每個 S1／S2／S3 應有對應 Given／When／Then 與反例；不可複製整個 Story 的結果來冒充每個工程切片。Task #6 下節已限定工程 oracle，#7／#8 仍需在其施工前固定。測試檔須先建立並證明因缺少目標行為而失敗；不得將不存在的命令寫成 PASS。
 
 Focused unit／integration → contract／acceptance → `make ci-fast` → 獨立 Reviewer exact-candidate review → Commander 保留 Subtask commits 合流。真來源、真模型、受控郵件及復原能力各自另記收據。
 
