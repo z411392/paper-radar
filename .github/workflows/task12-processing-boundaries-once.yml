@@ -31,10 +31,10 @@ jobs:
       - name: Strengthen receipt and committed-state consistency
         run: |
           uv run --locked --offline python - <<'PY'
-          import subprocess
+          import ast,subprocess
           from pathlib import Path
           def git(*args): return subprocess.check_output(['git',*args],text=True).strip()
-          assert git('rev-parse','HEAD^')=='ece3ccd2e6c9f5f5bfdc7c9705a7b7ee14373b1e'
+          assert git('diff','--name-only','ece3ccd2e6c9f5f5bfdc7c9705a7b7ee14373b1e','HEAD')=='.github/workflows/task12-processing-boundaries-once.yml'
           adapter=Path('src/libs/discovery/adapters/driven/sqlite_harvest_processing_adapter.py')
           rules=Path('src/libs/discovery/domain/services/harvest_page_rules.py')
           assert git('hash-object',str(adapter))=='533cb003544e618cf6deb4314516b144a7de0f3a'
@@ -49,7 +49,7 @@ jobs:
           replace('        else:\n            cursor = HarvestPageRules.decode(unit["cursor_json"])', '        else:\n            if state in {"pending", "running", "failed"}:\n                raise HarvestError("invalid_checkpoint_state")\n            if (type(coverage.get("format_version")) is not int\n                    or type(coverage.get("record_count")) is not int\n                    or type(coverage.get("complete")) is not bool):\n                raise HarvestError("invalid_checkpoint_state")\n            cursor = HarvestPageRules.decode(unit["cursor_json"])')
           start=text.index('        records = tuple(\n')
           end=text.index('        return HarvestProcessingSnapshot(\n',start)
-          text=text[:start]+'''        observations = connection.execute(
+          block='''        observations = connection.execute(
               "SELECT id,native_id FROM source_observations WHERE unit_id=? ORDER BY native_id LIMIT 30001",
               (attempt.unit_id,),
           ).fetchall()
@@ -69,7 +69,9 @@ jobs:
                       raise HarvestError("invalid_processing_receipt")
               elif receipt.next_start != attempt.request.start:
                   raise HarvestError("invalid_processing_receipt")
-          '''.replace('\n          ', '\n        ')+text[end:]
+          '''.replace('\n          ', '\n        ').rstrip()+'\n'
+          text=text[:start]+block+text[end:]
+          ast.parse(text)
           adapter.write_text(text)
           text=rules.read_text()
           marker='            if PrepareHarvestCapture.time(datetime.fromisoformat(result.processed_at)) != result.processed_at:'
@@ -92,11 +94,12 @@ jobs:
                       or (result.state == "partial" and (
                           result.expected_checkpoint_version == 0 or result.next_start == 0))):
                   raise HarvestError("invalid_processing_receipt")
-          '''.replace('\n          ', '\n        ')
+          '''.replace('\n          ', '\n        ').rstrip()+'\n'
           text=text.replace(marker,extra+marker,1)
           marker='        return HarvestPageResult(\n'
           assert text.count(marker)==1
           text=text.replace(marker,'        cls.checkpoint(version)\n'+marker,1)
+          ast.parse(text)
           rules.write_text(text)
           paths=[str(adapter),str(rules),'src/libs/discovery/tests/contract/test_harvest_processing_boundaries.py']
           subprocess.run(['uv','run','--locked','--offline','ruff','check','--select','I,F401','--fix',*paths],check=True)
