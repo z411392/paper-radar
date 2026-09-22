@@ -39,9 +39,7 @@ def test_discovery_migrations_are_bundled_in_installed_wheel(tmp_path: Path) -> 
             assert archive.read("libs/kernel/resources/migrations/" + name) == expected
 
     execute([uv, "venv", "--python", sys.executable, str(venv)])
-    execute(
-        [uv, "sync", "--locked", "--offline", "--no-dev", "--no-install-project", "--project", str(root)]
-    )
+    execute([uv, "sync", "--locked", "--offline", "--no-dev", "--no-install-project", "--project", str(root)])
     execute([uv, "pip", "install", "--offline", "--no-deps", "--python", str(python), str(wheel)])
     outside = tmp_path / "outside"
     outside.mkdir()
