@@ -7,17 +7,31 @@ from libs.kernel.exceptions.storage_error import StorageError
 
 
 class SqliteSchemaConnectionFactory:
-    """Open a recognized workspace only when its installed schema matches the bundle.
+    """Open a recognized workspace without installing or changing migrations.
 
-    Validation never installs a migration. SQLite may maintain its own WAL sidecars;
-    this is a schema/row no-mutation guarantee, not a byte-for-byte filesystem snapshot.
+    By default the installed schema must exactly match the supplied bundle. A
+    feature may instead declare a minimum version while still supplying every
+    migration version this application knows how to validate.
     """
 
-    def __init__(self, root: Path, migrations: tuple[Migration, ...]) -> None:
+    def __init__(
+        self,
+        root: Path,
+        migrations: tuple[Migration, ...],
+        *,
+        minimum_version: int | None = None,
+    ) -> None:
         if not migrations or [m.version for m in migrations] != list(range(1, len(migrations) + 1)):
             raise StorageError("invalid_migrations", "explicit contiguous bundle required")
+        if minimum_version is None:
+            required = len(migrations)
+        elif type(minimum_version) is not int or not 1 <= minimum_version <= len(migrations):
+            raise StorageError("invalid_migrations", "minimum version must exist in the known bundle")
+        else:
+            required = minimum_version
         self._factory = SqliteConnectionFactory(root)
         self._expected = tuple((m.version, m.name, m.sha256) for m in migrations)
+        self._required = required
 
     def connect(self) -> sqlite3.Connection:
         try:
@@ -36,7 +50,7 @@ class SqliteSchemaConnectionFactory:
                 raise StorageError("unsupported_schema")
             if rows != self._expected[: len(rows)]:
                 raise StorageError("migration_drift")
-            if len(rows) < len(self._expected):
+            if len(rows) < self._required:
                 raise StorageError("schema_upgrade_required")
             identity = connection.execute(
                 "SELECT workspace_id,epoch FROM workspace_metadata WHERE singleton=1"

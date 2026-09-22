@@ -4,12 +4,22 @@ from libs.kernel.dtos.migration import Migration
 from libs.kernel.exceptions.storage_error import StorageError
 
 
-def load_workspace_migrations(*, with_profiles: bool = False) -> tuple[Migration, ...]:
-    names = (
-        ("0001-object-registry.sql", "0002-watch-profiles.sql")
-        if with_profiles
-        else ("0001-object-registry.sql",)
-    )
+def load_workspace_migrations(
+    *, with_profiles: bool = False, with_discovery: bool = False
+) -> tuple[Migration, ...]:
+    if type(with_profiles) is not bool or type(with_discovery) is not bool:
+        raise StorageError("invalid_migrations", "schema selectors must be booleans")
+    if with_discovery:
+        names = (
+            "0001-object-registry.sql",
+            "0002-watch-profiles.sql",
+            "0003-scholarly-catalog.sql",
+            "0004-discovery.sql",
+        )
+    elif with_profiles:
+        names = ("0001-object-registry.sql", "0002-watch-profiles.sql")
+    else:
+        names = ("0001-object-registry.sql",)
     migrations = []
     for version, name in enumerate(names, start=1):
         try:
