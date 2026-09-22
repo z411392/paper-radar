@@ -57,7 +57,7 @@ def test_live_composition_uses_shared_gate_and_does_not_refetch_completed_slice(
 
     watch = Injector([WatchProfileCliModule(str(workspace))], auto_bind=False)
     watch.get(ImportDomainSeedsPort)((ROOT / "config/domain-seeds.json").read_text(encoding="utf-8"))
-    watch.get(PublishWatchProfilePort)(profile_payload(), None)
+    watch.get(PublishWatchProfilePort)(profile_payload(), expected_revision=None)
 
     transport = SyntheticTransport()
     gate = tmp_path / "shared-arxiv-rate-limit.json"
