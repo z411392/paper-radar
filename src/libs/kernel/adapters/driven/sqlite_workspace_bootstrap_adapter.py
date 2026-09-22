@@ -27,7 +27,7 @@ class SqliteWorkspaceBootstrapAdapter:
             database = self._paths.database()
             if not database.exists():
                 allowed = {"state", "objects", "tmp"}
-                if any(p.name not in allowed for p in root.iterdir()):
+                if any(p.name not in allowed for p in root.iterdir()) and not self._paths.database().is_file():
                     raise StorageError("foreign_workspace", "not an empty or interrupted bootstrap directory")
                 for relative in ("objects", "tmp", "state"):
                     directory = self._paths.path(relative)
@@ -40,7 +40,10 @@ class SqliteWorkspaceBootstrapAdapter:
                             if child.is_symlink():
                                 raise StorageError("unsafe_path", child.name)
                             continue
-                        raise StorageError("foreign_workspace", "existing data without a recognized database")
+                        # Another initializer may have published a complete database
+                        # since the initial existence check. Validate it below.
+                        if not self._paths.database().is_file():
+                            raise StorageError("foreign_workspace", "existing data without a recognized database")
                 state = self._paths.directory("state")
                 self._paths.directory("objects")
                 self._paths.directory("tmp")
@@ -90,7 +93,6 @@ class SqliteWorkspaceBootstrapAdapter:
             try:
                 os.link(staging, destination)
             except FileExistsError:
-                # A simultaneous initializer won; open and validate that complete DB below.
                 pass
             self._paths.sync_directory(state)
         finally:
