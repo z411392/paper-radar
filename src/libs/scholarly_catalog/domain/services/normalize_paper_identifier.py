@@ -15,11 +15,7 @@ class NormalizePaperIdentifier:
         except UnicodeEncodeError as exc:
             raise PaperIdentityError("invalid_identifier") from exc
         value = value.strip()
-        if (
-            not value
-            or size > maximum_bytes
-            or any(ord(char) < 33 or ord(char) == 127 for char in value)
-        ):
+        if not value or size > maximum_bytes or any(ord(char) < 33 or ord(char) == 127 for char in value):
             raise PaperIdentityError("invalid_identifier")
         return value
 
