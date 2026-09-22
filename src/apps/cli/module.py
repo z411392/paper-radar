@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from injector import Binder, Module, singleton
+from injector import Binder, InstanceProvider, Module, singleton
 
 from libs.kernel.adapters.driven.bundled_workspace_migrations import load_workspace_migrations
 from libs.kernel.adapters.driven.sqlite_workspace_bootstrap_adapter import SqliteWorkspaceBootstrapAdapter
@@ -24,5 +24,6 @@ class CliModule(Module):
         binder.bind(ReadRuntimeVersionPort, to=ReadRuntimeVersion, scope=singleton)
         if self._workspace is not None:
             bootstrap = SqliteWorkspaceBootstrapAdapter(Path(self._workspace), load_workspace_migrations())
-            binder.bind(WorkspaceBootstrapPort, to=bootstrap, scope=singleton)
-            binder.bind(InitializeWorkspacePort, to=InitializeWorkspace(bootstrap), scope=singleton)
+            binder.bind(WorkspaceBootstrapPort, to=InstanceProvider(bootstrap), scope=singleton)
+            command = InitializeWorkspace(bootstrap)
+            binder.bind(InitializeWorkspacePort, to=InstanceProvider(command), scope=singleton)
