@@ -1,6 +1,19 @@
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
 import pytest
 
+from libs.kernel.adapters.driven.bundled_workspace_migrations import load_workspace_migrations
+from libs.kernel.adapters.driven.sqlite_connection_factory import SqliteConnectionFactory
+from libs.kernel.adapters.driven.sqlite_schema_connection_factory import SqliteSchemaConnectionFactory
+from libs.kernel.adapters.driven.sqlite_workspace_bootstrap_adapter import SqliteWorkspaceBootstrapAdapter
+from libs.scholarly_catalog.adapters.driven.sqlite_paper_identity_store_adapter import (
+    SqlitePaperIdentityStoreAdapter,
+)
+from libs.scholarly_catalog.application.commands.resolve_paper_identity import ResolvePaperIdentity
+from libs.scholarly_catalog.application.queries.read_paper_identity import ReadPaperIdentity
 from libs.scholarly_catalog.domain.services.normalize_paper_identifier import NormalizePaperIdentifier
+from libs.scholarly_catalog.dtos.paper_identity_observation import PaperIdentityObservation
 from libs.scholarly_catalog.exceptions.paper_identity_error import PaperIdentityError
 
 
@@ -48,20 +61,6 @@ def test_invalid_or_unsupported_identifier_is_rejected(namespace: str, value: st
     with pytest.raises(PaperIdentityError):
         NormalizePaperIdentifier()(namespace, value)
 
-
-from datetime import datetime, timedelta, timezone
-from pathlib import Path
-
-from libs.kernel.adapters.driven.bundled_workspace_migrations import load_workspace_migrations
-from libs.kernel.adapters.driven.sqlite_connection_factory import SqliteConnectionFactory
-from libs.kernel.adapters.driven.sqlite_schema_connection_factory import SqliteSchemaConnectionFactory
-from libs.kernel.adapters.driven.sqlite_workspace_bootstrap_adapter import SqliteWorkspaceBootstrapAdapter
-from libs.scholarly_catalog.adapters.driven.sqlite_paper_identity_store_adapter import (
-    SqlitePaperIdentityStoreAdapter,
-)
-from libs.scholarly_catalog.application.commands.resolve_paper_identity import ResolvePaperIdentity
-from libs.scholarly_catalog.application.queries.read_paper_identity import ReadPaperIdentity
-from libs.scholarly_catalog.dtos.paper_identity_observation import PaperIdentityObservation
 
 AT = datetime(2026, 9, 23, 0, 0, tzinfo=timezone.utc)
 
@@ -137,7 +136,13 @@ def test_exact_replay_is_idempotent_and_does_not_add_revision(tmp_path: Path) ->
     observation = _observation("obs:replay", "2609.00002v1", "3" * 64)
     first = resolve(observation)
     second = resolve(observation)
-    assert first == second
+    assert (first.work_id, first.manifestation_id, first.revision_id) == (
+        second.work_id,
+        second.manifestation_id,
+        second.revision_id,
+    )
+    assert first.created_work and first.created_manifestation and first.created_revision
+    assert not second.created_work and not second.created_manifestation and not second.created_revision
     assert len(read("arxiv", "2609.00002").revisions) == 1
 
 
