@@ -4,6 +4,7 @@ Use --self-test offline. --live-confirmed consumes OPENROUTER_API_KEY from the
 process environment and is only for a separately authorized bounded test.
 Only fixed synthetic evidence is sent; provider bodies/secrets are never logged.
 """
+
 import hashlib
 import http.client
 import json
@@ -59,11 +60,20 @@ def payload() -> dict[str, Any]:
         "messages": [
             {
                 "role": "system",
-                "content": "Extract only the supplied synthetic evidence into JSON. Write one short Traditional Chinese sentence in summary_zh_tw. Do not infer missing study details.",
+                "content": (
+                    "Extract only the supplied synthetic evidence into JSON. Write one shor"
+                    "t Traditional Chinese sentence in summary_zh_tw. Do not infer missing "
+                    "study details."
+                ),
             },
             {
                 "role": "user",
-                "content": "Synthetic abstract S1 (not a real paper): A badminton study used 180 match clips. Proposed prediction error was 0.42 m versus baseline 0.58 m. The abstract does not report whether external validation was performed.",
+                "content": (
+                    "Synthetic abstract S1 (not a real paper): A badminton study used 180 m"
+                    "atch clips. Proposed prediction error was 0.42 m versus baseline 0.58 "
+                    "m. The abstract does not report whether external validation was perfor"
+                    "med."
+                ),
             },
         ],
         "max_tokens": MAX_TOKENS,
@@ -95,16 +105,23 @@ def exchange(method: str, path: str, key: str, data: bytes | None = None) -> tup
         raise ProbeError("endpoint_not_allowed")
     if method == "POST" and (data is None or len(data) > MAX_REQUEST_BYTES):
         raise ProbeError("request_size_limit")
-    connection = http.client.HTTPSConnection("openrouter.ai", timeout=75, context=ssl.create_default_context())
+    connection = http.client.HTTPSConnection(
+        "openrouter.ai", timeout=75, context=ssl.create_default_context()
+    )
     response = None
     try:
-        connection.request(method, path, body=data, headers={
-            "Authorization": "Bearer " + key,
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            "Accept-Encoding": "identity",
-            "Connection": "close",
-        })
+        connection.request(
+            method,
+            path,
+            body=data,
+            headers={
+                "Authorization": "Bearer " + key,
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "Accept-Encoding": "identity",
+                "Connection": "close",
+            },
+        )
         response = connection.getresponse()
         status = response.status
         raw = response.read(65537)
@@ -132,8 +149,12 @@ def exchange(method: str, path: str, key: str, data: bytes | None = None) -> tup
 
 def validate_output(value: Any) -> dict[str, Any]:
     expected = {
-        "source_id", "sample_size", "proposed_error_m", "baseline_error_m",
-        "external_validation", "summary_zh_tw",
+        "source_id",
+        "sample_size",
+        "proposed_error_m",
+        "baseline_error_m",
+        "external_validation",
+        "summary_zh_tw",
     }
     if not isinstance(value, dict) or set(value) != expected:
         raise ProbeError("output_schema_mismatch")
@@ -146,7 +167,11 @@ def validate_output(value: Any) -> dict[str, Any]:
     if value["external_validation"] != "not_reported":
         raise ProbeError("missing_evidence_not_preserved")
     summary = value["summary_zh_tw"]
-    if not isinstance(summary, str) or not 1 <= len(summary) <= 240 or not re.search(r"[\u4e00-\u9fff]", summary):
+    if (
+        not isinstance(summary, str)
+        or not 1 <= len(summary) <= 240
+        or not re.search(r"[\u4e00-\u9fff]", summary)
+    ):
         raise ProbeError("summary_shape_mismatch")
     if any(ord(char) < 32 for char in summary) or "sk-" in summary.lower():
         raise ProbeError("unsafe_output")
@@ -160,7 +185,11 @@ def _number(value: Any) -> int | float | None:
 
 
 def probe(key: str, sender: Any = exchange) -> dict[str, Any]:
-    report: dict[str, Any] = {"probe": "openrouter-synthetic-v1", "requested_model": MODEL, "completion_attempts": 0}
+    report: dict[str, Any] = {
+        "probe": "openrouter-synthetic-v1",
+        "requested_model": MODEL,
+        "completion_attempts": 0,
+    }
     try:
         if not key or key != key.strip() or any(ord(c) < 33 or ord(c) > 126 for c in key):
             raise ProbeError("missing_or_invalid_secret")
@@ -194,7 +223,10 @@ def probe(key: str, sender: Any = exchange) -> dict[str, Any]:
             raise ProbeError("completion_error_or_shape")
         usage = completion.get("usage")
         if isinstance(usage, dict):
-            report["usage"] = {name: _number(usage.get(name)) for name in ("prompt_tokens", "completion_tokens", "total_tokens", "cost")}
+            report["usage"] = {
+                name: _number(usage.get(name))
+                for name in ("prompt_tokens", "completion_tokens", "total_tokens", "cost")
+            }
             reasoning = usage.get("completion_tokens_details")
             if isinstance(reasoning, dict):
                 report["reasoning_tokens"] = _number(reasoning.get("reasoning_tokens"))
@@ -206,17 +238,31 @@ def probe(key: str, sender: Any = exchange) -> dict[str, Any]:
             raise ProbeError("choices_shape")
         choice = choices[0]
         reason = choice.get("finish_reason")
-        report["finish_reason"] = reason if reason in {"stop", "length", "error", "content_filter", "tool_calls"} else "unknown"
+        report["finish_reason"] = (
+            reason if reason in {"stop", "length", "error", "content_filter", "tool_calls"} else "unknown"
+        )
         if reason != "stop":
             raise ProbeError("incomplete_completion")
         message = choice.get("message")
-        if not isinstance(message, dict) or not isinstance(message.get("content"), str) or message.get("tool_calls"):
+        if (
+            not isinstance(message, dict)
+            or not isinstance(message.get("content"), str)
+            or message.get("tool_calls")
+        ):
             raise ProbeError("message_shape")
         content = message["content"]
         if key in content:
             raise ProbeError("response_contains_secret_marker")
         output = validate_output(decode(content))
-        report.update({"structured_output_passed": True, "numeric_alignment_passed": True, "unknown_preserved": True, "synthetic_output": output, "status": "PASS"})
+        report.update(
+            {
+                "structured_output_passed": True,
+                "numeric_alignment_passed": True,
+                "unknown_preserved": True,
+                "synthetic_output": output,
+                "status": "PASS",
+            }
+        )
     except ProbeError as exc:
         report.update({"status": "FAIL", "failure_code": str(exc)})
     except Exception:
@@ -225,9 +271,22 @@ def probe(key: str, sender: Any = exchange) -> dict[str, Any]:
 
 
 def self_test() -> None:
-    sample = {"source_id": "S1", "sample_size": 180, "proposed_error_m": 0.42, "baseline_error_m": 0.58, "external_validation": "not_reported", "summary_zh_tw": "這是合成測試，並非真實論文。"}
+    sample = {
+        "source_id": "S1",
+        "sample_size": 180,
+        "proposed_error_m": 0.42,
+        "baseline_error_m": 0.58,
+        "external_validation": "not_reported",
+        "summary_zh_tw": "這是合成測試，並非真實論文。",
+    }
     assert validate_output(sample) == sample
-    invalid = [dict(sample, sample_size=True), dict(sample, proposed_error_m=0.58), dict(sample, extra="bad"), dict(sample, external_validation="reported"), dict(sample, summary_zh_tw="sk-or-secret")]
+    invalid = [
+        dict(sample, sample_size=True),
+        dict(sample, proposed_error_m=0.58),
+        dict(sample, extra="bad"),
+        dict(sample, external_validation="reported"),
+        dict(sample, summary_zh_tw="sk-or-secret"),
+    ]
     for item in invalid:
         try:
             validate_output(item)
@@ -243,23 +302,33 @@ def self_test() -> None:
         else:
             raise AssertionError("invalid JSON accepted")
     calls: list[str] = []
+
     def fake(method: str, path: str, key: str, data: bytes | None = None) -> tuple[int, Any]:
         calls.append(method)
         if method == "GET":
             return 200, {"data": {"label": key, "limit": 1, "limit_remaining": 1}}
-        return 200, {"model": MODEL, "choices": [{"finish_reason": "stop", "message": {"content": json.dumps(sample)}}], "usage": {"cost": 0.001}}
+        return 200, {
+            "model": MODEL,
+            "choices": [{"finish_reason": "stop", "message": {"content": json.dumps(sample)}}],
+            "usage": {"cost": 0.001},
+        }
+
     result = probe("FAKE_SECRET_NEVER_PRINT", fake)
     assert result["status"] == "PASS" and calls == ["GET", "POST"]
     assert "FAKE_SECRET_NEVER_PRINT" not in json.dumps(result)
     assert probe("", fake)["completion_attempts"] == 0
+
     def rejected(method: str, path: str, key: str, data: bytes | None = None) -> tuple[int, Any]:
         assert method == "GET"
         return 401, None
+
     assert probe("FAKE_SECRET", rejected)["completion_attempts"] == 0
+
     def failed_post(method: str, path: str, key: str, data: bytes | None = None) -> tuple[int, Any]:
         if method == "GET":
             return 200, {"data": {}}
         return 429, None
+
     failure = probe("FAKE_SECRET", failed_post)
     assert failure["completion_attempts"] == 1 and failure["status"] == "FAIL"
     assert len(json.dumps(payload()).encode()) < MAX_REQUEST_BYTES
@@ -269,9 +338,15 @@ def self_test() -> None:
 if __name__ == "__main__":
     if sys.argv[1:] == ["--self-test"]:
         self_test()
-    elif sys.argv[1:] == ["--live-confirmed"] and os.environ.get("PAPER_RADAR_LIVE_CONFIRMATION") == LIVE_CONFIRMATION:
+    elif (
+        sys.argv[1:] == ["--live-confirmed"]
+        and os.environ.get("PAPER_RADAR_LIVE_CONFIRMATION") == LIVE_CONFIRMATION
+    ):
         result = probe(os.environ.pop("OPENROUTER_API_KEY", ""))
-        print("OPENROUTER_PROBE_RESULT=" + json.dumps(result, ensure_ascii=True, allow_nan=False, separators=(",", ":")))
+        print(
+            "OPENROUTER_PROBE_RESULT="
+            + json.dumps(result, ensure_ascii=True, allow_nan=False, separators=(",", ":"))
+        )
         raise SystemExit(0 if result["status"] == "PASS" else 1)
     else:
         print("EXPLICIT_LIVE_CONFIRMATION_REQUIRED; NO_NETWORK")
