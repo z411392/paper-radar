@@ -61,9 +61,7 @@ def test_read_exact_published_domain_revision(store):
 
 def test_corrupt_duplicate_key_definition_is_rejected(store):
     adapter, factory = store
-    ImportDomainSeeds(
-        NormalizeWatchConfiguration(frozenset({"arxiv", "crossref"})), adapter
-    )(payload())
+    ImportDomainSeeds(NormalizeWatchConfiguration(frozenset({"arxiv", "crossref"})), adapter)(payload())
     connection = factory.connect()
     try:
         original = connection.execute(
