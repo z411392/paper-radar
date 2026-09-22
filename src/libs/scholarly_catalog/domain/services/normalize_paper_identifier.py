@@ -1,6 +1,4 @@
 import re
-from urllib.parse import unquote, urlsplit
-
 from libs.scholarly_catalog.dtos.normalized_identifier import NormalizedIdentifier
 from libs.scholarly_catalog.exceptions.paper_identity_error import PaperIdentityError
 
@@ -20,33 +18,37 @@ class NormalizePaperIdentifier:
         return value
 
     @staticmethod
-    def _doi(value: str) -> NormalizedIdentifier:
+    def _strip_known_prefix(value: str, prefixes: tuple[str, ...]) -> str | None:
+        lowered = value.lower()
+        for prefix in prefixes:
+            if lowered.startswith(prefix):
+                return value[len(prefix) :]
+        return None
+
+    @classmethod
+    def _doi(cls, value: str) -> NormalizedIdentifier:
         raw = value
-        lowered = raw.lower()
-        if lowered.startswith("doi:"):
+        prefixed = cls._strip_known_prefix(
+            raw,
+            (
+                "https://doi.org/",
+                "http://doi.org/",
+                "https://dx.doi.org/",
+                "http://dx.doi.org/",
+            ),
+        )
+        if prefixed is not None:
+            raw = prefixed
+        elif raw[:4].lower() == "doi:":
             raw = raw[4:].strip()
         elif "://" in raw:
-            try:
-                parsed = urlsplit(raw)
-            except ValueError as exc:
-                raise PaperIdentityError("invalid_identifier") from exc
-            if (
-                parsed.scheme.lower() not in {"http", "https"}
-                or parsed.hostname not in {"doi.org", "dx.doi.org"}
-                or parsed.username is not None
-                or parsed.password is not None
-                or parsed.port is not None
-                or parsed.query
-                or parsed.fragment
-            ):
-                raise PaperIdentityError("invalid_identifier")
-            try:
-                raw = unquote(parsed.path.lstrip("/"))
-            except (UnicodeError, ValueError) as exc:
-                raise PaperIdentityError("invalid_identifier") from exc
+            raise PaperIdentityError("invalid_identifier")
         raw = raw.strip()
         if (
             not raw
+            or "?" in raw
+            or "#" in raw
+            or "%" in raw
             or len(raw.encode("utf-8")) > 512
             or any(char.isspace() or ord(char) < 33 or ord(char) == 127 for char in raw)
             or re.fullmatch(r"10\.\d{4,9}/[^\s]+", raw, flags=re.IGNORECASE) is None
@@ -54,32 +56,29 @@ class NormalizePaperIdentifier:
             raise PaperIdentityError("invalid_identifier")
         return NormalizedIdentifier("doi", raw.lower(), None)
 
-    @staticmethod
-    def _arxiv(value: str) -> NormalizedIdentifier:
+    @classmethod
+    def _arxiv(cls, value: str) -> NormalizedIdentifier:
         raw = value
-        if raw[:6].lower() == "arxiv:":
+        prefixed = cls._strip_known_prefix(
+            raw,
+            ("https://arxiv.org/abs/", "http://arxiv.org/abs/"),
+        )
+        if prefixed is not None:
+            raw = prefixed
+        elif raw[:6].lower() == "arxiv:":
             raw = raw[6:]
         elif "://" in raw:
-            try:
-                parsed = urlsplit(raw)
-            except ValueError as exc:
-                raise PaperIdentityError("invalid_identifier") from exc
-            if (
-                parsed.scheme.lower() not in {"http", "https"}
-                or parsed.hostname != "arxiv.org"
-                or parsed.username is not None
-                or parsed.password is not None
-                or parsed.port is not None
-                or parsed.query
-                or parsed.fragment
-                or not parsed.path.startswith("/abs/")
-            ):
-                raise PaperIdentityError("invalid_identifier")
-            raw = parsed.path[len("/abs/") :]
+            raise PaperIdentityError("invalid_identifier")
         raw = raw.strip()
+        try:
+            raw.encode("ascii")
+        except UnicodeEncodeError as exc:
+            raise PaperIdentityError("invalid_identifier") from exc
         if (
             not raw
-            or len(raw.encode("ascii", errors="ignore")) != len(raw)
+            or "?" in raw
+            or "#" in raw
+            or "%" in raw
             or len(raw) > 128
             or any(char.isspace() or ord(char) < 33 or ord(char) == 127 for char in raw)
         ):
