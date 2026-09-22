@@ -28,12 +28,7 @@ def _instant(value: str) -> datetime:
         moment = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         raise argparse.ArgumentTypeError("expected an ISO-8601 timestamp with timezone") from None
-    if (
-        moment.tzinfo is None
-        or moment.utcoffset() is None
-        or moment.second != 0
-        or moment.microsecond != 0
-    ):
+    if moment.tzinfo is None or moment.utcoffset() is None or moment.second != 0 or moment.microsecond != 0:
         raise argparse.ArgumentTypeError("timestamp must include timezone and minute precision")
     return moment
 
@@ -85,9 +80,7 @@ def run_harvest_cli(argv: list[str]) -> None:
     except (StorageError, WatchConfigurationError, HarvestWorkflowError, SourceQueryError) as exc:
         error = {"code": exc.code}
         if exc.code == "schema_upgrade_required":
-            error["hint"] = (
-                "Run init --workspace PATH --with-discovery explicitly before harvest operations."
-            )
+            error["hint"] = "Run init --workspace PATH --with-discovery explicitly before harvest operations."
         elif exc.code == "workspace_missing":
             error["hint"] = "Initialize the intended workspace explicitly; harvest never creates one."
         print(json.dumps({"error": error}, ensure_ascii=False), file=sys.stderr)
