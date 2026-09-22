@@ -21,8 +21,9 @@ def test_installed_wheel_manages_profiles_outside_repository(tmp_path: Path) -> 
     env.update({"UV_PROJECT_ENVIRONMENT": str(venv), "UV_OFFLINE": "1", "UV_PYTHON": sys.executable})
 
     def execute(command: list[str], cwd: Path = tmp_path) -> str:
-        result = subprocess.run(command, cwd=cwd, env=env, capture_output=True,
-                                text=True, timeout=60, check=False)
+        result = subprocess.run(
+            command, cwd=cwd, env=env, capture_output=True, text=True, timeout=60, check=False
+        )
         assert result.returncode == 0, result.stdout + result.stderr
         return result.stdout
 
@@ -53,11 +54,13 @@ def test_installed_wheel_manages_profiles_outside_repository(tmp_path: Path) -> 
     prefix = [str(python), "-I", "-m", "apps.cli"]
     first = json.loads(execute([*prefix, "init", "--workspace", str(workspace), "--with-profiles"], cwd))
     execute([*prefix, "domains", "import", "--workspace", str(workspace), "--file", str(seeds)], cwd)
-    published = json.loads(execute([*prefix, "profile", "publish", "--workspace", str(workspace),
-                                    "--file", str(profile)], cwd))
+    published = json.loads(
+        execute([*prefix, "profile", "publish", "--workspace", str(workspace), "--file", str(profile)], cwd)
+    )
     assert published["revision"] == 1 and len(published["domains"]) == 5
-    read = json.loads(execute([*prefix, "profile", "show", "--workspace", str(workspace),
-                              "--id", "personal"], cwd))
+    read = json.loads(
+        execute([*prefix, "profile", "show", "--workspace", str(workspace), "--id", "personal"], cwd)
+    )
     assert read == published
     second = json.loads(execute([*prefix, "init", "--workspace", str(workspace), "--with-profiles"], cwd))
     assert first == second and first["schema_version"] == 2

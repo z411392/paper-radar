@@ -10,6 +10,7 @@ from libs.kernel.exceptions.storage_error import StorageError
 
 def factory(root: Path):
     from libs.kernel.adapters.driven.sqlite_schema_connection_factory import SqliteSchemaConnectionFactory
+
     return SqliteSchemaConnectionFactory(root, load_workspace_migrations(with_profiles=True))
 
 
@@ -26,7 +27,9 @@ def test_missing_migration_is_not_applied_by_connection(tmp_path: Path) -> None:
         factory(tmp_path).connect()
     with sqlite3.connect(tmp_path / "state/app.sqlite3") as connection:
         assert connection.execute("SELECT COUNT(*) FROM schema_migrations").fetchone() == (1,)
-        assert connection.execute("SELECT name FROM sqlite_master WHERE name='watch_profiles'").fetchall() == []
+        assert (
+            connection.execute("SELECT name FROM sqlite_master WHERE name='watch_profiles'").fetchall() == []
+        )
 
 
 def test_matching_schema_returns_no_active_transaction(tmp_path: Path) -> None:
@@ -46,7 +49,10 @@ def test_migration_hash_drift_is_not_silently_repaired(tmp_path: Path) -> None:
     with pytest.raises(StorageError, match="migration_drift"):
         factory(tmp_path).connect()
     with sqlite3.connect(tmp_path / "state/app.sqlite3") as connection:
-        assert connection.execute("SELECT sha256 FROM schema_migrations WHERE version=2").fetchone()[0] == "0" * 64
+        assert (
+            connection.execute("SELECT sha256 FROM schema_migrations WHERE version=2").fetchone()[0]
+            == "0" * 64
+        )
 
 
 def test_bundle_uses_exact_canonical_sql() -> None:

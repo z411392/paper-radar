@@ -9,11 +9,11 @@ from libs.kernel.exceptions.storage_error import StorageError
 from libs.kernel.ports.initialize_workspace_port import InitializeWorkspacePort
 
 
-def initialize_workspace(workspace: str) -> None:
+def initialize_workspace(workspace: str, *, with_profiles: bool = False) -> None:
     try:
         if not workspace.strip() or "\x00" in workspace:
             raise ValueError("workspace must be a non-empty path")
-        injector = Injector([CliModule(workspace)], auto_bind=False)
+        injector = Injector([CliModule(workspace, with_profiles=with_profiles)], auto_bind=False)
         info = injector.get(InitializeWorkspacePort)()
     except StorageError as exc:
         print(json.dumps({"error": {"code": exc.code, "message": str(exc)}}), file=sys.stderr)

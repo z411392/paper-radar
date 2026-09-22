@@ -7,14 +7,17 @@ from pathlib import Path
 
 import pytest
 
-
 ROOT = Path(__file__).resolve().parents[5]
 
 
 def cli(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, "-I", "-m", "apps.cli", *args],
-        cwd=cwd, capture_output=True, text=True, timeout=20, check=False,
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        timeout=20,
+        check=False,
     )
 
 
@@ -51,8 +54,17 @@ def workspace(tmp_path: Path) -> Path:
     info = ok(cli(tmp_path, "init", "--workspace", str(target), "--with-profiles"))
     assert info["schema_version"] == 2
     assert info["external_effects_enabled"] is False
-    seeds = ok(cli(tmp_path, "domains", "import", "--workspace", str(target),
-                   "--file", str(ROOT / "config/domain-seeds.json")))
+    seeds = ok(
+        cli(
+            tmp_path,
+            "domains",
+            "import",
+            "--workspace",
+            str(target),
+            "--file",
+            str(ROOT / "config/domain-seeds.json"),
+        )
+    )
     assert len(seeds["domains"]) == 5
     return target
 
@@ -61,8 +73,10 @@ def test_schema_upgrade_is_explicit_and_preserves_identity(tmp_path: Path) -> No
     target = tmp_path / "workspace"
     before = ok(cli(tmp_path, "init", "--workspace", str(target)))
     original = snapshot(target)
-    failed(cli(tmp_path, "profile", "show", "--workspace", str(target), "--id", "personal"),
-           "schema_upgrade_required")
+    failed(
+        cli(tmp_path, "profile", "show", "--workspace", str(target), "--id", "personal"),
+        "schema_upgrade_required",
+    )
     assert snapshot(target) == original
     after = ok(cli(tmp_path, "init", "--workspace", str(target), "--with-profiles"))
     assert after["schema_version"] == 2
@@ -89,8 +103,9 @@ def test_publish_show_and_delayed_replay_do_not_undo_current(workspace: Path, tm
     delayed = ok(cli(tmp_path, *args))
     assert delayed["revision"] == 1 and delayed["current_revision"] == 2
     current = ok(cli(tmp_path, "profile", "show", "--workspace", str(workspace), "--id", "personal"))
-    historic = ok(cli(tmp_path, "profile", "show", "--workspace", str(workspace),
-                      "--id", "personal", "--revision", "1"))
+    historic = ok(
+        cli(tmp_path, "profile", "show", "--workspace", str(workspace), "--id", "personal", "--revision", "1")
+    )
     assert current["scope_text"] == "第二次設定"
     assert historic["scope_text"] == "只看機器學習"
     assert historic["current_revision"] == 2
@@ -104,8 +119,19 @@ def test_pause_publish_and_explicit_resume(workspace: Path, tmp_path: Path) -> N
     result = ok(cli(tmp_path, "profile", "pause", "--workspace", str(workspace), "--id", "personal"))
     assert result["committed"] is True and result["lifecycle_requested"] == "paused"
     write_profile(tmp_path, "暫停時更新設定")
-    updated = ok(cli(tmp_path, "profile", "publish", "--workspace", str(workspace),
-                     "--file", str(path), "--expected-revision", "1"))
+    updated = ok(
+        cli(
+            tmp_path,
+            "profile",
+            "publish",
+            "--workspace",
+            str(workspace),
+            "--file",
+            str(path),
+            "--expected-revision",
+            "1",
+        )
+    )
     assert updated["lifecycle"] == "paused"
     ok(cli(tmp_path, "profile", "resume", "--workspace", str(workspace), "--id", "personal"))
     current = ok(cli(tmp_path, "profile", "show", "--workspace", str(workspace), "--id", "personal"))
@@ -113,8 +139,9 @@ def test_pause_publish_and_explicit_resume(workspace: Path, tmp_path: Path) -> N
 
 
 def test_unknown_profile_is_not_an_empty_success(workspace: Path, tmp_path: Path) -> None:
-    failed(cli(tmp_path, "profile", "show", "--workspace", str(workspace), "--id", "missing"),
-           "profile_missing")
+    failed(
+        cli(tmp_path, "profile", "show", "--workspace", str(workspace), "--id", "missing"), "profile_missing"
+    )
 
 
 def test_stale_different_publication_is_rejected(workspace: Path, tmp_path: Path) -> None:
@@ -131,19 +158,34 @@ def test_seed_replay_preserves_all_published_rows(workspace: Path, tmp_path: Pat
     path = write_profile(tmp_path)
     ok(cli(tmp_path, "profile", "publish", "--workspace", str(workspace), "--file", str(path)))
     before = snapshot(workspace)
-    result = ok(cli(tmp_path, "domains", "import", "--workspace", str(workspace),
-                    "--file", str(ROOT / "config/domain-seeds.json")))
+    result = ok(
+        cli(
+            tmp_path,
+            "domains",
+            "import",
+            "--workspace",
+            str(workspace),
+            "--file",
+            str(ROOT / "config/domain-seeds.json"),
+        )
+    )
     assert all(item["disposition"] == "unchanged" for item in result["domains"])
     assert snapshot(workspace) == before
 
 
-@pytest.mark.parametrize("payload,code", [
-    (b"{", "invalid_json"),
-    (b'{"domains":[],"domains":[]}', "duplicate_key"),
-    (b"\xffprivate input", "invalid_utf8"),
-    (b" " * 1_000_001, "configuration_too_large"),
-], ids=["malformed-json", "duplicate-keys", "invalid-utf8", "oversized-file"])
-def test_bad_file_does_not_modify_database(workspace: Path, tmp_path: Path, payload: bytes, code: str) -> None:
+@pytest.mark.parametrize(
+    "payload,code",
+    [
+        (b"{", "invalid_json"),
+        (b'{"domains":[],"domains":[]}', "duplicate_key"),
+        (b"\xffprivate input", "invalid_utf8"),
+        (b" " * 1_000_001, "configuration_too_large"),
+    ],
+    ids=["malformed-json", "duplicate-keys", "invalid-utf8", "oversized-file"],
+)
+def test_bad_file_does_not_modify_database(
+    workspace: Path, tmp_path: Path, payload: bytes, code: str
+) -> None:
     path = tmp_path / "bad.json"
     path.write_bytes(payload)
     before = snapshot(workspace)
@@ -153,8 +195,18 @@ def test_bad_file_does_not_modify_database(workspace: Path, tmp_path: Path, payl
 
 def test_missing_file_does_not_modify_database(workspace: Path, tmp_path: Path) -> None:
     before = snapshot(workspace)
-    failed(cli(tmp_path, "profile", "publish", "--workspace", str(workspace),
-               "--file", str(tmp_path / "missing.json")), "configuration_io_error")
+    failed(
+        cli(
+            tmp_path,
+            "profile",
+            "publish",
+            "--workspace",
+            str(workspace),
+            "--file",
+            str(tmp_path / "missing.json"),
+        ),
+        "configuration_io_error",
+    )
     assert snapshot(workspace) == before
 
 
@@ -162,25 +214,30 @@ def test_fifo_is_not_read_as_unbounded_stream(workspace: Path, tmp_path: Path) -
     path = tmp_path / "fifo"
     os.mkfifo(path)
     before = snapshot(workspace)
-    failed(cli(tmp_path, "domains", "import", "--workspace", str(workspace), "--file", str(path)),
-           "configuration_not_regular")
+    failed(
+        cli(tmp_path, "domains", "import", "--workspace", str(workspace), "--file", str(path)),
+        "configuration_not_regular",
+    )
     assert snapshot(workspace) == before
 
 
-@pytest.mark.parametrize("args", [
-    ("profile", "show", "--id", "personal"),
-    ("profile", "publish", "--file", "missing.json", "--expected-revision", "0"),
-    ("profile", "show", "--id", "personal", "--revision", "9223372036854775808"),
-    ("profile", "show", "--id", "personal", "--revision", "True"),
-    ("profile", "show", "--id", "personal", "--unexpected", "value"),
-    ("profile", "pause", "--id", "bad id"),
-    ("domains", "import"),
-])
+@pytest.mark.parametrize(
+    "args",
+    [
+        ("profile", "show", "--id", "personal"),
+        ("profile", "publish", "--file", "missing.json", "--expected-revision", "0"),
+        ("profile", "show", "--id", "personal", "--revision", "9223372036854775808"),
+        ("profile", "show", "--id", "personal", "--revision", "True"),
+        ("profile", "show", "--id", "personal", "--unexpected", "value"),
+        ("profile", "pause", "--id", "bad id"),
+        ("domains", "import"),
+    ],
+)
 def test_invalid_arguments_do_not_create_workspace(tmp_path: Path, args: tuple[str, ...]) -> None:
     workspace = tmp_path / "must-not-exist"
     # The first case intentionally lacks --workspace; others append it to test full prevalidation.
-    supplied = args if args == ("profile", "show", "--id", "personal") else (
-        *args, "--workspace", str(workspace)
+    supplied = (
+        args if args == ("profile", "show", "--id", "personal") else (*args, "--workspace", str(workspace))
     )
     result = cli(tmp_path, *supplied)
     assert result.returncode == 2, result.stdout + result.stderr
@@ -190,8 +247,10 @@ def test_invalid_arguments_do_not_create_workspace(tmp_path: Path, args: tuple[s
 
 def test_show_missing_workspace_does_not_bootstrap(tmp_path: Path) -> None:
     workspace = tmp_path / "absent"
-    failed(cli(tmp_path, "profile", "show", "--workspace", str(workspace), "--id", "personal"),
-           "workspace_missing")
+    failed(
+        cli(tmp_path, "profile", "show", "--workspace", str(workspace), "--id", "personal"),
+        "workspace_missing",
+    )
     assert not workspace.exists()
 
 
