@@ -1,0 +1,11 @@
+[project]
+name = "paper-radar"
+version = "0.1.0"
+description = "Local paper radar planning and provisioning baseline"
+requires-python = ">=3.12, <3.14"
+dependencies = []
+
+[tool.uv]
+# Planning stage: no product package exists yet. T01 will define the build
+# backend and src/apps + src/libs package installation when code is introduced.
+package = false

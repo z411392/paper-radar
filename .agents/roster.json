@@ -1,0 +1,141 @@
+{
+  "version": 1,
+  "product": "paper-radar",
+  "authority": ".claude/rules/15-execution-strategy.md#execution-topology-and-dispatch",
+  "canonical": false,
+  "execution_policy": {
+    "model": "gpt-6-astra",
+    "default_effort": "medium",
+    "allowed_efforts": [
+      "medium",
+      "high"
+    ],
+    "disallowed_efforts": [
+      "low",
+      "xhigh",
+      "max",
+      "ultra"
+    ],
+    "escalation_authority": "commander"
+  },
+  "commander": {
+    "name": "Paper Radar｜總指揮",
+    "runtime_tool": "antigravity",
+    "model": "Gemini 3.8 Flash",
+    "task_id": null,
+    "binding_status": "UNBOUND"
+  },
+  "shared_roles": {
+    "architect": {
+      "name": "Paper Radar｜Architect｜分析・規劃・設計",
+      "runtime_tool": "codex",
+      "model": "gpt-6-astra",
+      "task_id": null,
+      "binding_status": "UNBOUND"
+    },
+    "reviewer": {
+      "name": "Paper Radar｜Reviewer｜驗證・獨立驗收",
+      "runtime_tool": "codex",
+      "model": "gpt-6-astra",
+      "task_id": null,
+      "binding_status": "UNBOUND"
+    }
+  },
+  "contexts": {
+    "watch_profiles": {
+      "architect_ref": "shared_roles.architect",
+      "reviewer_ref": "shared_roles.reviewer",
+      "implementer": {
+        "name": "Paper Radar｜關注設定與相關性｜實作",
+        "runtime_tool": "antigravity",
+        "model": "Gemini 3.8 Flash",
+        "task_id": null,
+        "binding_status": "UNBOUND"
+      },
+      "verifier": "deterministic-tools"
+    },
+    "discovery": {
+      "architect_ref": "shared_roles.architect",
+      "reviewer_ref": "shared_roles.reviewer",
+      "implementer": {
+        "name": "Paper Radar｜學術來源收集｜實作",
+        "runtime_tool": "antigravity",
+        "model": "Gemini 3.8 Flash",
+        "task_id": null,
+        "binding_status": "UNBOUND"
+      },
+      "verifier": "deterministic-tools"
+    },
+    "scholarly_catalog": {
+      "architect_ref": "shared_roles.architect",
+      "reviewer_ref": "shared_roles.reviewer",
+      "implementer": {
+        "name": "Paper Radar｜研究身份與證據｜實作",
+        "runtime_tool": "antigravity",
+        "model": "Gemini 3.8 Flash",
+        "task_id": null,
+        "binding_status": "UNBOUND"
+      },
+      "verifier": "deterministic-tools"
+    },
+    "paper_explanations": {
+      "architect_ref": "shared_roles.architect",
+      "reviewer_ref": "shared_roles.reviewer",
+      "implementer": {
+        "name": "Paper Radar｜白話解說與驗證｜實作",
+        "runtime_tool": "antigravity",
+        "model": "Gemini 3.8 Flash",
+        "task_id": null,
+        "binding_status": "UNBOUND"
+      },
+      "verifier": "deterministic-tools"
+    },
+    "delivery": {
+      "architect_ref": "shared_roles.architect",
+      "reviewer_ref": "shared_roles.reviewer",
+      "implementer": {
+        "name": "Paper Radar｜每日精選與寄送｜實作",
+        "runtime_tool": "antigravity",
+        "model": "Gemini 3.8 Flash",
+        "task_id": null,
+        "binding_status": "UNBOUND"
+      },
+      "verifier": "deterministic-tools"
+    }
+  },
+  "delivery_tracks": {
+    "retrieval": {
+      "architect_ref": "shared_roles.architect",
+      "reviewer_ref": "shared_roles.reviewer",
+      "implementer": {
+        "name": "Paper Radar｜語意檢索｜實作",
+        "runtime_tool": "antigravity",
+        "model": "Gemini 3.8 Flash",
+        "task_id": null,
+        "binding_status": "UNBOUND"
+      }
+    },
+    "runtime-ops": {
+      "architect_ref": "shared_roles.architect",
+      "reviewer_ref": "shared_roles.reviewer",
+      "implementer": {
+        "name": "Paper Radar｜本機執行與治理｜實作",
+        "runtime_tool": "antigravity",
+        "model": "Gemini 3.8 Flash",
+        "task_id": null,
+        "binding_status": "UNBOUND"
+      }
+    },
+    "product-ui": {
+      "architect_ref": "shared_roles.architect",
+      "reviewer_ref": "shared_roles.reviewer",
+      "implementer": {
+        "name": "Paper Radar｜閱讀介面｜實作",
+        "runtime_tool": "antigravity",
+        "model": "Gemini 3.8 Flash",
+        "task_id": null,
+        "binding_status": "UNBOUND"
+      }
+    }
+  }
+}

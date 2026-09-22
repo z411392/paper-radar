@@ -1,15 +1,21 @@
 # Paper Radar
 
-本機優先的論文偵測、繁體中文白話解說與個人研究精選系統。
+本機論文雷達。正式產品需求、架構與交付入口見 [docs/README.md](docs/README.md)；開發者先讀 [CLAUDE.md](CLAUDE.md)。
 
-## 產品方向
+本次建庫交付為需求與設計基線、資料 schema 草案、工程治理及工作分解，尚不是可執行產品。沒有取得真來源、模型、郵件或本機獨立 Reviewer 的驗收收據。
 
-Python 使用 uv；SQLite 保存狀態、關聯及通知帳本，檔案系統保存來源內容、證據與原始向量，FAISS 保存可重建的語意檢索索引。初始關注軟體工程、深度學習、機器學習、統計學與羽球，關注範圍可增減。
+## 入口
 
-## 本次發布
+- [產品需求](docs/delivery/requirements-specification.md)
+- [交付順序](docs/delivery/mvp-phases.md)
+- [事件與領域模型](docs/architecture/event-storming.md)
+- [Context Map 與程式目錄](docs/architecture/context-map.md)
+- [資料模型與儲存契約](docs/data-model.md)
+- [Story 規格導覽](specs/README.md)
+- Paper Radar（既有 Project；尚未取得存取與欄位同步證據）
 
-本 repository 由使用者建立，已授權接續發布既有規劃資料包、文件、治理及 Epic／Story／Task。Project 名称使用 `Paper Radar`。本次不是產品實作或工程驗收，不執行論文收集、模型呼叫或寄信。
+GitHub Issues／Project 是發布後的工作與狀態來源。本庫不保存另一份 Task YAML、Markdown 看板或 backlog JSON。
 
-文件歸屬與角色分工沿用 Kaledoxa 固定基線 `6862a93f1a1cc133a5dedfa25ec414b460f3b4ed` 的方法，不複製其產品資料、進度或 agent session IDs。
+## Python 環境
 
-此頁為空 repository 的初始化入口；完整文件與真實 Issue 連結將在同次規劃發布中寫入。
+Python 使用 uv；正式規則見 [.claude/rules/90-operations.md](.claude/rules/90-operations.md#python-與-uv)。規劃期可執行 `uv sync --locked` 與 `make env-check`。目前沒有產品 CLI 或產品 `ci-fast`；不能以環境同步成功視為 T01 完成。
