@@ -66,7 +66,6 @@ class SqliteWatchProfileStoreAdapter:
                 results.append(DomainSeedOutcome(item["id"], 1, "created"))
         return tuple(results)
 
-
     @staticmethod
     def _domain_identifier(value: object) -> str:
         if not isinstance(value, str) or re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", value) is None:
