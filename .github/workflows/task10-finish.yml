@@ -1,0 +1,170 @@
+name: Task 10 query contract verification
+on:
+  push:
+    branches: [codex/10-arxiv-query-contract]
+    paths: [.github/workflows/task10-finish.yml]
+permissions:
+  contents: write
+concurrency:
+  group: task10-query-contract-verification
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: 0.10.0
+          enable-cache: false
+      - name: Install existing locked development environment
+        run: uv sync --locked
+      - name: Verify source identity, format only new files, and append owner records
+        run: |
+          uv run --locked --offline python - <<'PY'
+          import ast
+          import hashlib
+          import subprocess
+          from pathlib import Path
+          base = '2ffd067a79ec8dcb3a87b424eecacdc694c6dc14'
+          subprocess.run(['git', 'merge-base', '--is-ancestor', '9c42218d4a660e4cea9d55b490ae60530ba53f5c', 'HEAD'], check=True)
+          root = Path('src/libs/discovery')
+          expected = {
+              'adapters/driven/arxiv_query_compiler_adapter.py': '4b6628c2610ae02b531028c64aeaa82cb31c1156',
+              'application/queries/compile_source_query.py': '99295c7da7a348a3e00a2042c4888943e87f63f2',
+              'domain/services/evaluate_source_page.py': 'a405a0c2afe9c2cfb7d7b7b9aaf7709d98988ee6',
+              'dtos/compiled_source_query.py': '716b3e2c9b09f6734cad92528d4c675b242418ae',
+              'dtos/domain_query_snapshot.py': 'cf38ab4550a687c62ca2a3d5201e1a4489b09a05',
+              'dtos/page_traversal_decision.py': 'e47e71ee298c6202725093b74b14eda174ce4933',
+              'dtos/source_capabilities.py': 'a6b8f0cb7875e7de717d07ac8329f2d2732fb07d',
+              'dtos/source_page_observation.py': '0dc030f4e5892a5de7651fd724879235263b6369',
+              'dtos/source_page_request.py': 'd131ad6876c318f614776018bf2af156a5b6ba1f',
+              'dtos/source_query_input.py': 'ae88b93fcb721a86db5c67502255456fe803b7dd',
+              'exceptions/source_query_error.py': '3f27c4b1d22db3e1b610d67dd901e2ab4aad3104',
+              'ports/compile_source_query_port.py': 'e2d5dd6a4e6487e284a7a83e9fb84902258bfa8c',
+              'ports/source_query_compiler_port.py': '723eda5641886fdd71591084da1d43400ac2a31d',
+              'tests/contract/test_t04_arxiv_discovery.py': 'c276a4a5912d8545201bf9a23e006de76a8e2659',
+              'tests/fixtures/arxiv_pages.json': '5aaff92861bd92f4a3f6ed1a991a5bbaf16603d7',
+          }
+          paths = {str(root / name) for name in expected}
+          changed = set(subprocess.check_output(['git', 'diff', '--name-only', base, 'HEAD'], text=True).splitlines())
+          assert changed == paths | {'.github/workflows/task10-finish.yml'}, changed
+          before = {}
+          for name, digest in expected.items():
+              path = root / name
+              raw = path.read_bytes()
+              assert hashlib.sha1(b'blob ' + str(len(raw)).encode() + b'\0' + raw).hexdigest() == digest, name
+              if name.endswith('.py'):
+                  before[str(path)] = ast.dump(ast.parse(raw.decode('utf-8')))
+          subprocess.run(['uv', 'run', '--locked', '--offline', 'ruff', 'format', *sorted(before)], check=True)
+          for name, tree in before.items():
+              assert ast.dump(ast.parse(Path(name).read_text(encoding='utf-8'))) == tree, name
+          appends = {
+              'specs/9-arxiv-discovery/plan.md': '''
+          ## 2026-09-23 Task #10：來源查詢與分頁契約
+
+          本批依暫行直接實作授權，使用 PR #57 的 `2ffd067a79ec8dcb3a87b424eecacdc694c6dc14` 作技術基線，不當成已驗收 main。新分支 codex/10-arxiv-query-contract；S1–S3 分別保留 commits，沒有獨立 Architect freeze 或 Reviewer ACCEPT。
+
+          輸入為 discovery 自己的 SourceQueryInput／DomainQuerySnapshot，含 profile identity、revision、fingerprint、精確 domain revision、provider-specific categories、詞組及時間窗。workflow 後續負責取得已發布且仍有效的設定並映射；discovery 不 import watch_profiles、不讀它的私有表。輸入 hash 不是簽章，編譯也不證明設定此刻仍 active/current。
+
+          CompileSourceQuery inbound 用例只呼叫 SourceQueryCompilerPort，arXiv 語法由 ArxivQueryCompilerAdapter 擁有。純編譯不執行 HTTP、SQLite、clock 或模型。分類 OR 領域 aliases/include 的 title/abstract 詞組，再 AND 個人 include、ANDNOT 排除詞，是本案明示的召回政策，不是 arXiv 或研究報告指定的普遍語意。分類只核對語法；來源是否仍接受需 #11 真實能力核對。
+
+          官方 User Manual §§3.1.1／3.3／5.1： https://info.arxiv.org/help/api/user-manual.html 。本次只核對到 submittedDate 的原生日期篩選，GMT、分鐘精度；lastUpdatedDate 是排序能力，不冒稱同樣支援完整修訂時間窗。只接受明確時區與分鐘邊界，轉為 inclusive-minutes-utc。新投稿窗口不能取代舊文章更新的 reconciliation。
+
+          language、free_only、allow_preprints=false、自然語言 scope 都不是此 compiler 的原生篩選。預設 reject；只有呼叫端明示 deferred_mode=defer 才產生候選查詢，並將原始條件和值、unsupported_at_source、必須處理的下游階段放入 plan。下游尚未驗證時不能當作符合條件。引號／反斜線片語沒有已查證的 escape 時直接拒絕，不刪字改義。
+
+          完整 provenance 保存 compiler/capability/policy 版本、設定 snapshot、查詢、UTC 時間窗、每頁大小與後置條件。query_fingerprint 識別整份計画；request_fingerprint 另綁 GET URL／offset／page size，不把每一頁當成新關注內容。預設200筆、單頁上限2000、窗口上限30000及16000-byte查詢上限是本版明示工程限制，不是來源 SLA。
+
+          EvaluateSourcePage 只回下一頁提案，不寫 checkpoint。失敗頁、query/offset不符、頁內重複identity、異常空頁、未到結尾的短頁、已知total改變與超窗總量皆明確失敗。只有成功且有效的首次total=0空頁可標verified_empty。arXiv offset pagination沒有本次已核對的snapshot／同時間次排序保證；total不變也不能證明完整。fixtures是合成parsed-page DTO，不是真實論文或HTTP/Atom解析證據。
+
+          真正HTTP／Atom parser與全provider共用至少3秒及單一連線節流屬 #11；durable raw保存、binding/version checkpoint與bounded reconciliation屬 #12。官方節流來源：https://info.arxiv.org/help/api/tou.html 。本批只記能力不執行收集。新測試位置 src/libs/discovery/tests/contract/test_t04_arxiv_discovery.py；既有 Story AC、source、SQL、lock、架構／治理測試不修改。
+          ''',
+              'specs/9-arxiv-discovery/progress.md': '''
+          ## 2026-09-23 Task #10：查詢編譯與分頁的作者候選
+
+          直接基線 #57 `2ffd067a79ec8dcb3a87b424eecacdc694c6dc14`；S1 `9a0c75b6a18beeef24b387b984c8061e16ef11fa`、S2 `5c1f6cdde53ff77dd7d7906cf3106fcffef6c2df`、S3 `9c42218d4a660e4cea9d55b490ae60530ba53f5c`。只新增 discovery 與本 Story／Context Map 的技術紀錄，不重做 #8 或改上游分支。
+
+          研究／探索與必要契約在 [#10開工紀錄](https://github.com/z411392/paper-radar/issues/10#issuecomment-5781773921)；實際反例、修正及限制在 [#10局部驗證](https://github.com/z411392/paper-radar/issues/10#issuecomment-5781839032)。區分報告要求、官方來源能力與本案工程推論，不把模型記憶當source contract。
+
+          容器隔離命令：uv run --no-project --python /opt/pyvenv/bin/python python -m pytest libs/discovery/tests -q --tb=short。只有tests時因module不存在而collection RED（exit2、1錯誤），不冒稱74個行為RED。初版67 passed；補7個邊界後2 failed／72 passed，再修正為74 passed。strftime對四位年數的跨平台補零與list-valued deferred_mode漏出TypeError皆先有失敗反例。這是既存interpreter局部證據，不是正式locked／全庫／跨平台驗證。
+
+          74項含精確查詢、相同設定／時區重播、版本變更fingerprint、native不支援条件、query literal與URL參數邊界、日期／型別、每頁識別、合成同時間跨頁與重播、異常empty／partial／failed／total drift。沒有將synthetic identities當成真實論文，也不以Python set去重fixture宣稱真來源已durable去重。
+
+          GitHub收尾流程先核對15個新檔的Git blob identity，只格式化新Python且逐檔AST相等，再跑locked make ci-fast。最終run／head／tree與完整數量由本卡comments及PR讀回追加；未取得時不先填PASS。所有既有tests照跑，格式／失敗與修正不隱藏。
+
+          尚未提供真來源、Atom解析、provider限速、工作排程、raw保存與checkpoint、CLI查詢入口、模型或推送。#50 SQLite build修補證據缺口仍保留，本批無正式資料庫操作。作者和CI不是獨立ACCEPT，不合流main、不結案Task／Story、不標Project Done；Project欄位未同步。
+          ''',
+              'docs/architecture/context-map.md': '''
+          ## Task #10 的來源查詢與分頁前置
+
+          workflow後續將公開發布的設定快照映射為discovery.dtos.SourceQueryInput／DomainQuerySnapshot；不是discovery去import watch_profiles或讀其SQLite私有表。當前compiler信任有版本的輸入快照，尚未實作active/current的workflow重查，不能把query fingerprint當權限或簽章。
+
+          CompileSourceQuery → SourceQueryCompilerPort → ArxivQueryCompilerAdapter：純provider語法編譯，輸出精確query、provenance、query fingerprint與顯式deferred filters。page方法另輸出request fingerprint與固定provider URL，不執行HTTP。只支持已核對的submittedDate分鐘級UTC窗口，不把updated排序冒充更新窗口。
+
+          EvaluateSourcePage只產生PageTraversalDecision；原始觀測持久化及checkpoint前移仍由 #12 負責。此切片無checkpoint寫入、無真來源節流或Atom parser，合成fixtures不冒作live capability。source capability的3秒／單連線限制供 #11 實作，不能由每個domain各自消耗。細節與證據歸specs/9-arxiv-discovery/plan.md／progress.md及Issue #10，不建立另一個產品規則或看板。
+          ''',
+          }
+          for name, text in appends.items():
+              path = Path(name)
+              prior = path.read_text(encoding='utf-8')
+              assert text.strip().splitlines()[0] not in prior, name
+              path.write_text(prior + '\n' + text, encoding='utf-8')
+          print('EXACT_SOURCE_FILES=15; AST_PRESERVED=14; NO_UPSTREAM_SOURCE_CHANGED')
+          PY
+      - name: Run all implemented offline checks
+        run: make ci-fast
+      - name: Export verified candidate objects without moving refs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          uv run --locked --offline python - <<'PY'
+          import base64
+          import json
+          import os
+          import subprocess
+          import urllib.request
+          from pathlib import Path
+          repo = 'z411392/paper-radar'
+          assert os.environ['GITHUB_REPOSITORY'] == repo
+          assert os.environ['GITHUB_REF'] == 'refs/heads/codex/10-arxiv-query-contract'
+          docs = {'specs/9-arxiv-discovery/plan.md', 'specs/9-arxiv-discovery/progress.md', 'docs/architecture/context-map.md'}
+          def git(*args):
+              return subprocess.check_output(['git', *args], text=True).strip()
+          changed = git('diff', '--name-only').splitlines()
+          assert all(p in docs or p.startswith('src/libs/discovery/') for p in changed), changed
+          assert not git('ls-files', '--others', '--exclude-standard')
+          subprocess.run(['git', 'add', '--', *changed], check=True)
+          temporary = '.github/workflows/task10-finish.yml'
+          subprocess.run(['git', 'rm', '--', temporary], check=True)
+          local_tree = git('write-tree')
+          head = git('rev-parse', 'HEAD')
+          def api(endpoint, body):
+              request = urllib.request.Request(
+                  'https://api.github.com/repos/' + repo + '/' + endpoint,
+                  data=json.dumps(body).encode(),
+                  headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'Content-Type': 'application/json', 'Accept': 'application/vnd.github+json'},
+                  method='POST',
+              )
+              with urllib.request.urlopen(request, timeout=45) as response:
+                  return json.load(response)
+          entries = []
+          for name in changed:
+              raw = subprocess.check_output(['git', 'show', local_tree + ':' + name])
+              sha = api('git/blobs', {'encoding': 'base64', 'content': base64.b64encode(raw).decode()})['sha']
+              assert sha == git('rev-parse', local_tree + ':' + name)
+              entries.append({'path': name, 'mode': '100644', 'type': 'blob', 'sha': sha})
+          entries.append({'path': temporary, 'mode': '100644', 'type': 'blob', 'sha': None})
+          tree = api('git/trees', {'base_tree': git('show', '-s', '--format=%T', head), 'tree': entries})['sha']
+          assert tree == local_tree
+          sha = api('git/commits', {
+              'message': 'task-10: preserve verified query contracts and single-owner research records\n\nRefs #10, #9. Full locked checks passed after AST-equivalent formatting of new discovery files only. Preserve Subtask commits and original rules, SQL, lock and tests. Remove one-shot workflow. No independent ACCEPT or main integration.',
+              'tree': tree, 'parents': [head],
+          })['sha']
+          print('TASK10_FINAL_TREE=' + tree)
+          print('TASK10_FINAL_COMMIT=' + sha)
+          print('No refs, Issues, PRs or Project fields changed by this job.')
+          PY
