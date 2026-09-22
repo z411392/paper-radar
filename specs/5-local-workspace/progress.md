@@ -93,3 +93,16 @@ Ubuntu 3.13.5 job `106848821719` 完整 log：`uv sync --locked`、`make ci-fast
 S1／S2／S3 已有各自作者實作與驗證，但 independent Reviewer 未執行，main 不合流，#6／#7／Story #5 不結案。#8 profile、來源、模型、FAISS、郵件仍未實作。本批只觸及 runner 隔離目錄，不改使用者既有資料。Issue／PR 更新不表示 Project Status／Priority／Sprint 已同步。
 
 五類影響：需求、Roadmap、Event Storming、Story spec 不變；Context Map 補 init 與 package resource 的 owner 接線；本 plan／progress 及 #6／#7 記固定契約、缺陷與證據。README 更新可執行命令，SQL 原文、既有 architecture／governance 防線與角色例外不變。
+
+
+## 2026-09-23 Task #8 作者候選：版本化關注設定
+
+本次依使用者追加要求，把探索、推論及結果記在 Issue comments。#7 的 sidecar／WAL 研究與 fast-forward 衝突已記在該卡；遠端已有相同修復，未 force push。#8 從 `6a030bf8e5c2adfa8183cc36ff7a5a91c0315ff7` 另開分支，不覆蓋 #6／#7 的進行中工作。
+
+新增設定語法及五領域種子、種子只新增的匯入、profile 原子發布、expected_revision 衝突檢查、舊請求冪等且不回退 current、lifecycle 與歷史查詢。原 SQL／Story spec／共通需求／架構及治理判準不變。
+
+本機 subsystem 前置 RED 是缺少 watch_profiles adapters 而 collection failure；實作後原 19 項、擴充後 28 項測試通過。使用 `uv run --no-project --python /opt/pyvenv/bin/python python -m pytest ... --import-mode=importlib -q`，從隔離 source 目錄執行；不是完整產品 locked 環境，也不是獨立 Reviewer。新增實際 kernel factory 整合案例留完整 CI 驗證。正式 exact SHA／完整 gate／跨平台結果以 Issue #8 與 PR 的 readback receipt 為準，不預填成功。
+
+目前只交付作者候選；不得推導獨立 ACCEPT、main 合流、Task Done、CLI 設定介面完成或 Project 已同步。
+
+輸入邊界額外探索：三個 Unicode／revision 上限反例先 RED，修正後本機子系統 31 passed；真正 kernel factory 整合另留完整 CI，不計入本機已測。來源與推論已記於 Issue #8 comments。
