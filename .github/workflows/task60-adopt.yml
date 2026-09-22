@@ -1,0 +1,94 @@
+name: Task 60 bounded governance adoption
+on:
+  push:
+    branches: [codex/60-authority-governance]
+    paths: [.github/adopt_authority.py, .github/workflows/task60-adopt.yml]
+permissions:
+  contents: write
+concurrency:
+  group: task60-governance-adoption
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: 0.10.0
+          enable-cache: false
+      - run: uv sync --locked
+      - name: Apply only reviewed governance changes and retain source histories
+        run: |
+          uv run --locked --offline python .github/adopt_authority.py
+          uv run --locked --offline python - <<'PY'
+          import ast
+          import hashlib
+          import json
+          import subprocess
+          from pathlib import Path
+          test = Path('src/libs/kernel/tests/governance/test_authority_navigation.py')
+          before = ast.dump(ast.parse(test.read_text(encoding='utf-8')))
+          subprocess.run(['uv','run','--locked','--offline','ruff','format',str(test)],check=True)
+          assert ast.dump(ast.parse(test.read_text(encoding='utf-8'))) == before
+          manifest = Path('.authority/manifests/git-baseline.json')
+          data = json.loads(manifest.read_text(encoding='utf-8'))
+          names = [r['path'] for r in data['git_sources'] if not r['path'].startswith('specs/')]
+          names += ['docs/README.md','.authority/README.md']
+          for name in names:
+              p=Path(name)
+              text=p.read_text(encoding='utf-8')
+              text=text.replace('来源','來源').replace('验','驗').replace('补','補').replace('与','與')
+              p.write_text(text,encoding='utf-8')
+          for source in data['git_sources']:
+              source['sha256']=hashlib.sha256(Path(source['path']).read_bytes()).hexdigest()
+          manifest.write_text(json.dumps(data,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          assert subprocess.check_output(['git','diff','03df6ed5cc36c8e45b2cca4fba3d6ecd2b8c472b','--','specs/*/spec.md','specs/*/plan.md','specs/*/progress.md','migrations','uv.lock'],text=True)==''
+          print('HISTORICAL_SPEC_PLAN_PROGRESS_SQL_LOCK_UNCHANGED=1')
+          PY
+      - name: Run complete locked offline checks
+        run: make ci-fast
+      - name: Export exact tested objects without changing refs or Issue state
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          uv run --locked --offline python - <<'PY'
+          import base64
+          import json
+          import os
+          import subprocess
+          import urllib.request
+          from pathlib import Path
+          repo='z411392/paper-radar'
+          assert os.environ['GITHUB_REPOSITORY']==repo
+          assert os.environ['GITHUB_REF']=='refs/heads/codex/60-authority-governance'
+          def git(*args): return subprocess.check_output(['git',*args],text=True).strip()
+          def api(endpoint,body):
+              request=urllib.request.Request('https://api.github.com/repos/'+repo+'/'+endpoint,data=json.dumps(body).encode(),headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Content-Type':'application/json','Accept':'application/vnd.github+json'},method='POST')
+              with urllib.request.urlopen(request,timeout=45) as response: return json.load(response)
+          changed=git('diff','--name-only').splitlines()+git('ls-files','--others','--exclude-standard').splitlines()
+          allowed={'CLAUDE.md','docs/README.md','specs/README.md','docs/delivery/github-human-readable-history.md','docs/architecture/context-map.md','docs/domains/discovery.md','.context/README.md','.context/navigation.json','.authority/README.md','.authority/manifests/git-baseline.json','src/libs/kernel/tests/governance/test_authority_navigation.py'}
+          allowed.update('.claude/rules/'+x for x in ['00-index.md','05-methodology.md','15-execution-strategy.md','16-github-human-readable-records.md','70-testing.md','80-documentation.md','90-operations.md'])
+          assert set(changed)<=allowed,set(changed)-allowed
+          for name in changed: subprocess.run(['git','add','--',name],check=True)
+          temps=['.github/adopt_authority.py','.github/workflows/task60-adopt.yml']
+          subprocess.run(['git','rm','--',*temps],check=True)
+          local_tree=git('write-tree'); parent=git('rev-parse','HEAD')
+          entries=[]
+          for name in changed:
+              raw=subprocess.check_output(['git','show',local_tree+':'+name])
+              sha=api('git/blobs',{'encoding':'base64','content':base64.b64encode(raw).decode()})['sha']
+              assert sha==git('rev-parse',local_tree+':'+name)
+              entries.append({'path':name,'mode':'100644','type':'blob','sha':sha})
+          entries += [{'path':name,'mode':'100644','type':'blob','sha':None} for name in temps]
+          tree=api('git/trees',{'base_tree':git('show','-s','--format=%T',parent),'tree':entries})['sha']
+          assert tree==local_tree
+          commit=api('git/commits',{'message':'task-60 S2: adopt scoped authority governance and verified Git-retained navigation\n\nRefs #60. Keep all Story specifications, plans and historical progress bytes. Preserve existing safety and independent review; retire duplicate workflow requirements, not source history. Verify the added positive/negative guards and remove the one-shot tooling. No Issue-authority cutover, main integration or independent ACCEPT.','tree':tree,'parents':[parent]})['sha']
+          print('GOVERNANCE_FINAL_TREE='+tree)
+          print('GOVERNANCE_FINAL_COMMIT='+commit)
+          print('No refs, Issues, PRs or Project fields changed by this job.')
+          PY
