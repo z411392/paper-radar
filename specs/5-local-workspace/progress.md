@@ -68,3 +68,16 @@ S1 初始提交 `d654e9ff30e10300b6bf74ecc76ce496d59e4227`；S2 提交 `2aefa49a
 本機套件站 DNS 不可用，subsystem 使用 `uv run --no-project --python /opt/pyvenv/bin/python python -m pytest` 在隔離 src 下執行；不稱為 locked 全庫 gate。完整鎖定環境、ruff／pyright／全庫測試由 GitHub runner 執行，正式結果以本卡與 PR 的 exact candidate CI readback 為準。原始 log 雜湊由 #7 append-only 收據保存，不以 hash 冒稱原始檔永久可下載。
 
 需求、Roadmap、Event Storming、Story AC、原 migrations 與架構／治理測試未變；技術補充放本 Story plan 和 data-model。CLI 初始化、profile、FAISS、真來源、模型與郵件未執行。所有階段只交付已測候選，沒有自我 ACCEPT。
+
+
+## 2026-09-23 Task #8 作者候選：版本化關注設定
+
+本次依使用者追加要求，把探索、推論及結果記在 Issue comments。#7 的 sidecar／WAL 研究與 fast-forward 衝突已記在該卡；遠端已有相同修復，未 force push。#8 從 `6a030bf8e5c2adfa8183cc36ff7a5a91c0315ff7` 另開分支，不覆蓋 #6／#7 的進行中工作。
+
+新增設定語法及五領域種子、種子只新增的匯入、profile 原子發布、expected_revision 衝突檢查、舊請求冪等且不回退 current、lifecycle 與歷史查詢。原 SQL／Story spec／共通需求／架構及治理判準不變。
+
+本機 subsystem 前置 RED 是缺少 watch_profiles adapters 而 collection failure；實作後原 19 項、擴充後 28 項測試通過。使用 `uv run --no-project --python /opt/pyvenv/bin/python python -m pytest ... --import-mode=importlib -q`，從隔離 source 目錄執行；不是完整產品 locked 環境，也不是獨立 Reviewer。新增實際 kernel factory 整合案例留完整 CI 驗證。正式 exact SHA／完整 gate／跨平台結果以 Issue #8 與 PR 的 readback receipt 為準，不預填成功。
+
+目前只交付作者候選；不得推導獨立 ACCEPT、main 合流、Task Done、CLI 設定介面完成或 Project 已同步。
+
+輸入邊界額外探索：三個 Unicode／revision 上限反例先 RED，修正後本機子系統 31 passed；真正 kernel factory 整合另留完整 CI，不計入本機已測。來源與推論已記於 Issue #8 comments。

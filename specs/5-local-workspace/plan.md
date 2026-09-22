@@ -64,3 +64,18 @@ S3：InspectStorage 讀取 registry 快照，再檢查內容；回報 missing、
 測試位置：`src/libs/kernel/tests/integration/test_sqlite_workspace.py`、`test_local_storage.py`、`test_bootstrap_race.py` 及 `src/libs/kernel/tests/unit/test_object_ref.py`；包含並行初始化／重複發布、唯讀 transaction、rollback、失敗 migration、陌生 DB、遺失 DB 但保留內容、symlink、fsync 失敗與錯誤 metadata。正式完整驗證仍是 `make ci-fast`。
 
 本批可寫 kernel 新增檔案與本 plan／progress／data-model 的必要技術補充；原 migrations、共通需求、Story spec、Roadmap、Event Storming、架構／治理防線和 #53 程式不變。#6 S3 CLI handler、#8 profile、FAISS／來源／模型／郵件不在此切片，不以 library 測試冒稱那些能力完成。
+
+
+## 2026-09-23 Task #8 關注設定實作契約
+
+作者技術方案，依 Issue #8 本批 checkpoint；不是獨立 Architect 的 frozen receipt。#6／#7 另有進行中的候選，這批只在 `codex/8-watch-profile-revisions` 修改 watch_profiles，不覆蓋其分支。固定依賴 base 為 `6a030bf8e5c2adfa8183cc36ff7a5a91c0315ff7`，未獨立驗收。
+
+ImportDomainSeeds、PublishWatchProfile、ReadWatchProfile、SetWatchProfileLifecycle 由公開 callable ports 表達；application 不取得 SQLite connection。driven store 接收 composition 提供的連線 factory，僅操作自己四張表。SQL 仍為原始 0002，這批沒有修改 migration、啟用額外來源或更改 CLI init 預設。
+
+匯入格式選 JSON，拒絕重複 keys、未知欄位、NaN／Infinity、錯誤型別、未知 source ID、重複 domain。source ID 是設定登錄檢查，不是 live capability；五領域種子及類別是查詢設定起點，後續來源 compiler 仍須驗證實際能力。集合欄位按內容排序後計算含 grammar 版本的 fingerprint，scope 原文除頭尾空白外不做語義改寫。
+
+種子只新增不存在的 domain；已存在而內容不同回 preserved，不新增修訂或覆蓋 SQLite。profile 的 domain 引用須指向精確既存 revision；新內容帶 expected_revision，衝突明確失敗。重試命中任何舊 fingerprint 時只回傳該歷史版本，不倒退 current pointer。id／reader_id／name 在這個切片中視為穩定身份，改名及明示還原歷史設定不是本批入口。
+
+暫停／重啟只改目前 lifecycle。發布內容不自動重啟 paused profile。歷史修訂查詢回內容的 revision 與目前 current_revision／lifecycle，後兩者不是假造的歷史狀態。移除領域以新 profile revision 省略對應 reference，舊 reference 仍保留。測試對實際已讀／通知資料表放入合成紀錄，驗證操作前後完全相同；未寄出郵件。
+
+驗證位置：`src/libs/watch_profiles/tests/contract/test_t03_local_workspace.py`。本批尚未新增 CLI 設定管理、來源查詢、模型、推送或其他 Story 功能。來源研究、失敗原因、選擇與修正均追加原 Issue comments；Status／Priority／Sprint 不複製到 Markdown。
