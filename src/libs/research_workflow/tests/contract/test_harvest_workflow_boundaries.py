@@ -137,6 +137,7 @@ def test_real_source_429_retry_after_is_respected_by_both_layers(env):
 
 def test_two_workflows_keep_only_one_committed_page_under_contention(env):
     clock = base.Runtime()
+    fetched_rendezvous = Barrier(2, timeout=15)
     rendezvous = Barrier(2, timeout=15)
     record = RecordHarvestCapture(env.journal, env.publish)
 
@@ -146,7 +147,15 @@ def test_two_workflows_keep_only_one_committed_page_under_contention(env):
         return result
 
     def execute():
-        run, _, _ = base.workflow(env, runtime=clock, record=recorded)
+        source = base.Source(clock)
+
+        def fetched(request):
+            response = source(request)
+            # Force two in-flight fetches; otherwise reusing the first capture is valid.
+            fetched_rendezvous.wait()
+            return response
+
+        run, _, _ = base.workflow(env, fetched, clock, record=recorded)
         try:
             return run(env.query, max_pages=1).stop_reason
         except HarvestError as exc:
