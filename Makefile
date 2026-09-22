@@ -2,9 +2,9 @@ UV ?= uv
 ROOT := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 RUN := $(UV) run --locked --offline
 
-.PHONY: help sync env-check lint format typecheck test
+.PHONY: help sync env-check lint format typecheck test ci-fast architecture-check governance-check contract-check package-check
 help:
-	@printf '%s\n' 'make sync       Install locked dependencies' 'make env-check  Check the lock and CLI package' 'make test       Run implemented offline tests'
+	@printf '%s\n' 'make sync       Install locked dependencies' 'make env-check  Check the lock and CLI package' 'make ci-fast    Verify the implemented offline scope' 'make test       Run implemented offline tests'
 sync:
 	cd "$(ROOT)" && $(UV) sync --locked
 env-check:
@@ -19,3 +19,12 @@ typecheck:
 	cd "$(ROOT)" && $(RUN) pyright
 test:
 	cd "$(ROOT)" && $(RUN) python -m pytest src -m 'not live_external' -q
+architecture-check:
+	cd "$(ROOT)" && $(RUN) python -m pytest src/libs/kernel/tests/architecture -q
+governance-check:
+	cd "$(ROOT)" && $(RUN) python -m pytest src/libs/kernel/tests/governance -q
+contract-check:
+	cd "$(ROOT)" && $(RUN) python -m pytest src/libs/research_workflow/tests/contract -q
+package-check:
+	cd "$(ROOT)" && $(RUN) python -m pytest src/apps/cli/tests/integration/test_wheel_install.py -q
+ci-fast: env-check lint typecheck test

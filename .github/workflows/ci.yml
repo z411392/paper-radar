@@ -34,9 +34,11 @@ jobs:
           enable-cache: false
       - name: Install the locked development environment
         run: uv sync --locked
-      - name: Verify executable packaging and contracts
-        run: make env-check test typecheck
-      - name: Check source formatting
-        run: make lint
+      - name: Verify the implemented engineering scope
+        run: make ci-fast
+      - name: Show formatting differences on failure
+        if: failure()
+        run: uv run --locked --offline ruff format --diff src
       - name: Confirm validation did not rewrite tracked files
+        if: always()
         run: git diff --exit-code
