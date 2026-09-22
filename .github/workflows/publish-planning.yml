@@ -1,0 +1,48 @@
+name: Publish approved planning baseline
+on:
+  push:
+    branches: [codex/bootstrap-planning]
+    paths: [.github/bootstrap/READY]
+permissions:
+  contents: write
+  issues: write
+concurrency:
+  group: paper-radar-planning-publication
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: github.repository == 'z411392/paper-radar'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Install pinned uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          enable-cache: false
+      - name: Fetch approved private publication inputs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/paper-radar-publication"
+          cd "$RUNNER_TEMP/paper-radar-publication"
+          for f in manifest.json payload-01.txt payload-02.txt payload-03.txt payload-04.txt unpack.py publish_existing.py; do
+            gh api "repos/$GITHUB_REPOSITORY/contents/.github/bootstrap/$f?ref=$GITHUB_SHA" --jq .content | base64 --decode > "$f"
+          done
+      - name: Validate and unpack immutable input
+        run: |
+          cd "$RUNNER_TEMP/paper-radar-publication"
+          uv run --no-project --python 3.13.5 python unpack.py
+      - name: Verify existing planning and migration checks
+        run: |
+          cd "$RUNNER_TEMP/paper-radar-publication/bundle"
+          uv sync --locked
+          uv run --locked python checks/test_bootstrap.py
+          uv run --locked python checks/test_uv_cli.py
+      - name: Publish documents and native issue hierarchy
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd "$RUNNER_TEMP/paper-radar-publication/bundle"
+          uv run --locked python ../publish_existing.py
