@@ -88,7 +88,12 @@
       ],
       "source_categories": {
         "arxiv": [
-          "stat.*"
+          "stat.AP",
+        "stat.CO",
+        "stat.ME",
+        "stat.ML",
+        "stat.OT",
+        "stat.TH"
         ]
       }
     },
