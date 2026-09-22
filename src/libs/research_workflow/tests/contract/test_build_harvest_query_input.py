@@ -39,7 +39,7 @@ def domain(**changes):
         ("statistics",),
         (),
         ("arxiv", "crossref"),
-        (("arxiv", ("stat.*",)),),
+        (("arxiv", ("stat.AP", "stat.CO", "stat.ME", "stat.ML", "stat.OT", "stat.TH")),),
     )
     return replace(base, **changes)
 
@@ -60,12 +60,19 @@ def test_exact_published_profile_and_domain_build_reproducible_query_input():
     query = build(request())
     assert query.profile_id == "personal" and query.profile_revision == 3
     assert query.domain.domain_id == "statistics" and query.domain.revision == 7
-    assert query.domain.categories == ("stat.*",)
+    assert query.domain.categories == (
+        "stat.AP",
+        "stat.CO",
+        "stat.ME",
+        "stat.ML",
+        "stat.OT",
+        "stat.TH",
+    )
     assert query.profile_include == ("causal",)
     assert query.profile_exclude == ("noise",)
     assert query.page_size == 50
     plan = ArxivQueryCompilerAdapter().compile(query)
-    assert "cat:stat.*" in plan.search_query
+    assert "cat:stat.AP" in plan.search_query and "cat:stat.TH" in plan.search_query
     profiles.assert_called_once_with("personal")
     domains.assert_called_once_with("statistics", 7)
 
