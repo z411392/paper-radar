@@ -18,7 +18,7 @@ Story：https://github.com/z411392/paper-radar/issues/5
 
 原 #6 三個 Subtask 都複製 Story 的持久化結果，無法各自判定。本次在 plan／Issue 區分：S1 是真實安裝與 CLI 接線；S2 是架構、治理與驗證防線；S3 保留實際 workspace 初始化，必須取得 #7 的直接契約與儲存實作，不能由 version 輸出抵扣。Story AC01–AC03 本身未修改。
 
-Base：`76e822b40d240884cc4c1e58c3ac94c6e22563f8`。候選分支：`codex/6-engineering-foundation`。S1 原始碼提交 `0a985f7df5bef3ff4e593ef5db8737796e6fd790`；S2 防線提交 `6c88ecea5ffc541c41342376a91014526a6b51da`；角色／切片文件提交 `a58028472efbc5f043bdf0ec49c41b23b26592b3`。後續排版／收据提交不改前述實作原意；完整 candidate 以 Task #6／PR 的最新 exact SHA 收據讀回。
+Base：`76e822b40d240884cc4c1e58c3ac94c6e22563f8`。候選分支：`codex/6-engineering-foundation`。S1 原始碼提交 `0a985f7df5bef3ff4e593ef5db8737796e6fd790`；S2 防線提交 `6c88ecea5ffc541c41342376a91014526a6b51da`；角色／切片文件提交 `a58028472efbc5f043bdf0ec49c41b23b26592b3`。後續排版／收據提交不改前述實作原意；完整 candidate 以 Task #6／PR 的最新 exact SHA 收據讀回。
 
 ### 實際驗證及失敗記錄
 
@@ -32,7 +32,7 @@ Base：`76e822b40d240884cc4c1e58c3ac94c6e22563f8`。候選分支：`codex/6-engi
 | S2 首次 CI | [run 35713399986](https://github.com/z411392/paper-radar/actions/runs/35713399986)，exact `6c88ecea` | lint 的 ruff check 通過，但 format check 在一處布林式換行失敗；後面的完整 gate 未跑，不能宣稱該 candidate 全綠。 |
 | 排版修正 | [run 35713764626](https://github.com/z411392/paper-radar/actions/runs/35713764626) | ruff 只重排該工程測試檔，AST before／after 相同；另修 plan 的繁體字。只產生兩個 blob，不自行 commit／移動 branch。其暫用 workflow 在接收產物後移除。 |
 
-容器無法解析套件站，沒有假裝本機已安裝完整產品依賴。正式 locked 依賴與跨平台 gate 由真實 GitHub Actions 執行，沒有把 CI 機械執行冒作獨立審閱。後续 exact candidate 的完整 `make ci-fast` 結果以 #6 追加收據為準；未執行的項目不填 exit 0。
+容器無法解析套件站，沒有假裝本機已安裝完整產品依賴。正式 locked 依賴與跨平台 gate 由真實 GitHub Actions 執行，沒有把 CI 機械執行冒作獨立審閱。後續 exact candidate 的完整 `make ci-fast` 結果以 #6 追加收據為準；未執行的項目不填 exit 0。
 
 本機 RED／GREEN 原始 log 保存於本次工作環境的 repo 外 evidence 目錄；SHA256 分別為 `caff18afc27d316b9e761432c0e46715389ed37b8621e498f975dcee461f5119`（S1 RED）、`df8aef0e3a80238aac28fc80adb4178a5e8759e40c707ba74f5ffdf1cbf80e83`（S2 RED）、`4af59690f181e1ee3c176189de7772498c1533953e107b6079b104a78db94839`（S2 初次 GREEN）、`bb95bea8fde017295f3104a645884d639024a0157980efaa7c80d7d90b57078a`（擴充防線＋治理）。這些 hash 不是原文已永久上傳的宣稱；可重跑的測試在 repo，GitHub CI 保留遠端執行紀錄。
 
@@ -41,3 +41,15 @@ Base：`76e822b40d240884cc4c1e58c3ac94c6e22563f8`。候選分支：`codex/6-engi
 CLI 只有真實 version 命令；workspace、profile、來源、模型、FAISS、email 尚未實作。S3 未完成，獨立 Reviewer 未執行，main 未合流，Task／Story／Exit 不提升完成判定。
 
 需求、Roadmap、Event Storming 語意不變。Context Map 只新增工程接線；Rule15／40／90、CLAUDE、README、plan 與原 Issue 修正當前執行和精確 oracle。測試按 owner 放置，沒有 root 無主測試目錄或第二份工作狀態庫。Project 欄位沒有存取或同步證據，Issue 維護不等於看板已更新。
+
+### 2026-09-22 S1／S2 完整候選驗證
+
+[PR #53](https://github.com/z411392/paper-radar/pull/53) 保存本批候選。實作與測試修正後的 exact SHA：`aa36f9a570c37b032751ca77b6bc7ed61f57f3fa`。
+
+先前 [run 35714028532](https://github.com/z411392/paper-radar/actions/runs/35714028532) 在 `5ffc694882e0ad0b7caf8797ebed444f52156d2c` 通過 lint、format、typecheck 與 55 項測試，但 wheel 隔離安裝測試失敗。原因是測試假設已安裝套件的離線快取必定包含新的 registry 解析資料；這個假設不成立。失敗不是被忽略或標成 PASS。
+
+S1 修正先以 `uv sync --locked --offline --no-dev --no-install-project` 將 lock 指定的 runtime dependencies 放進獨立環境，再安裝實際建置的 wheel、執行 `uv pip check`。安裝 wheel 時 `--no-deps` 不免除依賴驗證；相依套件已由 lock 準備並在安裝後檢查。保留 repo 外 `python -I` 啟動，新增 import 路徑必須位於該獨立環境的斷言，防止 editable source 意外混入。沒有開啟測試網路或降低既定輸出判準。
+
+[push run 35714287554](https://github.com/z411392/paper-radar/actions/runs/35714287554) 實際 checkout `aa36f9a570c37b032751ca77b6bc7ed61f57f3fa`。Ubuntu Python 3.12、Ubuntu Python 3.13.5、macOS Python 3.13.5 三個 jobs 的依賴安裝、`make ci-fast` 與 `git diff --exit-code` 全部成功。Linux Python 3.13.5 job `106701977097` 的完整 log 顯示 `56 passed`、pyright `0 errors, 0 warnings`、ruff check 與 format 通過；命令 exit 0。另 [PR run 35714292053](https://github.com/z411392/paper-radar/actions/runs/35714292053) 完成 success。
+
+這是 2026-09-22 的工程候選證據，不是永久測試數量契約、使用者本人 Mac 實測或獨立 Reviewer ACCEPT。S1／S2 已有程式與自測候選；S3、#7／#8 的產品行為及 Task／Story 結案仍未完成。本次文件收據提交不修改 source；若 reviewer 或後續工作改動 candidate，必須重新核對 exact SHA 與適用測試。
