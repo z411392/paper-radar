@@ -26,6 +26,23 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: uv run --locked --offline python .github/task8_stage.py prepare
+      - name: Wrap the unchanged child-process source string
+        run: |
+          uv run --locked --offline python - <<'PY'
+          import ast
+          from pathlib import Path
+          path = Path('src/libs/watch_profiles/tests/contract/test_t03_local_workspace.py')
+          source = path.read_text(encoding='utf-8')
+          before = ast.dump(ast.parse(source))
+          source = source.replace(
+              'from libs.watch_profiles.adapters.driven.sqlite_watch_profile_store_adapter import '
+              'SqliteWatchProfileStoreAdapter\n',
+              'from libs.watch_profiles.adapters.driven.sqlite_watch_profile_store_adapter '
+              '\\\nimport SqliteWatchProfileStoreAdapter\n',
+          )
+          assert ast.dump(ast.parse(source)) == before
+          path.write_text(source, encoding='utf-8')
+          PY
       - name: Run complete existing and new offline checks
         run: make ci-fast
       - name: Repeat concurrency and show actual SQLite runtime
