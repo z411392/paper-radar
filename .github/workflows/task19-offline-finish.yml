@@ -1,0 +1,77 @@
+name: Task 19 offline probe finalization
+on:
+  push:
+    branches: [codex/19-openrouter-smoke]
+    paths: [.github/workflows/task19-offline-finish.yml]
+permissions:
+  contents: write
+jobs:
+  verify:
+    if: github.repository == 'z411392/paper-radar' && github.run_attempt == '1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          enable-cache: false
+      - run: uv sync --locked
+      - name: Check fixed scope and format only the new probe files
+        run: |
+          uv run --locked --offline python - <<'PY'
+          import ast, subprocess
+          from pathlib import Path
+          def git(*args): return subprocess.check_output(['git',*args],text=True).strip()
+          base='b3f52b1ba5f98a3a991207da3bc8dea0dab58f42'
+          candidate='ea13a37b31ba90d7803ff18412989566db00c910'
+          temporary='.github/workflows/task19-offline-finish.yml'
+          assert git('rev-parse','HEAD^') == candidate
+          assert git('diff','--name-only',candidate,'HEAD') == temporary
+          paths=['src/libs/paper_explanations/tests/live_support/openrouter_smoke.py','src/libs/paper_explanations/tests/unit/test_openrouter_smoke_probe.py']
+          assert set(git('diff','--name-only',base,candidate).splitlines()) == set(paths)|{'.github/workflows/openrouter-smoke-once.yml'}
+          before={name:ast.dump(ast.parse(Path(name).read_bytes())) for name in paths}
+          subprocess.run(['uv','run','--locked','--offline','ruff','format',*paths],check=True)
+          for name, value in before.items(): assert ast.dump(ast.parse(Path(name).read_bytes()))==value
+          print('ONLY_NEW_PROBE_FILES_FORMATTED; AST_UNCHANGED; NO_OPENROUTER_SECRET_IN_THIS_JOB')
+          PY
+      - name: Full locked offline gate
+        run: make ci-fast
+      - name: Export verified objects without updating refs or using OpenRouter
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          uv run --locked --offline python - <<'PY'
+          import base64,json,os,subprocess,urllib.request
+          repo='z411392/paper-radar'
+          assert os.environ['GITHUB_REPOSITORY']==repo
+          assert os.environ['GITHUB_REF']=='refs/heads/codex/19-openrouter-smoke'
+          assert 'OPENROUTER_API_KEY' not in os.environ
+          def git(*args): return subprocess.check_output(['git',*args],text=True).strip()
+          def api(endpoint,body):
+              req=urllib.request.Request('https://api.github.com/repos/'+repo+'/'+endpoint,data=json.dumps(body).encode(),headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Content-Type':'application/json','Accept':'application/vnd.github+json'},method='POST')
+              with urllib.request.urlopen(req,timeout=45) as response: return json.load(response)
+          allowed={'src/libs/paper_explanations/tests/live_support/openrouter_smoke.py','src/libs/paper_explanations/tests/unit/test_openrouter_smoke_probe.py'}
+          changed=git('diff','--name-only').splitlines()
+          assert set(changed)<=allowed
+          assert not git('ls-files','--others','--exclude-standard')
+          for name in changed: subprocess.run(['git','add','--',name],check=True)
+          temps=['.github/workflows/openrouter-smoke-once.yml','.github/workflows/task19-offline-finish.yml']
+          subprocess.run(['git','rm','--',*temps],check=True)
+          local_tree=git('write-tree'); parent=git('rev-parse','HEAD'); entries=[]
+          for name in changed:
+              raw=subprocess.check_output(['git','show',local_tree+':'+name])
+              sha=api('git/blobs',{'encoding':'base64','content':base64.b64encode(raw).decode()})['sha']
+              assert sha==git('rev-parse',local_tree+':'+name)
+              entries.append({'path':name,'mode':'100644','type':'blob','sha':sha})
+          entries += [{'path':name,'mode':'100644','type':'blob','sha':None} for name in temps]
+          tree=api('git/trees',{'base_tree':git('show','-s','--format=%T',parent),'tree':entries})['sha']
+          assert tree==local_tree
+          commit=api('git/commits',{'message':'task-19: retain offline-verified probe and retire one-shot live triggers\n\nRefs #19. Live receipt is bound to a77e395a, not this formatting-only descendant. Remove both one-shot workflows, preserve history and source AST. No further paid calls, no main merge or independent ACCEPT.','tree':tree,'parents':[parent]})['sha']
+          print('PROBE_FINAL_TREE='+tree)
+          print('PROBE_FINAL_COMMIT='+commit)
+          print('No refs or Issue/Project fields updated; no OpenRouter key used.')
+          PY
