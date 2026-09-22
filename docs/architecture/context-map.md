@@ -76,4 +76,10 @@ Runtime objects／SQLite／vectors／index 與備份目錄唯一契約見 [data-
 
 ## Task #6 已接線的工程入口
 
-`apps/cli version` → `research_workflow.ports.ReadRuntimeVersionPort` → `ReadRuntimeVersion` → `RuntimeVersionProviderPort` → `PythonRuntimeVersionAdapter`。DTO 位於該 owner 的 dtos；只有 apps/cli/module.py 引用具體用例與 adapter。此查詢只用於驗證套件安裝／接線，不讀 workspace，也不是產品健康檢查。工作區初始化、排程與其他命令依其 Task 後續接線。
+`apps/cli version` → `research_workflow.ports.ReadRuntimeVersionPort` → `ReadRuntimeVersion` → `RuntimeVersionProviderPort` → `PythonRuntimeVersionAdapter`。DTO 位於該 owner 的 dtos；只有 apps/cli/module.py 引用具體用例與 adapter。此查詢只用於驗證套件安裝／接線，不讀 workspace，也不是產品健康檢查。
+
+`apps/cli init --workspace PATH` → `kernel.ports.InitializeWorkspacePort` → `InitializeWorkspace` → `WorkspaceBootstrapPort` → `SqliteWorkspaceBootstrapAdapter`。CLI 先解析完整參數，再組裝明確 InstanceProvider；只有呼叫 inbound port 才初始化，建立 Injector 本身不寫入。SQLite、migration、檔案發布與錯誤分類仍由 kernel adapters 擁有；CLI 只轉換參數、JSON、stderr 與 exit code。
+
+Root `migrations/0001-object-registry.sql` 是唯一原文，Hatchling 的 force-include 將其映射到安裝套件的 `libs/kernel/resources/migrations/`。`bundled_workspace_migrations.py` 是 kernel driven resource loader，不從 cwd 找備援、不在 src 複製 SQL，不擴大為自動套用全部 migrations。更動 source SQL 也會使 uv 本地建置快取失效。
+
+本批的範圍與作者測試見 [Story plan](../../specs/5-local-workspace/plan.md)／[progress](../../specs/5-local-workspace/progress.md)；關注設定、排程與其他命令依其 Task 後續接線。

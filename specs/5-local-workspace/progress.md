@@ -68,3 +68,28 @@ S1 初始提交 `d654e9ff30e10300b6bf74ecc76ce496d59e4227`；S2 提交 `2aefa49a
 本機套件站 DNS 不可用，subsystem 使用 `uv run --no-project --python /opt/pyvenv/bin/python python -m pytest` 在隔離 src 下執行；不稱為 locked 全庫 gate。完整鎖定環境、ruff／pyright／全庫測試由 GitHub runner 執行，正式結果以本卡與 PR 的 exact candidate CI readback 為準。原始 log 雜湊由 #7 append-only 收據保存，不以 hash 冒稱原始檔永久可下載。
 
 需求、Roadmap、Event Storming、Story AC、原 migrations 與架構／治理測試未變；技術補充放本 Story plan 和 data-model。CLI 初始化、profile、FAISS、真來源、模型與郵件未執行。所有階段只交付已測候選，沒有自我 ACCEPT。
+
+## 2026-09-23 CLI 初始化與儲存競爭修復
+
+此次 fresh-read 發現前次中斷已留下 [PR #54](https://github.com/z411392/paper-radar/pull/54) 和 #7 的 `8499f43a807d27fdc94abf086552e826eeeac456`。接續而非重建。新的 [PR #55](https://github.com/z411392/paper-radar/pull/55) 疊在 #54 之上，分支 `codex/6-workspace-initialization`；本對話直接透過 GitHub 提交，完整驗證在 runner 執行，沒有宣稱本次在使用者 Mac 或容器跑過完整 locked 測試。
+
+### RED、缺陷與實際修正
+
+- `893b1e7f859955b44b229952b9dfa9eeb8aabeb9` 新增 init／resource 測試；[run 35756593266](https://github.com/z411392/paper-radar/actions/runs/35756593266) 只到格式失敗，不是行為 RED。`ec2527bdb703947e548dac10cdc6dee5970587a8` 僅修兩處排版。
+- `ec2527b` 的 [run 35756815359](https://github.com/z411392/paper-radar/actions/runs/35756815359)，Ubuntu 3.13.5 為 13 failed／104 passed。其中 11 項是 init／resource 未實作的預期 RED；另 2 項是原 #7 並行測試暴露 sidecar 消失和 WAL 切換爭鎖，不能算入預期 RED 或靠重跑忽略。
+- 原 #7 owner 新增固定時序測試，`d455543e171407795727fcd5df9d0a2415cbb64d` 的 [run 35757336843](https://github.com/z411392/paper-radar/actions/runs/35757336843) 重現 2 failed／105 passed。`6a030bf8e5c2adfa8183cc36ff7a5a91c0315ff7` 只改兩個 adapter；[run 35757666306](https://github.com/z411392/paper-radar/actions/runs/35757666306) 已讀回 success。#6 用 `bd1b935fd58ebac99eead2bad89e95c8600f8f1a` 合併接收，沒有改寫上游歷史。
+- CLI／resource 初始實作 `8e154d63be237b065cd7aab01ca76d8d4197dd7b`；整合候選的 [run 35757851165](https://github.com/z411392/paper-radar/actions/runs/35757851165) 為 6 failed／115 passed。失敗在 Injector 對非 runtime-checkable Protocol 的 instance 分類，不是資源打包失敗。修正 `bdc36196b39bc1ff7752ab23f6f85c13368d85ed` 使用明確 InstanceProvider，未修改 kernel ports；增加 DI 本身無副作用的測試。
+
+### 完整 GREEN
+
+對 head `bdc36196b39bc1ff7752ab23f6f85c13368d85ed` 的 [PR run 35758081473](https://github.com/z411392/paper-radar/actions/runs/35758081473)，Ubuntu 3.12／Ubuntu 3.13.5／macOS 3.13.5 三個 jobs 均已讀回 completed／success。PR runner 實際 checkout 的合併候選是 `37c107e7571bb21311052ad2093be090f6841032`，不是聲稱直接 checkout head。
+
+Ubuntu 3.13.5 job `106848821719` 完整 log：`uv sync --locked`、`make ci-fast`、`git diff --exit-code` 均成功；122 passed，ruff check／format 通過，pyright 0 errors／0 warnings。全部既有測試仍執行，沒有 skip 或放寬期待。這是日期限定的候選收據，不是永久測試數契約或独立驗收。
+
+### 本批交付與保留邊界
+
+工作區現在可以透過真正 CLI 初始化、新程序重開，已驗證相同身分、外部副作用關閉、中文／空白／相對路徑、錯誤參數不先寫入、陌生資料保持、symlink／遺失 DB 拒絕。非 editable wheel 在 repo 外也可初始化與重開；sdist 保留 canonical SQL，缺資源不從 cwd 補齊。
+
+S1／S2／S3 已有各自作者實作與驗證，但 independent Reviewer 未執行，main 不合流，#6／#7／Story #5 不結案。#8 profile、來源、模型、FAISS、郵件仍未實作。本批只觸及 runner 隔離目錄，不改使用者既有資料。Issue／PR 更新不表示 Project Status／Priority／Sprint 已同步。
+
+五類影響：需求、Roadmap、Event Storming、Story spec 不變；Context Map 補 init 與 package resource 的 owner 接線；本 plan／progress 及 #6／#7 記固定契約、缺陷與證據。README 更新可執行命令，SQL 原文、既有 architecture／governance 防線與角色例外不變。

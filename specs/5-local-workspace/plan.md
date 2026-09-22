@@ -22,13 +22,13 @@ Apps 只呼叫 feature inbound port；libs 不讀 apps transport DTO。跨模組
 
 ## 正反外部 oracle
 
-- https://github.com/z411392/paper-radar/issues/6：跨 lib 直接 import adapter 必須被防線拒絕；合法 port import 必須通過。原規劃 `src/apps/cli/tests/acceptance/test_t01_local_workspace.py` 涵蓋真實初始化，保留 S3 後續凍結；本次 S1／S2 的作者工程測試依下節。
-- https://github.com/z411392/paper-radar/issues/7：檔案已落盤而 SQL 未提交只可留下可回收孤兒；不得出現指向未完成 bytes 的有效業務列。預定 oracle 位於 `src/libs/kernel/tests/contract/test_t02_local_workspace.py`；正式 dispatch 前由 Architect 凍結。
+- https://github.com/z411392/paper-radar/issues/6：跨 lib 直接 import adapter 必須被防線拒絕；合法 port import 必須通過。原規劃 `src/apps/cli/tests/acceptance/test_t01_local_workspace.py` 涵蓋真實初始化；2026-09-23 已建立作者測試，並非獨立 frozen receipt，依本頁 S3 契約。
+- https://github.com/z411392/paper-radar/issues/7：檔案已落盤而 SQL 未提交只可留下可回收孤兒；不得出現指向未完成 bytes 的有效業務列。作者實測位置見下方 #7 切片；獨立凍結與 ACCEPT 尚未取得。
 - https://github.com/z411392/paper-radar/issues/8：相同 fingerprint 冪等；無效項不得半發布；暫停不得清空後續所需歷史。預定 oracle 位於 `src/libs/watch_profiles/tests/contract/test_t03_local_workspace.py`；正式 dispatch 前由 Architect 凍結。
 
 ## 驗證方法
 
-各 Task body 的每個 S1／S2／S3 應有對應 Given／When／Then 與反例；不可複製整個 Story 的結果來冒充每個工程切片。Task #6 下節已限定工程 oracle，#7／#8 仍需在其施工前固定。測試檔須先建立並證明因缺少目標行為而失敗；不得將不存在的命令寫成 PASS。
+各 Task body 的每個 S1／S2／S3 應有對應 Given／When／Then 與反例；不可複製整個 Story 的結果來冒充每個工程切片。Task #6／#7 已限定作者測試，#8 仍需在其施工前固定。測試檔須先建立並證明因缺少目標行為而失敗；不得將不存在的命令寫成 PASS。
 
 Focused unit／integration → contract／acceptance → `make ci-fast` → 獨立 Reviewer exact-candidate review → Commander 保留 Subtask commits 合流。真來源、真模型、受控郵件及復原能力各自另記收據。
 
@@ -64,3 +64,21 @@ S3：InspectStorage 讀取 registry 快照，再檢查內容；回報 missing、
 測試位置：`src/libs/kernel/tests/integration/test_sqlite_workspace.py`、`test_local_storage.py`、`test_bootstrap_race.py` 及 `src/libs/kernel/tests/unit/test_object_ref.py`；包含並行初始化／重複發布、唯讀 transaction、rollback、失敗 migration、陌生 DB、遺失 DB 但保留內容、symlink、fsync 失敗與錯誤 metadata。正式完整驗證仍是 `make ci-fast`。
 
 本批可寫 kernel 新增檔案與本 plan／progress／data-model 的必要技術補充；原 migrations、共通需求、Story spec、Roadmap、Event Storming、架構／治理防線和 #53 程式不變。#6 S3 CLI handler、#8 profile、FAISS／來源／模型／郵件不在此切片，不以 library 測試冒稱那些能力完成。
+
+### 接續驗證的儲存競爭修正
+
+2026-09-23 由原 #7 owner 在自己的分支修復：新 DB 完成 schema／identity 後，先在尚未公開的 staging 檔設定 WAL 並關閉連線，再 fsync 及不覆蓋發布；一般 factory 仍負責連線設定，但新初始化者不再爭用 journal mode 升級。可消失的 SQLite sidecar 以單次 lstat 取得型別快照；不存在是正常狀態，symlink／非普通檔案仍拒絕。固定重現測試在 `test_storage_race_regressions.py`，不降低既有安全或並行測試。
+
+## 2026-09-23 Task #6 S3 初始化接線
+
+[PR #55](https://github.com/z411392/paper-radar/pull/55)，分支 `codex/6-workspace-initialization`。初始 base 為 #7 `8499f43`，後以合併提交接收 #7 `6a030bf` 的三個檔案修正。兩條 Task commit 歷史保留；沒有把未驗收上游視為 main 基線。
+
+命令：`uv run --locked python -m apps.cli init --workspace PATH`。全部參數先解析才組裝；缺參數、多餘參數、未知選項退出 2 且不建立工作區。空白／NUL 路徑退出 2。預期 StorageError／OSError 以 stderr JSON error 回報並退出 1；成功才輸出 WorkspaceInfo JSON。version 的既有行為不變。
+
+接線：CLI → InitializeWorkspacePort → InitializeWorkspace → WorkspaceBootstrapPort → SqliteWorkspaceBootstrapAdapter。組裝已存在物件時用 Injector InstanceProvider，不要求 kernel Protocol 為 DI 框架新增 runtime_checkable，也不將 callable command 誤當 provider 先執行。建立 Injector 及取得 port 都不初始化。
+
+只有 canonical `migrations/0001-object-registry.sql` 進入這個命令。wheel 的 force-include 映射到 `libs/kernel/resources/migrations/`，sdist 保存 root 原檔。loader 使用 package resource；缺失／非 UTF-8 是 migration_resource_error，不搜尋 cwd 備援。uv cache-keys 包含該 SQL。後續 migration 有自己的 Task，不掃描整個資料夾自動套用。
+
+可觀察正例：新程序重開相同身分、相對路徑依呼叫者 cwd、中文及空白路徑、wheel 在 repo 外初始化與重開、已套用 0001／未套用 0002、外部副作用預設關閉。反例：陌生目錄／DB 保持原內容、symlink 不觸及目標、DB 遺失但內容存在不得重新初始化、CLI 參數拒絕在任何寫入之前。
+
+作者 oracle：`src/apps/cli/tests/acceptance/test_t01_local_workspace.py`、`src/apps/cli/tests/integration/test_workspace_composition.py`、`test_wheel_install.py`，以及 kernel `tests/integration/test_workspace_resources.py`。完整命令 `make ci-fast`；wheel 專項 `make package-check`。不修改 Story spec、原 SQL 或既有架構／治理防線。AC01 的 profile 部分仍由 #8 承接，不以 workspace 初始化宣稱整個 Story 完成。
