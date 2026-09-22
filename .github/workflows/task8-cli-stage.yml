@@ -1,0 +1,37 @@
+name: Task 8 CLI bounded integration
+on:
+  push:
+    branches: [codex/8-watch-profile-cli]
+    paths: [.github/task8_cli_stage.py, .github/workflows/task8-cli-stage.yml]
+permissions:
+  contents: write
+concurrency:
+  group: task8-cli-bounded-integration
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: 0.10.0
+          enable-cache: false
+      - name: Install existing locked dependencies
+        run: uv sync --locked
+      - name: Assemble exact parents and retain real CLI RED
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: uv run --locked --offline python .github/task8_cli_stage.py prepare
+      - name: Verify all old and new tests without live side effects
+        run: make ci-fast
+      - name: Record exact SQLite build without accepting it for production
+        run: uv run --locked --offline python -c 'import sqlite3; c=sqlite3.connect(":memory:"); print("SQLITE_VERSION="+sqlite3.sqlite_version); print("SQLITE_SOURCE_ID="+c.execute("select sqlite_source_id()").fetchone()[0]); c.close()'
+      - name: Export tested candidate objects, never move refs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: uv run --locked --offline python .github/task8_cli_stage.py export
