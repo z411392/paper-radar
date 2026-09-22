@@ -43,8 +43,14 @@ class SqliteHarvestResumeAdapter(SqliteHarvestProcessingAdapter):
                 if finished != row["finished_at"] or finished < started:
                     raise HarvestError("invalid_harvest_time")
             return HarvestAttempt(
-                row["id"], row["unit_id"], row["attempt_no"], request, started, row["state"],
-                None if capture is None else HarvestPageRules.encode(capture), row["finished_at"],
+                row["id"],
+                row["unit_id"],
+                row["attempt_no"],
+                request,
+                started,
+                row["state"],
+                None if capture is None else HarvestPageRules.encode(capture),
+                row["finished_at"],
             )
         except (KeyError, TypeError, ValueError, OverflowError):
             raise HarvestError("invalid_attempt_envelope") from None
@@ -67,14 +73,23 @@ class SqliteHarvestResumeAdapter(SqliteHarvestProcessingAdapter):
                 or binding["source"] != plan.source_id
                 or binding["enabled"] != 1
                 or (binding["profile_id"], binding["profile_revision"], binding["config_revision"])
-                != (definition["profile_id"], definition["profile_revision"], definition["domain"]["revision"])
+                != (
+                    definition["profile_id"],
+                    definition["profile_revision"],
+                    definition["domain"]["revision"],
+                )
             ):
                 raise HarvestError("binding_conflict")
             if unit is None:
                 raise HarvestError("resume_unit_missing")
-            expected_window = tuple(PrepareHarvestCapture.time(datetime.fromisoformat(definition[key]))
-                                    for key in ("window_start", "window_end"))
-            if unit["binding_id"] != binding_id or (unit["window_start"], unit["window_end"]) != expected_window:
+            expected_window = tuple(
+                PrepareHarvestCapture.time(datetime.fromisoformat(definition[key]))
+                for key in ("window_start", "window_end")
+            )
+            if (
+                unit["binding_id"] != binding_id
+                or (unit["window_start"], unit["window_end"]) != expected_window
+            ):
                 raise HarvestError("unit_conflict")
             latest = connection.execute(
                 "SELECT * FROM harvest_attempts WHERE unit_id=? ORDER BY attempt_no DESC LIMIT 1", (unit_id,)
@@ -89,13 +104,20 @@ class SqliteHarvestResumeAdapter(SqliteHarvestProcessingAdapter):
                     "SELECT * FROM harvest_attempts WHERE unit_id=? "
                     "AND json_extract(response_metadata_json,'$.request.start')=? "
                     "ORDER BY CASE state WHEN 'captured' THEN 0 WHEN 'failed' THEN 1 ELSE 2 END, "
-                    "attempt_no DESC LIMIT 1", (unit_id, snapshot.next_start),
+                    "attempt_no DESC LIMIT 1",
+                    (unit_id, snapshot.next_start),
                 ).fetchone()
                 if chosen is not None:
                     attempt = self._restore_attempt(chosen, plan)
                     snapshot = self._snapshot(connection, attempt, parser_version)
                     previous = snapshot.previous_result
             return HarvestResumeState(
-                unit_id, plan.query_fingerprint, snapshot.checkpoint_version, snapshot.next_start,
-                snapshot.total_results, snapshot.unit_state, attempt, previous,
+                unit_id,
+                plan.query_fingerprint,
+                snapshot.checkpoint_version,
+                snapshot.next_start,
+                snapshot.total_results,
+                snapshot.unit_state,
+                attempt,
+                previous,
             )

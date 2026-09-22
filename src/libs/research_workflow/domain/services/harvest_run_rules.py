@@ -22,9 +22,12 @@ class HarvestRunRules:
             raise HarvestWorkflowError("invalid_profile_snapshot")
         if (
             profile.profile_id != query.profile_id
-            or type(profile.revision) is not int or type(profile.current_revision) is not int
-            or profile.revision != query.profile_revision or profile.current_revision != query.profile_revision
-            or profile.fingerprint != query.profile_fingerprint or profile.lifecycle != "active"
+            or type(profile.revision) is not int
+            or type(profile.current_revision) is not int
+            or profile.revision != query.profile_revision
+            or profile.current_revision != query.profile_revision
+            or profile.fingerprint != query.profile_fingerprint
+            or profile.lifecycle != "active"
             or profile.scope_text != query.scope_text
             or (query.domain.domain_id, query.domain.revision) not in profile.domains
         ):
@@ -32,19 +35,33 @@ class HarvestRunRules:
         try:
             data = json.loads(profile.filters_json)
             if not isinstance(data, dict) or set(data) != {
-                "sources", "include", "exclude", "languages", "free_only", "allow_preprints"
+                "sources",
+                "include",
+                "exclude",
+                "languages",
+                "free_only",
+                "allow_preprints",
             }:
                 return False
             for name, expected in (
-                ("sources", query.profile_sources), ("include", query.profile_include),
-                ("exclude", query.profile_exclude), ("languages", query.languages),
+                ("sources", query.profile_sources),
+                ("include", query.profile_include),
+                ("exclude", query.profile_exclude),
+                ("languages", query.languages),
             ):
                 values = data[name]
-                if (not isinstance(values, list) or any(not isinstance(v, str) for v in values)
-                        or sorted(values) != sorted(expected)):
+                if (
+                    not isinstance(values, list)
+                    or any(not isinstance(v, str) for v in values)
+                    or sorted(values) != sorted(expected)
+                ):
                     return False
-            return (type(data["free_only"]) is bool and type(data["allow_preprints"]) is bool
-                    and data["free_only"] == query.free_only and data["allow_preprints"] == query.allow_preprints)
+            return (
+                type(data["free_only"]) is bool
+                and type(data["allow_preprints"]) is bool
+                and data["free_only"] == query.free_only
+                and data["allow_preprints"] == query.allow_preprints
+            )
         except (ValueError, TypeError, KeyError, RecursionError):
             raise HarvestWorkflowError("invalid_profile_snapshot") from None
 

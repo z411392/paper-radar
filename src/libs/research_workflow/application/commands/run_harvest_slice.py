@@ -16,17 +16,24 @@ class RunHarvestSlice:
     """Bounded composition of public use cases; no network or storage transaction here."""
 
     def __init__(
-        self, compiler: SourceQueryCompilerPort, resume: ReadHarvestResumePort,
-        start: StartHarvestAttemptPort, fetch: FetchSourcePagePort,
-        record: RecordHarvestCapturePort, process: ProcessHarvestPagePort,
-        profiles: ReadWatchProfilePort, runtime: HarvestRuntimePort, parser_version: str,
+        self,
+        compiler: SourceQueryCompilerPort,
+        resume: ReadHarvestResumePort,
+        start: StartHarvestAttemptPort,
+        fetch: FetchSourcePagePort,
+        record: RecordHarvestCapturePort,
+        process: ProcessHarvestPagePort,
+        profiles: ReadWatchProfilePort,
+        runtime: HarvestRuntimePort,
+        parser_version: str,
     ) -> None:
         self._compiler, self._resume, self._start = compiler, resume, start
         self._fetch, self._record, self._process = fetch, record, process
         self._profiles, self._runtime, self._parser_version = profiles, runtime, parser_version
 
-    def __call__(self, query: SourceQueryInput, *, max_pages: int = 10,
-                 retry_failed: bool = False) -> HarvestRunResult:
+    def __call__(
+        self, query: SourceQueryInput, *, max_pages: int = 10, retry_failed: bool = False
+    ) -> HarvestRunResult:
         HarvestRunRules.limits(max_pages, retry_failed)
         plan = self._compiler.compile(query)
         if not HarvestRunRules.profile_matches(query, self._profiles(query.profile_id)):

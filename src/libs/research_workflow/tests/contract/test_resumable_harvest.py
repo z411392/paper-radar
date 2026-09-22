@@ -4,7 +4,6 @@ import subprocess
 import sys
 from dataclasses import replace
 from datetime import timedelta
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 from uuid import uuid4
@@ -36,30 +35,50 @@ from libs.kernel.application.queries.read_object import ReadObject
 from libs.kernel.exceptions.storage_error import StorageError
 from libs.research_workflow.application.commands.run_harvest_slice import RunHarvestSlice
 from libs.research_workflow.exceptions.harvest_workflow_error import HarvestWorkflowError
-from libs.watch_profiles.adapters.driven.sqlite_watch_profile_store_adapter import SqliteWatchProfileStoreAdapter
+from libs.watch_profiles.adapters.driven.sqlite_watch_profile_store_adapter import (
+    SqliteWatchProfileStoreAdapter,
+)
 from libs.watch_profiles.application.queries.read_watch_profile import ReadWatchProfile
 
 NOW, AT, VERSION = prior.NOW, prior.AT, prior.VERSION
 
 
 def filters():
-    return {"sources": ["arxiv"], "include": [], "exclude": [], "languages": [],
-            "free_only": False, "allow_preprints": True}
+    return {
+        "sources": ["arxiv"],
+        "include": [],
+        "exclude": [],
+        "languages": [],
+        "free_only": False,
+        "allow_preprints": True,
+    }
 
 
 def reopen(root):
     factory = SqliteConnectionFactory(root)
     compiler = ArxivQueryCompilerAdapter()
     query = SourceQueryInput(
-        "arxiv", "personal", 1, "a" * 64,
+        "arxiv",
+        "personal",
+        1,
+        "a" * 64,
         DomainQuerySnapshot("statistics", 1, ("arxiv",), ("stat.ML",)),
-        NOW, NOW + timedelta(days=1), ("arxiv",), page_size=2,
+        NOW,
+        NOW + timedelta(days=1),
+        ("arxiv",),
+        page_size=2,
     )
     journal = SqliteHarvestStoreAdapter(factory.connect, compiler)
     files, uow = FilesystemObjectBytesAdapter(root), SqliteObjectUnitOfWorkAdapter(factory)
     return SimpleNamespace(
-        root=root, factory=factory, compiler=compiler, query=query, plan=compiler.compile(query),
-        journal=journal, publish=PublishObject(files, uow), objects=ReadObject(files, uow),
+        root=root,
+        factory=factory,
+        compiler=compiler,
+        query=query,
+        plan=compiler.compile(query),
+        journal=journal,
+        publish=PublishObject(files, uow),
+        objects=ReadObject(files, uow),
         store=SqliteHarvestProcessingAdapter(factory.connect),
         parser=ParseSourcePage(ArxivAtomParserAdapter()),
         profiles=ReadWatchProfile(SqliteWatchProfileStoreAdapter(factory.connect)),
@@ -70,10 +89,14 @@ def reopen(root):
 def env(tmp_path):
     old = prior.env.__wrapped__(tmp_path)
     prior.database(old, "UPDATE watch_profiles SET published_revision=1")
-    prior.database(old, "UPDATE watch_profile_revisions SET scope_text='',filters_json=?",
-                   (json.dumps(filters(), sort_keys=True, separators=(",", ":")),))
-    prior.database(old, "INSERT INTO domain_definitions VALUES('statistics','Fixture','{}',1,?)",
-                   (NOW.isoformat(),))
+    prior.database(
+        old,
+        "UPDATE watch_profile_revisions SET scope_text='',filters_json=?",
+        (json.dumps(filters(), sort_keys=True, separators=(",", ":")),),
+    )
+    prior.database(
+        old, "INSERT INTO domain_definitions VALUES('statistics','Fixture','{}',1,?)", (NOW.isoformat(),)
+    )
     prior.database(old, "INSERT INTO watch_profile_domains VALUES('personal',1,'statistics',1)")
     return reopen(old.root)
 
@@ -100,20 +123,31 @@ class Source:
         if self.after_fetch is not None:
             self.after_fetch()
         if self.error == "http_timeout":
-            return SourceFetchResult(request.request_fingerprint, None, None,
-                                     self.error, self.retryable, self.delay)
-        ids = tuple(f"2609.{i + 1:05d}v1" for i in
-                    range(request.start, min(self.total, request.start + request.max_results)))
+            return SourceFetchResult(
+                request.request_fingerprint, None, None, self.error, self.retryable, self.delay
+            )
+        ids = tuple(
+            f"2609.{i + 1:05d}v1"
+            for i in range(request.start, min(self.total, request.start + request.max_results))
+        )
         raw = self.body if self.body is not None else prior.feed(request.start, ids, self.total)
-        response = SourceHttpResponse(429 if self.error else 200, raw,
-                                      (("content-type", "application/atom+xml"),), self.runtime.now())
-        return SourceFetchResult(request.request_fingerprint, response, hashlib.sha256(raw).hexdigest(),
-                                 self.error, self.retryable if self.error else False, self.delay)
+        response = SourceHttpResponse(
+            429 if self.error else 200, raw, (("content-type", "application/atom+xml"),), self.runtime.now()
+        )
+        return SourceFetchResult(
+            request.request_fingerprint,
+            response,
+            hashlib.sha256(raw).hexdigest(),
+            self.error,
+            self.retryable if self.error else False,
+            self.delay,
+        )
 
 
 def resume(env, plan=None):
     return ReadHarvestResume(SqliteHarvestResumeAdapter(env.factory.connect, env.compiler))(
-        plan or env.plan, VERSION)
+        plan or env.plan, VERSION
+    )
 
 
 def workflow(env, source=None, runtime=None, *, profiles=None, record=None, processor=None):
@@ -121,10 +155,15 @@ def workflow(env, source=None, runtime=None, *, profiles=None, record=None, proc
     source = source or Source(runtime)
     process = ProcessHarvestPage(ReadHarvestAttempt(env.journal), env.objects, env.parser, env.store, VERSION)
     runner = RunHarvestSlice(
-        env.compiler, ReadHarvestResume(SqliteHarvestResumeAdapter(env.factory.connect, env.compiler)),
-        StartHarvestAttempt(env.journal), source,
-        record or RecordHarvestCapture(env.journal, env.publish), processor or process,
-        profiles or env.profiles, runtime, VERSION,
+        env.compiler,
+        ReadHarvestResume(SqliteHarvestResumeAdapter(env.factory.connect, env.compiler)),
+        StartHarvestAttempt(env.journal),
+        source,
+        record or RecordHarvestCapture(env.journal, env.publish),
+        processor or process,
+        profiles or env.profiles,
+        runtime,
+        VERSION,
     )
     return runner, source, runtime
 
@@ -265,11 +304,18 @@ def test_unprocessed_missing_or_corrupt_raw_never_triggers_network(env, mutation
     assert resume(env).checkpoint_version == 0
 
 
-@pytest.mark.parametrize("change", [
-    {"lifecycle": "paused"}, {"current_revision": 2}, {"revision": 2},
-    {"fingerprint": "f" * 64}, {"domains": ()}, {"scope_text": "different"},
-    {"filters_json": '{"sources":[]}'},
-])
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"lifecycle": "paused"},
+        {"current_revision": 2},
+        {"revision": 2},
+        {"fingerprint": "f" * 64},
+        {"domains": ()},
+        {"scope_text": "different"},
+        {"filters_json": '{"sources":[]}'},
+    ],
+)
 def test_stale_paused_or_mismapped_profile_fails_before_effects(env, change):
     profile = replace(env.profiles("personal"), **change)
     source = Mock()
@@ -284,7 +330,8 @@ def test_pause_during_fetch_preserves_raw_but_stops_before_processing(env):
     clock = Runtime()
     source = Source(clock)
     source.after_fetch = lambda: SqliteWatchProfileStoreAdapter(env.factory.connect).set_lifecycle(
-        "personal", "paused")
+        "personal", "paused"
+    )
     run, _, _ = workflow(env, source, clock)
     result = run(env.query)
     assert result.stop_reason == "profile_changed"
@@ -362,6 +409,7 @@ def test_failure_in_another_window_does_not_change_finished_window(env):
 def test_sqlite_write_lock_is_not_held_during_fetch(env):
     clock = Runtime()
     source = Source(clock)
+
     def probe():
         connection = env.factory.connect()
         try:
@@ -369,6 +417,7 @@ def test_sqlite_write_lock_is_not_held_during_fetch(env):
             connection.rollback()
         finally:
             connection.close()
+
     source.after_fetch = probe
     assert workflow(env, source, clock)[0](env.query, max_pages=1).processed_pages == 1
 
@@ -396,8 +445,9 @@ run, _, _ = workflow(e, record=crash_record if sys.argv[2]=='capture' else recor
 run(e.query, max_pages=1)
 raise AssertionError('crash hook not executed')
 """
-    completed = subprocess.run([sys.executable, "-I", "-c", code, str(env.root), phase],
-                               capture_output=True, text=True, timeout=30)
+    completed = subprocess.run(
+        [sys.executable, "-I", "-c", code, str(env.root), phase], capture_output=True, text=True, timeout=30
+    )
     assert completed.returncode == 23, completed.stderr
     new = reopen(env.root)
     current = resume(new)
