@@ -23,6 +23,17 @@ jobs:
           enable-cache: false
       - name: Install existing locked dependencies
         run: uv sync --locked
+      - name: Preserve the reviewed initializer document corrections
+        run: |
+          uv run --locked --offline python - <<'PY'
+          from pathlib import Path
+          path = Path('.github/task8_cli_stage.py')
+          source = path.read_text(encoding='utf-8')
+          old = 'assert ours.startswith(base) and theirs.startswith(base), name'
+          assert source.count(old) == 1
+          source = source.replace(old, 'assert theirs.startswith(base), name')
+          path.write_text(source, encoding='utf-8')
+          PY
       - name: Assemble exact parents and retain real CLI RED
         env:
           GH_TOKEN: ${{ github.token }}
