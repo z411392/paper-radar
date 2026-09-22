@@ -1,0 +1,90 @@
+name: Task 12 bounded harvest resume verification
+on:
+  push:
+    branches: [codex/12-resumable-harvest-workflow]
+    paths: [.github/workflows/task12-resume-once.yml]
+permissions:
+  contents: write
+jobs:
+  verify:
+    if: github.repository == 'z411392/paper-radar' && github.run_attempt == '1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: '0.10.0'
+          enable-cache: false
+      - run: uv sync --locked
+      - name: Verify the test-only revision in isolation
+        run: |
+          git worktree add --detach "$RUNNER_TEMP/resume-red" cab72f5b619ac25c0d0ca76f6aed545fc88f9801
+          uv sync --locked --offline --project "$RUNNER_TEMP/resume-red"
+          uv run --locked --offline python - <<'PY'
+          import os, subprocess
+          root = os.environ['RUNNER_TEMP'] + '/resume-red'
+          env = dict(os.environ)
+          env.pop('VIRTUAL_ENV', None)
+          run = subprocess.run(['uv','run','--locked','--offline','--project',root,'python','-m','pytest','src/libs/research_workflow/tests/contract/test_resumable_harvest.py','-q'], cwd=root, env=env)
+          assert run.returncode == 2, run.returncode
+          print('TEST_ONLY_COLLECTION_RED; NOT_EVERY_SCENARIO_BEHAVIOR_RED')
+          PY
+      - name: Format only newly introduced files
+        run: |
+          uv run --locked --offline python - <<'PY'
+          import ast, subprocess
+          from pathlib import Path
+          def git(*args): return subprocess.check_output(['git',*args],text=True).strip()
+          base='74b5f46a048b1e09544f67c8162ea71050468d26'
+          candidate='604031e64b3cf2efdbf00a2886e80176b646fc30'
+          assert git('diff','--name-only',candidate,'HEAD') == '.github/workflows/task12-resume-once.yml'
+          paths=git('diff','--name-only',base,candidate).splitlines()
+          assert len(paths)==13 and all(p.startswith(('src/libs/discovery/','src/libs/research_workflow/')) and p.endswith('.py') for p in paths)
+          assert not git('diff','--name-only','--diff-filter=MD',base,candidate)
+          for name in paths: ast.parse(Path(name).read_text())
+          subprocess.run(['uv','run','--locked','--offline','ruff','check','--select','I,F401','--fix',*paths],check=True)
+          subprocess.run(['uv','run','--locked','--offline','ruff','format',*paths],check=True)
+          print('ONLY_13_NEW_FILES_FORMATTED; ORIGINAL_TESTS_AND_SOURCE_UNCHANGED')
+          PY
+      - name: Run bounded workflow and recovery contracts
+        run: uv run --locked --offline python -m pytest src/libs/research_workflow/tests/contract/test_resumable_harvest.py -q
+      - name: Complete locked offline gate
+        run: make ci-fast
+      - name: Export verified Git objects without changing refs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          uv run --locked --offline python - <<'PY'
+          import base64, json, os, subprocess, urllib.request
+          repo='z411392/paper-radar'
+          assert os.environ['GITHUB_REPOSITORY']==repo
+          assert os.environ['GITHUB_REF']=='refs/heads/codex/12-resumable-harvest-workflow'
+          assert 'OPENROUTER_API_KEY' not in os.environ
+          def git(*args): return subprocess.check_output(['git',*args],text=True).strip()
+          def api(endpoint,body):
+              req=urllib.request.Request('https://api.github.com/repos/'+repo+'/'+endpoint,data=json.dumps(body).encode(),headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Content-Type':'application/json','Accept':'application/vnd.github+json'},method='POST')
+              with urllib.request.urlopen(req,timeout=45) as response: return json.load(response)
+          allowed=set(git('diff','--name-only','74b5f46a048b1e09544f67c8162ea71050468d26','604031e64b3cf2efdbf00a2886e80176b646fc30').splitlines())
+          changed=git('diff','--name-only').splitlines()
+          assert set(changed)<=allowed and not git('ls-files','--others','--exclude-standard')
+          for name in changed: subprocess.run(['git','add','--',name],check=True)
+          temporary='.github/workflows/task12-resume-once.yml'
+          subprocess.run(['git','rm','--',temporary],check=True)
+          local_tree=git('write-tree'); parent=git('rev-parse','HEAD'); entries=[]
+          for name in changed:
+              raw=subprocess.check_output(['git','show',local_tree+':'+name])
+              sha=api('git/blobs',{'encoding':'base64','content':base64.b64encode(raw).decode()})['sha']
+              assert sha==git('rev-parse',local_tree+':'+name)
+              entries.append({'path':name,'mode':'100644','type':'blob','sha':sha})
+          entries.append({'path':temporary,'mode':'100644','type':'blob','sha':None})
+          tree=api('git/trees',{'base_tree':git('show','-s','--format=%T',parent),'tree':entries})['sha']
+          assert tree==local_tree
+          commit=api('git/commits',{'message':'task-12 S3: retain locked-verified resumable harvest workflow\n\nRefs #12. Read current progress, reuse durable captures, enforce bounded explicit retries and profile admission. Preserve original SQL, tests and governance. No live source, model key, paid call, main integration or independent ACCEPT.','tree':tree,'parents':[parent]})['sha']
+          print('RESUME_FINAL_TREE='+tree)
+          print('RESUME_FINAL_COMMIT='+commit)
+          print('No refs, Issue/Project fields or product services changed by this job.')
+          PY
