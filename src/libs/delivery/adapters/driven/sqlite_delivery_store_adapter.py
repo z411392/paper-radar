@@ -5,6 +5,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
+from libs.delivery.dtos.delivery_dispatch import DeliveryClaim, DeliveryDispatchCandidate
 from libs.delivery.dtos.delivery_queue import QueueDigestRequest, QueuedDigest
 from libs.delivery.dtos.digest_preview import DigestPreview, SelectedDigestItem
 
@@ -329,3 +330,106 @@ class SqliteDeliveryStoreAdapter:
                 )
 
             return QueuedDigest(digest_id, outbox_id, idempotency_key, payload_sha256, False)
+
+
+    def load_dispatch(self, outbox_id: str) -> DeliveryDispatchCandidate:
+        outbox_id = self._text(outbox_id, "invalid_outbox_id")
+        with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT o.id AS outbox_id,o.digest_id,o.idempotency_key,o.payload_sha256,"
+                "o.workspace_epoch,o.state AS outbox_state,d.subscription_id,d.period_key,"
+                "d.rendered_object_id,d.state AS digest_state,s.reader_id,s.channel,s.enabled,"
+                "s.recipient_ref "
+                "FROM delivery_outbox o "
+                "JOIN digests d ON d.id=o.digest_id "
+                "JOIN delivery_subscriptions s ON s.id=d.subscription_id "
+                "WHERE o.id=?",
+                (outbox_id,),
+            ).fetchone()
+            if row is None:
+                raise DeliveryStoreError("delivery_outbox_missing")
+            return DeliveryDispatchCandidate(
+                outbox_id=row["outbox_id"],
+                digest_id=row["digest_id"],
+                subscription_id=row["subscription_id"],
+                period_key=row["period_key"],
+                rendered_object_id=row["rendered_object_id"],
+                idempotency_key=row["idempotency_key"],
+                payload_sha256=row["payload_sha256"],
+                workspace_epoch=row["workspace_epoch"],
+                outbox_state=row["outbox_state"],
+                digest_state=row["digest_state"],
+                reader_id=row["reader_id"],
+                channel=row["channel"],
+                enabled=bool(row["enabled"]),
+                recipient_ref=row["recipient_ref"],
+            )
+
+    def claim_dispatch(self, outbox_id: str, now: datetime) -> DeliveryClaim:
+        outbox_id = self._text(outbox_id, "invalid_outbox_id")
+        started_at = self._time(now, "invalid_dispatch_time")
+        with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT o.state AS outbox_state,o.workspace_epoch,o.digest_id,"
+                "d.state AS digest_state,d.subscription_id,s.enabled,s.channel "
+                "FROM delivery_outbox o "
+                "JOIN digests d ON d.id=o.digest_id "
+                "JOIN delivery_subscriptions s ON s.id=d.subscription_id "
+                "WHERE o.id=?",
+                (outbox_id,),
+            ).fetchone()
+            if row is None:
+                raise DeliveryStoreError("delivery_outbox_missing")
+
+            state = row["outbox_state"]
+            if state in {"provider_accepted", "unknown", "cancelled", "sending", "failed"}:
+                return DeliveryClaim(state)
+
+            if state != "pending" or row["digest_state"] != "queued":
+                raise DeliveryStoreError("delivery_state_corrupt")
+            if row["channel"] != "email":
+                raise DeliveryStoreError("unsupported_delivery_channel")
+
+            if not bool(row["enabled"]):
+                connection.execute(
+                    "UPDATE delivery_outbox SET state='cancelled' WHERE id=? AND state='pending'",
+                    (outbox_id,),
+                )
+                connection.execute(
+                    "UPDATE digests SET state='cancelled' WHERE id=?",
+                    (row["digest_id"],),
+                )
+                connection.execute(
+                    "UPDATE notification_ledger SET state='cancelled' WHERE outbox_id=?",
+                    (outbox_id,),
+                )
+                return DeliveryClaim("cancelled")
+
+            workspace = connection.execute(
+                "SELECT epoch,external_effects_enabled FROM workspace_metadata WHERE singleton=1"
+            ).fetchone()
+            if (
+                workspace is None
+                or not bool(workspace["external_effects_enabled"])
+                or workspace["epoch"] != row["workspace_epoch"]
+            ):
+                return DeliveryClaim("effects_disabled")
+
+            changed = connection.execute(
+                "UPDATE delivery_outbox SET state='sending' WHERE id=? AND state='pending'",
+                (outbox_id,),
+            ).rowcount
+            if changed != 1:
+                return DeliveryClaim("sending")
+            attempt_no = connection.execute(
+                "SELECT COALESCE(MAX(attempt_no),0)+1 FROM delivery_attempts WHERE outbox_id=?",
+                (outbox_id,),
+            ).fetchone()[0]
+            attempt_id = self._hash("delivery-attempt", outbox_id, str(attempt_no))
+            connection.execute(
+                "INSERT INTO delivery_attempts("
+                "id,outbox_id,attempt_no,state,started_at"
+                ") VALUES(?,?,?,'sending',?)",
+                (attempt_id, outbox_id, attempt_no, started_at),
+            )
+            return DeliveryClaim("sending", attempt_id, attempt_no)
