@@ -25,7 +25,7 @@ from libs.scholarly_catalog.domain.services.normalize_paper_identifier import No
 from libs.scholarly_catalog.dtos.access_location_claim import AccessLocationClaim
 from libs.scholarly_catalog.dtos.access_location_probe import AccessLocationProbe
 from libs.scholarly_catalog.dtos.paper_identity_observation import PaperIdentityObservation
-from libs.scholarly_catalog.exceptions.paper_identity_error import PaperIdentityError
+from libs.scholarly_catalog.exceptions.access_assessment_error import AccessAssessmentError
 
 AT = datetime(2026, 9, 23, 0, 0, tzinfo=timezone.utc)
 
@@ -156,7 +156,7 @@ def test_assessment_persists_source_time_version_and_replays_idempotently(tmp_pa
 
 def test_wrong_paper_identity_is_rejected_before_persistence(tmp_path: Path) -> None:
     _, resolved, _, verify = _tools(tmp_path)
-    with pytest.raises(PaperIdentityError, match="access_identity_mismatch"):
+    with pytest.raises(AccessAssessmentError, match="access_identity_mismatch"):
         verify(
             _claim(resolved.manifestation_id),
             _probe(identifier="2609.99999v1"),
@@ -174,13 +174,13 @@ def test_wrong_paper_identity_is_rejected_before_persistence(tmp_path: Path) -> 
 )
 def test_private_or_local_network_targets_are_rejected(tmp_path: Path, ips: tuple[str, ...]) -> None:
     _, resolved, _, verify = _tools(tmp_path)
-    with pytest.raises(PaperIdentityError, match="unsafe_access_target"):
+    with pytest.raises(AccessAssessmentError, match="unsafe_access_target"):
         verify(_claim(resolved.manifestation_id), _probe(ips=ips))
 
 
 def test_redirect_to_private_network_is_rejected(tmp_path: Path) -> None:
     _, resolved, _, verify = _tools(tmp_path)
-    with pytest.raises(PaperIdentityError, match="unsafe_access_target"):
+    with pytest.raises(AccessAssessmentError, match="unsafe_access_target"):
         verify(
             _claim(resolved.manifestation_id),
             _probe(
@@ -193,7 +193,7 @@ def test_redirect_to_private_network_is_rejected(tmp_path: Path) -> None:
 
 def test_unapproved_evidence_source_is_rejected(tmp_path: Path) -> None:
     _, resolved, _, verify = _tools(tmp_path)
-    with pytest.raises(PaperIdentityError, match="unsupported_access_evidence_source"):
+    with pytest.raises(AccessAssessmentError, match="unsupported_access_evidence_source"):
         verify(_claim(resolved.manifestation_id, source="random-blog"), _probe())
 
 
@@ -206,8 +206,18 @@ def test_expired_assessment_is_not_returned_as_current(tmp_path: Path) -> None:
         ),
         _probe(),
     )
-    with pytest.raises(PaperIdentityError, match="access_assessment_expired"):
+    with pytest.raises(AccessAssessmentError, match="access_assessment_expired"):
         ReadCurrentAccessAssessment(store)(
             resolved.manifestation_id,
             AT + timedelta(minutes=6),
         )
+
+
+
+def test_http_success_without_free_access_evidence_stays_unknown(tmp_path: Path) -> None:
+    _, resolved, _, verify = _tools(tmp_path)
+    assessment = verify(
+        _claim(resolved.manifestation_id, reader="unknown"),
+        _probe(status=200),
+    )
+    assert assessment.reader_access == "unknown"
