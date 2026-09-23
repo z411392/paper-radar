@@ -69,21 +69,54 @@ class SqliteCurrentSummaryStoreAdapter:
     @staticmethod
     def _summary(connection: sqlite3.Connection, summary_id: str) -> sqlite3.Row:
         row = connection.execute(
-            "SELECT s.*,r.source_updated_at,r.observed_at "
-            "FROM summary_revisions s JOIN paper_revisions r "
-            "ON r.id=s.revision_id AND r.work_id=s.work_id WHERE s.id=?",
+            "SELECT s.*,r.source_updated_at,r.observed_at,"
+            "m.state AS generation_state,m.input_fingerprint AS generation_input_fingerprint,"
+            "m.started_at AS generation_started_at "
+            "FROM summary_revisions s "
+            "JOIN paper_revisions r ON r.id=s.revision_id AND r.work_id=s.work_id "
+            "JOIN model_runs m ON m.id=s.generation_run_id "
+            "WHERE s.id=?",
             (summary_id,),
         ).fetchone()
         if row is None:
             raise ExplanationVerificationError("summary_missing")
+        if (
+            row["generation_state"] != "succeeded"
+            or row["generation_input_fingerprint"] != row["generation_fingerprint"]
+        ):
+            raise ExplanationVerificationError("current_summary_corrupt")
         return row
 
     @classmethod
-    def _freshness(cls, row: sqlite3.Row) -> tuple[datetime, datetime, str]:
+    def _freshness(cls, row: sqlite3.Row) -> tuple[datetime, datetime, datetime]:
         observed = cls._instant(row["observed_at"])
         primary = cls._instant(row["source_updated_at"]) if row["source_updated_at"] else observed
-        revision_id = cls._id(row["revision_id"], "revision", "current_summary_corrupt")
-        return primary, observed, revision_id
+        generation_started = cls._instant(row["generation_started_at"])
+        cls._id(row["revision_id"], "revision", "current_summary_corrupt")
+        return primary, observed, generation_started
+
+    @classmethod
+    def _reject_if_newer_passed_exists(
+        cls,
+        connection: sqlite3.Connection,
+        candidate: sqlite3.Row,
+    ) -> None:
+        rows = connection.execute(
+            "SELECT id FROM summary_revisions "
+            "WHERE work_id=? AND language=? AND explanation_profile=? "
+            "AND qa_state='passed' AND id<>?",
+            (
+                candidate["work_id"],
+                candidate["language"],
+                candidate["explanation_profile"],
+                candidate["id"],
+            ),
+        ).fetchall()
+        candidate_freshness = cls._freshness(candidate)
+        for row in rows:
+            other = cls._summary(connection, row["id"])
+            if cls._freshness(other) >= candidate_freshness:
+                raise ExplanationVerificationError("stale_summary")
 
     @staticmethod
     def _pointer(row: sqlite3.Row) -> CurrentSummaryPointer:
@@ -116,6 +149,7 @@ class SqliteCurrentSummaryStoreAdapter:
                 raise ExplanationVerificationError("summary_not_verified")
             if candidate["generation_fingerprint"] != fingerprint:
                 raise ExplanationVerificationError("summary_input_mismatch")
+            self._reject_if_newer_passed_exists(connection, candidate)
 
             current = connection.execute(
                 "SELECT * FROM current_summaries "
@@ -149,10 +183,7 @@ class SqliteCurrentSummaryStoreAdapter:
                         raise ExplanationVerificationError("current_summary_corrupt")
                     return self._pointer(current)
                 current_summary = self._summary(connection, current["summary_id"])
-                if (
-                    candidate["revision_id"] != current_summary["revision_id"]
-                    and self._freshness(candidate) <= self._freshness(current_summary)
-                ):
+                if self._freshness(candidate) <= self._freshness(current_summary):
                     raise ExplanationVerificationError("stale_summary")
                 next_version = current["pointer_version"] + 1
                 changed = connection.execute(
