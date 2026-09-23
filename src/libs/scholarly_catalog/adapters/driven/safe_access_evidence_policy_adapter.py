@@ -69,14 +69,16 @@ class SafeAccessEvidencePolicyAdapter:
     @staticmethod
     def _json(value: object) -> str:
         try:
-            return json.dumps(
+            serialized = json.dumps(
                 value,
                 ensure_ascii=False,
                 sort_keys=True,
                 separators=(",", ":"),
                 allow_nan=False,
             )
-        except (TypeError, ValueError, RecursionError) as exc:
+            serialized.encode("utf-8")
+            return serialized
+        except (TypeError, ValueError, UnicodeError, RecursionError) as exc:
             raise AccessAssessmentError("invalid_access_evidence") from exc
 
     @staticmethod
@@ -94,12 +96,18 @@ class SafeAccessEvidencePolicyAdapter:
 
     @staticmethod
     def _safe_url(value: str) -> None:
-        if not isinstance(value, str) or not value or len(value) > 8192:
+        if (
+            not isinstance(value, str)
+            or not value
+            or len(value) > 8192
+            or any(char.isspace() or ord(char) < 32 or ord(char) == 127 for char in value)
+        ):
             raise AccessAssessmentError("unsafe_access_target")
         try:
+            value.encode("utf-8")
             parsed = urlsplit(value)
             port = parsed.port
-        except ValueError as exc:
+        except (ValueError, UnicodeError) as exc:
             raise AccessAssessmentError("unsafe_access_target") from exc
         host = parsed.hostname
         if (
@@ -126,6 +134,8 @@ class SafeAccessEvidencePolicyAdapter:
         if not isinstance(values, tuple) or not values or len(values) > 16:
             raise AccessAssessmentError("unsafe_access_target")
         for value in values:
+            if not isinstance(value, str):
+                raise AccessAssessmentError("unsafe_access_target")
             try:
                 address = ipaddress.ip_address(value)
             except ValueError as exc:
@@ -200,13 +210,19 @@ class SafeAccessEvidencePolicyAdapter:
             raise AccessAssessmentError("invalid_access_evidence")
         if claim.manifestation_id != identity.manifestation_id:
             raise AccessAssessmentError("access_identity_mismatch")
+        if not isinstance(claim.evidence_source_id, str):
+            raise AccessAssessmentError("invalid_access_evidence")
         if claim.evidence_source_id not in self._allowed_evidence_sources:
             raise AccessAssessmentError("unsupported_access_evidence_source")
         if (
-            claim.content_scope not in self._SCOPES
+            not isinstance(claim.content_scope, str)
+            or claim.content_scope not in self._SCOPES
+            or not isinstance(claim.reader_access_signal, str)
             or claim.reader_access_signal not in self._READER_ACCESS
+            or not isinstance(claim.automated_retrieval_signal, str)
             or claim.automated_retrieval_signal not in self._AUTOMATED
             or not isinstance(claim.permitted_uses, tuple)
+            or any(not isinstance(item, str) for item in claim.permitted_uses)
             or len(claim.permitted_uses) != len(set(claim.permitted_uses))
             or not set(claim.permitted_uses) <= self._USES
         ):
