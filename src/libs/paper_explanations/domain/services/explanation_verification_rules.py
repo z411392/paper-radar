@@ -19,11 +19,18 @@ from libs.paper_explanations.exceptions.explanation_verification_error import Ex
 _NUMBER_RE = re.compile(r"(?<![A-Za-z0-9_])[+-]?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?")
 _UNIT_RE = re.compile(
     r"(?P<number>[+-]?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)\s*"
-    r"(?P<unit>%|(?:m|cm|mm|km|s|ms|kg|g|hz|khz|mhz)(?:/[A-Za-z0-9µμ°]+)?|"
-    r"公尺|公分|毫米|公里|秒|毫秒|分鐘|小時|人|段|篇|次)",
+    r"(?P<unit>%|(?:mhz|khz|hz|ms|mm|cm|km|kg|m|s|g)(?:/[A-Za-z0-9µμ°]+)?|"
+    r"公尺|公分|毫米|公里|秒|毫秒|分鐘|小時|人|段|篇|次)"
+    r"(?![A-Za-z0-9µμ°])",
     re.IGNORECASE,
 )
-_NEGATION_RE = re.compile(r"\b(?:not|no|never|without|neither|nor)\b|(?:未|沒有|無|不)", re.IGNORECASE)
+_NEGATION_RE = re.compile(
+    r"\b(?:not|no|never|without|neither|nor)\b|"
+    r"(?:沒有|並未|尚未|無法|無證據|無顯著|"
+    r"未(?:觀察|發現|顯示|證明|驗證|提供|報告|達到|使用|包含|改善|提高|降低|支持|進行|完成)|"
+    r"不(?:是|會|能|可|應|曾|再|顯著|增加|降低|改善|提高|支持|相關|存在|包含|代表|表示|等於|大於|小於))",
+    re.IGNORECASE,
+)
 _CAUSAL_RE = re.compile(
     r"\b(?:cause|causes|caused|causing|lead to|leads to|led to|because|therefore)\b|"
     r"(?:導致|造成|因此|因為|使得)",
