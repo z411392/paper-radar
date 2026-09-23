@@ -7,6 +7,7 @@ import threading
 from dataclasses import asdict
 from pathlib import Path
 from types import FrameType
+from typing import Any
 from uuid import uuid4
 
 from injector import Injector
@@ -79,8 +80,8 @@ def _cycle(
     return asdict(result)
 
 
-def _install_stop_handlers(stop: threading.Event) -> dict[int, object]:
-    previous: dict[int, object] = {}
+def _install_stop_handlers(stop: threading.Event) -> dict[int, Any]:
+    previous: dict[int, Any] = {}
 
     def request_stop(signum: int, frame: FrameType | None) -> None:
         del signum, frame
@@ -92,7 +93,7 @@ def _install_stop_handlers(stop: threading.Event) -> dict[int, object]:
     return previous
 
 
-def _restore_handlers(previous: dict[int, object]) -> None:
+def _restore_handlers(previous: dict[int, Any]) -> None:
     for signum, handler in previous.items():
         signal.signal(signum, handler)
 

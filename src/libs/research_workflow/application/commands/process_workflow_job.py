@@ -127,7 +127,8 @@ class ProcessWorkflowJob:
         )
 
     def _harvest_job(self, lease) -> WorkflowJobProcessResult:
-        if not self._live_source_enabled or self._harvest is None:
+        harvest = self._harvest
+        if not self._live_source_enabled or harvest is None:
             return self._defer(
                 lease,
                 error_code="live_source_not_authorized",
@@ -168,7 +169,7 @@ class ProcessWorkflowJob:
         )
         try:
             query = self._builder(request)
-            result = self._harvest(query, max_pages=10, retry_failed=True)
+            result = harvest(query, max_pages=10, retry_failed=True)
         except HarvestWorkflowError as exc:
             if exc.code in self._STALE_CODES:
                 return self._complete(
