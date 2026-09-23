@@ -6,7 +6,7 @@ class AccessLocationProbe:
     requested_url: str
     final_url: str
     redirect_chain: tuple[str, ...]
-    resolved_ips: tuple[str, ...]
+    network_hops: tuple[tuple[str, tuple[str, ...]], ...]
     http_status: int
     content_type: str | None
     observed_identifier_namespace: str | None
