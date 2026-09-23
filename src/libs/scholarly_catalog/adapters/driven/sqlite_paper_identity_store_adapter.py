@@ -4,7 +4,6 @@ import re
 import sqlite3
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from dataclasses import asdict
 from datetime import datetime, timezone
 
 from libs.scholarly_catalog.dtos.normalized_identifier import NormalizedIdentifier
@@ -95,7 +94,9 @@ class SqlitePaperIdentityStoreAdapter:
         if (
             not isinstance(observation.content_fingerprint, str)
             or re.fullmatch(r"[0-9a-f]{64}", observation.content_fingerprint) is None
+            or not isinstance(observation.manifestation_kind, str)
             or observation.manifestation_kind not in cls._MANIFESTATION_KINDS
+            or not isinstance(observation.publication_status, str)
             or observation.publication_status not in cls._PUBLICATION_STATUSES
         ):
             raise PaperIdentityError("invalid_observation")
@@ -203,7 +204,12 @@ class SqlitePaperIdentityStoreAdapter:
             raise PaperIdentityError("invalid_identity_evidence") from exc
         if not isinstance(decoded, dict) or not decoded:
             raise PaperIdentityError("identity_evidence_required")
-        return cls._json(decoded)
+        try:
+            canonical = cls._json(decoded)
+            canonical.encode("utf-8")
+        except (TypeError, ValueError, UnicodeError, RecursionError) as exc:
+            raise PaperIdentityError("invalid_identity_evidence") from exc
+        return canonical
 
     @classmethod
     def _work_id(cls, value: str) -> str:
