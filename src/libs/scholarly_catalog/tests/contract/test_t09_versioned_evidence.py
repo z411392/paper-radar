@@ -1,4 +1,5 @@
 import sqlite3
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -75,6 +76,20 @@ def _tools(tmp_path: Path):
         ReadEvidenceSnapshot(rules, objects, snapshots),
     )
 
+
+
+def _fresh_reader(root: Path):
+    migrations = load_workspace_migrations(with_discovery=True)
+    schema = SqliteSchemaConnectionFactory(root, migrations, minimum_version=3)
+    factory = SqliteConnectionFactory(root)
+    uow = SqliteObjectUnitOfWorkAdapter(factory)
+    files = FilesystemObjectBytesAdapter(root)
+    objects = KernelEvidenceObjectAdapter(
+        PublishObject(files, uow),
+        ReadObject(files, uow),
+    )
+    snapshots = SqliteEvidenceSnapshotStoreAdapter(schema.connect)
+    return snapshots, ReadEvidenceSnapshot(EvidenceSnapshotRules(), objects, snapshots)
 
 def _input(
     revision_id: str,
@@ -246,3 +261,42 @@ def test_full_text_claim_is_rejected_when_parser_reports_missing_required_sectio
                 anchors=(EvidenceAnchorRequest("Abstract", 0, 8, None, None),),
             )
         )
+
+
+
+def test_snapshot_reopens_from_fresh_adapters(tmp_path: Path) -> None:
+    root, identity, _, _, prepare, _ = _tools(tmp_path)
+    snapshot = prepare(_input(identity.revision_id, identity.work_id))
+    _, fresh_read = _fresh_reader(root)
+    reopened = fresh_read(snapshot.snapshot_id)
+    assert reopened.snapshot == snapshot
+    assert reopened.normalized_text == "Abstract\nResult was 42 units."
+    assert reopened.source_bytes == b"abstract: result 42"
+
+
+def test_anchor_from_another_snapshot_is_rejected_by_snapshot_store(tmp_path: Path) -> None:
+    root, identity, _, _, prepare, _ = _tools(tmp_path)
+    first = prepare(_input(identity.revision_id, identity.work_id))
+    second = prepare(
+        _input(
+            identity.revision_id,
+            identity.work_id,
+            source=b"abstract changed",
+            text="Abstract\nResult was 43 units.",
+            anchors=(EvidenceAnchorRequest("43 units", 20, 28, "abstract", "p1"),),
+        )
+    )
+    snapshots, _ = _fresh_reader(root)
+    forged = replace(second, anchors=(first.anchors[0],))
+    with pytest.raises(EvidenceSnapshotError, match="invalid_evidence_anchor"):
+        snapshots.save(forged)
+
+
+def test_snapshot_fingerprint_is_stable_across_retry_time(tmp_path: Path) -> None:
+    _, identity, _, _, prepare, _ = _tools(tmp_path)
+    original = _input(identity.revision_id, identity.work_id)
+    first = prepare(original)
+    replay = prepare(replace(original, created_at=datetime(2026, 9, 23, 1, 0, tzinfo=timezone.utc)))
+    assert replay.snapshot_id == first.snapshot_id
+    assert replay.fingerprint == first.fingerprint
+    assert replay.created_at == first.created_at
