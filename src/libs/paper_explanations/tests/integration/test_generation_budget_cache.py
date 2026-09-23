@@ -179,15 +179,15 @@ def test_unknown_charge_consumes_reserved_budget_but_local_preflight_releases(tm
     assert rows(db2, "usage_reservations")[0]["state"] == "released"
 
 
-def test_stale_reconciliation_releases_reserved_but_keeps_running_unknown(tmp_path: Path) -> None:
+def test_stale_reconciliation_keeps_reserved_and_running_charge_unknown(tmp_path: Path) -> None:
     db, _, _, ledger = setup(tmp_path)
     one = GenerationExecutionRules.identity(request(payload_json='{"one":1}'), policy())
     two = GenerationExecutionRules.identity(request(payload_json='{"two":2}'), policy())
     first, second = ledger.reserve(one, AT), ledger.reserve(two, AT)
     ledger.mark_running(second.run_id, two)
-    assert ledger.reconcile_stale(AT + timedelta(seconds=1), AT + timedelta(minutes=1)) == (1, 1)
+    assert ledger.reconcile_stale(AT + timedelta(seconds=1), AT + timedelta(minutes=1)) == (0, 2)
     state = {row["run_id"]: row["state"] for row in rows(db, "usage_reservations")}
-    assert state[first.run_id] == "released" and state[second.run_id] == "unknown"
+    assert state[first.run_id] == state[second.run_id] == "unknown"
 
 
 def test_invalid_model_result_becomes_failed_unknown_charge(tmp_path: Path) -> None:
@@ -224,3 +224,24 @@ def test_concurrent_same_identity_reservation_creates_one_live_attempt(tmp_path:
         states = list(pool.map(reserve, range(6)))
     assert states.count("reserved") == 1 and states.count("in_progress") == 5
     assert len(rows(db, "model_runs")) == len(rows(db, "usage_reservations")) == 1
+
+
+
+def test_cached_object_is_bound_to_full_generation_identity(tmp_path: Path) -> None:
+    _, objects, connect, ledger = setup(tmp_path)
+    first_identity = GenerationExecutionRules.identity(request(), policy())
+    reserved = ledger.reserve(first_identity, AT)
+    ledger.mark_running(reserved.run_id, first_identity)
+    ledger.complete_success(reserved.run_id, first_identity, result(), AT + timedelta(seconds=1))
+    cached = ledger.reserve(first_identity, AT + timedelta(minutes=1))
+    assert cached.state == "cached" and cached.output_object_id is not None
+
+    other_identity = GenerationExecutionRules.identity(
+        request(),
+        policy(execution_policy_fingerprint="d" * 64),
+    )
+    with pytest.raises(GenerationLedgerError, match="invalid_cached_generation"):
+        SqliteGenerationLedgerAdapter(connect, objects).read_cached(
+            cached.output_object_id,
+            other_identity,
+        )
