@@ -32,14 +32,27 @@ from libs.kernel.application.queries.read_object import ReadObject
 from libs.kernel.ports.initialize_workspace_port import InitializeWorkspacePort
 from libs.kernel.ports.workspace_bootstrap_port import WorkspaceBootstrapPort
 from libs.research_workflow.adapters.driven.python_runtime_version_adapter import PythonRuntimeVersionAdapter
+from libs.research_workflow.adapters.driven.sqlite_scheduler_input_adapter import SqliteSchedulerInputAdapter
+from libs.research_workflow.adapters.driven.sqlite_workflow_job_store_adapter import (
+    SqliteWorkflowJobStoreAdapter,
+)
 from libs.research_workflow.adapters.driven.system_harvest_runtime_adapter import SystemHarvestRuntimeAdapter
+from libs.research_workflow.adapters.driven.system_workflow_clock_adapter import SystemWorkflowClockAdapter
+from libs.research_workflow.application.commands.process_workflow_job import ProcessWorkflowJob
 from libs.research_workflow.application.commands.run_harvest_slice import RunHarvestSlice
+from libs.research_workflow.application.commands.run_scheduler_tick import RunSchedulerTick
+from libs.research_workflow.application.commands.run_worker_cycle import RunWorkerCycle
 from libs.research_workflow.application.queries.build_harvest_query_input import BuildHarvestQueryInput
 from libs.research_workflow.application.queries.read_runtime_version import ReadRuntimeVersion
 from libs.research_workflow.ports.build_harvest_query_input_port import BuildHarvestQueryInputPort
+from libs.research_workflow.ports.process_workflow_job_port import ProcessWorkflowJobPort
 from libs.research_workflow.ports.read_runtime_version_port import ReadRuntimeVersionPort
 from libs.research_workflow.ports.run_harvest_slice_port import RunHarvestSlicePort
+from libs.research_workflow.ports.run_scheduler_tick_port import RunSchedulerTickPort
+from libs.research_workflow.ports.run_worker_cycle_port import RunWorkerCyclePort
 from libs.research_workflow.ports.runtime_version_provider_port import RuntimeVersionProviderPort
+from libs.research_workflow.ports.workflow_clock_port import WorkflowClockPort
+from libs.research_workflow.ports.workflow_job_store_port import WorkflowJobStorePort
 from libs.watch_profiles.adapters.driven.sqlite_watch_profile_store_adapter import (
     SqliteWatchProfileStoreAdapter,
 )
@@ -151,6 +164,49 @@ class HarvestPlanCliModule(Module):
         )
 
 
+def _compose_harvest_runner(
+    root: Path,
+    connection: SqliteSchemaConnectionFactory,
+    store: SqliteWatchProfileStoreAdapter,
+    compiler: ArxivQueryCompilerAdapter,
+    rate_limit_state: str,
+    transport: SourceHttpTransportPort | None,
+) -> RunHarvestSlice:
+    journal = SqliteHarvestStoreAdapter(connection.connect, compiler)
+    files = FilesystemObjectBytesAdapter(root)
+    raw_connection = SqliteConnectionFactory(root)
+    objects = SqliteObjectUnitOfWorkAdapter(raw_connection)
+    processing = SqliteHarvestProcessingAdapter(connection.connect)
+    parser = ParseSourcePage(ArxivAtomParserAdapter())
+    process = ProcessHarvestPage(
+        ReadHarvestAttempt(journal),
+        ReadObject(files, objects),
+        parser,
+        processing,
+        PARSER_VERSION,
+    )
+    source_transport = transport or HttpClientArxivTransportAdapter(enabled=True)
+    source = FetchSourcePage(
+        ArxivSourceAdapter(
+            source_transport,
+            PosixArxivRateLimitAdapter(Path(rate_limit_state)),
+            enabled=True,
+        )
+    )
+    runtime = SystemHarvestRuntimeAdapter()
+    return RunHarvestSlice(
+        compiler,
+        ReadHarvestResume(SqliteHarvestResumeAdapter(connection.connect, compiler)),
+        StartHarvestAttempt(journal),
+        source,
+        RecordHarvestCapture(journal, PublishObject(files, objects)),
+        process,
+        ReadWatchProfile(store),
+        runtime,
+        PARSER_VERSION,
+    )
+
+
 class HarvestRunCliModule(Module):
     """Compose the bounded live collector; constructing this module performs no external I/O."""
 
@@ -167,37 +223,77 @@ class HarvestRunCliModule(Module):
 
     def configure(self, binder: Binder) -> None:
         root, connection, store, compiler = _harvest_configuration(binder, self._workspace)
-        journal = SqliteHarvestStoreAdapter(connection.connect, compiler)
-        files = FilesystemObjectBytesAdapter(root)
-        raw_connection = SqliteConnectionFactory(root)
-        objects = SqliteObjectUnitOfWorkAdapter(raw_connection)
-        processing = SqliteHarvestProcessingAdapter(connection.connect)
-        parser = ParseSourcePage(ArxivAtomParserAdapter())
-        process = ProcessHarvestPage(
-            ReadHarvestAttempt(journal),
-            ReadObject(files, objects),
-            parser,
-            processing,
-            PARSER_VERSION,
-        )
-        transport = self._transport or HttpClientArxivTransportAdapter(enabled=True)
-        source = FetchSourcePage(
-            ArxivSourceAdapter(
-                transport,
-                PosixArxivRateLimitAdapter(Path(self._rate_limit_state)),
-                enabled=True,
-            )
-        )
-        runtime = SystemHarvestRuntimeAdapter()
-        runner = RunHarvestSlice(
+        runner = _compose_harvest_runner(
+            root,
+            connection,
+            store,
             compiler,
-            ReadHarvestResume(SqliteHarvestResumeAdapter(connection.connect, compiler)),
-            StartHarvestAttempt(journal),
-            source,
-            RecordHarvestCapture(journal, PublishObject(files, objects)),
-            process,
-            ReadWatchProfile(store),
-            runtime,
-            PARSER_VERSION,
+            self._rate_limit_state,
+            self._transport,
         )
         binder.bind(RunHarvestSlicePort, to=InstanceProvider(runner))
+
+
+class WorkerCliModule(Module):
+    """Assemble scheduler and one-job execution without performing external I/O."""
+
+    def __init__(
+        self,
+        workspace: str,
+        *,
+        allow_live_source: bool = False,
+        rate_limit_state: str | None = None,
+        transport: SourceHttpTransportPort | None = None,
+    ) -> None:
+        self._workspace = workspace
+        self._allow_live_source = allow_live_source
+        self._rate_limit_state = rate_limit_state
+        self._transport = transport
+
+    def configure(self, binder: Binder) -> None:
+        root = Path(self._workspace)
+        connection = SqliteSchemaConnectionFactory(
+            root,
+            load_workspace_migrations(with_runtime=True),
+            minimum_version=8,
+        )
+        profile_store = SqliteWatchProfileStoreAdapter(connection.connect)
+        builder = BuildHarvestQueryInput(
+            ReadWatchProfile(profile_store),
+            ReadDomainDefinition(profile_store),
+        )
+        compiler = ArxivQueryCompilerAdapter()
+
+        harvest = None
+        if self._allow_live_source:
+            if self._rate_limit_state is None:
+                raise ValueError("rate_limit_state_required")
+            harvest = _compose_harvest_runner(
+                root,
+                connection,
+                profile_store,
+                compiler,
+                self._rate_limit_state,
+                self._transport,
+            )
+
+        jobs = SqliteWorkflowJobStoreAdapter(connection.connect)
+        clock = SystemWorkflowClockAdapter()
+        scheduler = RunSchedulerTick(
+            SqliteSchedulerInputAdapter(connection.connect),
+            jobs,
+        )
+        processor = ProcessWorkflowJob(
+            store=jobs,
+            builder=builder,
+            harvest=harvest,
+            clock=clock,
+            live_source_enabled=self._allow_live_source,
+        )
+        cycle = RunWorkerCycle(scheduler, processor, clock)
+
+        binder.bind(WorkflowJobStorePort, to=InstanceProvider(jobs))
+        binder.bind(WorkflowClockPort, to=InstanceProvider(clock))
+        binder.bind(RunSchedulerTickPort, to=InstanceProvider(scheduler))
+        binder.bind(ProcessWorkflowJobPort, to=InstanceProvider(processor))
+        binder.bind(RunWorkerCyclePort, to=InstanceProvider(cycle))
