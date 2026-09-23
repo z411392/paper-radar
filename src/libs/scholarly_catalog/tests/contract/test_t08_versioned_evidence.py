@@ -136,14 +136,15 @@ def test_unknown_automated_retrieval_stays_unknown(tmp_path: Path) -> None:
     assert assessment.automated_retrieval == "unknown"
 
 
-def test_abstract_only_cannot_be_recorded_as_free_full_text(tmp_path: Path) -> None:
+def test_free_abstract_stays_explicitly_abstract_and_is_not_free_full_text(tmp_path: Path) -> None:
     _, resolved, _, verify = _tools(tmp_path)
     assessment = verify(
         _claim(resolved.manifestation_id, content_scope="abstract"),
         _probe(),
     )
     assert assessment.content_scope == "abstract"
-    assert assessment.reader_access == "unknown"
+    assert assessment.reader_access == "free"
+    assert json.loads(assessment.evidence_json)["content_scope"] == "abstract"
 
 
 def test_assessment_persists_source_time_version_and_replays_idempotently(tmp_path: Path) -> None:
@@ -319,3 +320,21 @@ def test_missing_dns_evidence_for_redirect_hop_is_rejected(tmp_path: Path) -> No
     )
     with pytest.raises(AccessAssessmentError, match="invalid_access_probe"):
         verify(_claim(resolved.manifestation_id), probe)
+
+
+
+def test_http_failure_does_not_revoke_known_automated_retrieval_permission(
+    tmp_path: Path,
+) -> None:
+    _, resolved, _, verify = _tools(tmp_path)
+    assessment = verify(
+        _claim(resolved.manifestation_id, automated="permitted"),
+        _probe(status=404),
+    )
+    assert assessment.reader_access == "unknown"
+    assert assessment.automated_retrieval == "permitted"
+    assert assessment.permitted_uses == (
+        "local_reading",
+        "local_research_processing",
+        "local_storage",
+    )
