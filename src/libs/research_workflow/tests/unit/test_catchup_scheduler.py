@@ -74,25 +74,23 @@ def test_each_supported_binding_advances_only_one_24h_window_per_tick() -> None:
     }
 
 
-def test_failed_window_is_replayed_and_never_skipped_to_a_later_window() -> None:
+def test_failed_window_is_left_for_job_store_retry_and_never_rebuilt() -> None:
     schedule = binding("statistics", last=NOW - timedelta(hours=48))
     expected = PlanCatchupJobs.harvest_job(schedule, NOW - timedelta(hours=24))
     snapshot = SchedulerSnapshot(
         harvest_bindings=(schedule,),
         delivery_schedules=(),
-        known_jobs=(KnownWorkflowJob(expected.business_key, "failed"),),
+        known_jobs=(KnownWorkflowJob(expected.business_key, "failed", "statistics"),),
         input_gaps=(),
     )
 
     plan = PlanCatchupJobs()(snapshot, now=NOW)
 
-    assert [job.business_key for job in plan.jobs] == [expected.business_key]
+    assert plan.jobs == ()
     assert any(
         gap.identity == "statistics" and gap.reason == "harvest_window_failed"
         for gap in plan.coverage_gaps
     )
-    payload = PlanCatchupJobs.decode(plan.jobs[0].input_json)
-    assert payload["window_end"] == (NOW - timedelta(hours=24)).isoformat()
 
 
 def test_unsupported_source_is_a_coverage_gap_not_a_fake_success_job() -> None:
@@ -142,8 +140,8 @@ def test_new_or_pending_harvest_work_defers_digest_until_a_later_tick() -> None:
     harvest = PlanCatchupJobs.harvest_job(schedule, NOW)
     for known in (
         (),
-        (KnownWorkflowJob(harvest.business_key, "pending"),),
-        (KnownWorkflowJob(harvest.business_key, "running"),),
+        (KnownWorkflowJob(harvest.business_key, "pending", "statistics"),),
+        (KnownWorkflowJob(harvest.business_key, "running", "statistics"),),
     ):
         snapshot = SchedulerSnapshot(
             harvest_bindings=(schedule,),
@@ -154,7 +152,8 @@ def test_new_or_pending_harvest_work_defers_digest_until_a_later_tick() -> None:
 
         plan = PlanCatchupJobs()(snapshot, now=NOW)
 
-        assert [job.job_kind for job in plan.jobs] == ["harvest_window"]
+        expected_jobs = ["harvest_window"] if not known else []
+        assert [job.job_kind for job in plan.jobs] == expected_jobs
         assert plan.digest_deferred is True
 
 
@@ -164,14 +163,14 @@ def test_failed_harvest_does_not_disappear_but_digest_may_continue_with_gap() ->
     snapshot = SchedulerSnapshot(
         harvest_bindings=(schedule,),
         delivery_schedules=(delivery(NOW - timedelta(days=1)),),
-        known_jobs=(KnownWorkflowJob(harvest.business_key, "failed"),),
+        known_jobs=(KnownWorkflowJob(harvest.business_key, "failed", "statistics"),),
         input_gaps=(),
     )
 
     plan = PlanCatchupJobs()(snapshot, now=NOW)
 
-    assert [job.job_kind for job in plan.jobs] == ["harvest_window", "prepare_digest"]
-    digest_payload = PlanCatchupJobs.decode(plan.jobs[1].input_json)
+    assert [job.job_kind for job in plan.jobs] == ["prepare_digest"]
+    digest_payload = PlanCatchupJobs.decode(plan.jobs[0].input_json)
     assert digest_payload["coverage_gaps"] == [
         {
             "identity": "statistics",
@@ -227,3 +226,34 @@ def test_tick_bounds_new_jobs_but_replays_do_not_consume_new_job_budget() -> Non
     assert result.replayed_jobs == 1
     assert result.deferred_jobs == 1
     assert len(store.calls) == 2
+
+
+def test_awaiting_first_window_is_not_rebuilt_when_clock_advances() -> None:
+    schedule = binding("statistics")
+    first = PlanCatchupJobs.harvest_job(schedule, NOW)
+    snapshot = SchedulerSnapshot(
+        harvest_bindings=(schedule,),
+        delivery_schedules=(),
+        known_jobs=(
+            KnownWorkflowJob(
+                first.business_key,
+                "awaiting_external",
+                "statistics",
+            ),
+        ),
+        input_gaps=(),
+    )
+
+    later = PlanCatchupJobs()(snapshot, now=NOW + timedelta(minutes=5))
+
+    assert later.jobs == ()
+    assert later.coverage_gaps == (
+        __import__(
+            "libs.research_workflow.dtos.scheduler",
+            fromlist=["CoverageGap"],
+        ).CoverageGap(
+            "harvest",
+            "statistics",
+            "harvest_window_awaiting_external",
+        ),
+    )

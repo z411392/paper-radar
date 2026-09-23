@@ -27,6 +27,7 @@ class DeliverySchedule:
 class KnownWorkflowJob:
     business_key: str
     state: str
+    binding_key: str
 
 
 @dataclass(frozen=True)

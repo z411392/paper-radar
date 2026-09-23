@@ -159,17 +159,23 @@ class SqliteSchedulerInputAdapter:
             if not isinstance(data, dict):
                 raise WorkflowJobError("corrupt_scheduler_job")
             if row["job_kind"] == "harvest_window":
-                known.append(KnownWorkflowJob(row["business_key"], row["state"]))
-                if row["state"] != "succeeded":
-                    continue
                 binding_key = data.get("binding_key")
                 window_end = data.get("window_end")
                 if not isinstance(binding_key, str):
                     raise WorkflowJobError("corrupt_scheduler_job")
-                end = cls._instant(window_end, "corrupt_scheduler_job")
-                prior = last_harvest.get(binding_key)
-                if prior is None or end > prior:
-                    last_harvest[binding_key] = end
+                if row["state"] == "succeeded":
+                    end = cls._instant(window_end, "corrupt_scheduler_job")
+                    prior = last_harvest.get(binding_key)
+                    if prior is None or end > prior:
+                        last_harvest[binding_key] = end
+                elif row["state"] in {"pending", "running", "failed", "awaiting_external"}:
+                    known.append(
+                        KnownWorkflowJob(
+                            row["business_key"],
+                            row["state"],
+                            binding_key,
+                        )
+                    )
             else:
                 subscription_id = data.get("subscription_id")
                 cutoff_at = data.get("cutoff_at")

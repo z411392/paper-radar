@@ -179,9 +179,13 @@ class PlanCatchupJobs:
         if not isinstance(snapshot, SchedulerSnapshot):
             raise WorkflowJobError("invalid_scheduler_snapshot")
         current = self._instant(now, "invalid_scheduler_time")
-        known = {item.business_key: item.state for item in snapshot.known_jobs}
-        if len(known) != len(snapshot.known_jobs):
-            raise WorkflowJobError("duplicate_scheduler_job")
+        active_by_binding = {}
+        for item in snapshot.known_jobs:
+            if item.binding_key in active_by_binding:
+                raise WorkflowJobError("duplicate_active_binding_job")
+            if item.state not in {"pending", "running", "failed", "awaiting_external"}:
+                raise WorkflowJobError("invalid_scheduler_job_state")
+            active_by_binding[item.binding_key] = item
         gaps = list(snapshot.input_gaps)
         jobs: list[EnqueueWorkflowJob] = []
         blocks_digest = False
@@ -197,6 +201,24 @@ class PlanCatchupJobs:
                 )
                 continue
 
+            active = active_by_binding.get(schedule.binding_key)
+            if active is not None:
+                if active.state == "failed":
+                    gaps.append(
+                        CoverageGap("harvest", schedule.binding_key, "harvest_window_failed")
+                    )
+                elif active.state == "awaiting_external":
+                    gaps.append(
+                        CoverageGap(
+                            "harvest",
+                            schedule.binding_key,
+                            "harvest_window_awaiting_external",
+                        )
+                    )
+                else:
+                    blocks_digest = True
+                continue
+
             if schedule.last_succeeded_window_end is None:
                 window_end = current
             else:
@@ -208,23 +230,8 @@ class PlanCatchupJobs:
                     continue
                 window_end = last + self.HARVEST_INTERVAL
 
-            job = self.harvest_job(schedule, window_end)
-            jobs.append(job)
-            state = known.get(job.business_key)
-            if state == "failed":
-                gaps.append(
-                    CoverageGap("harvest", schedule.binding_key, "harvest_window_failed")
-                )
-            elif state == "awaiting_external":
-                gaps.append(
-                    CoverageGap(
-                        "harvest",
-                        schedule.binding_key,
-                        "harvest_window_awaiting_external",
-                    )
-                )
-            elif state not in {"succeeded", "cancelled"}:
-                blocks_digest = True
+            jobs.append(self.harvest_job(schedule, window_end))
+            blocks_digest = True
 
         gap_tuple = tuple(sorted(gaps, key=lambda gap: (gap.kind, gap.identity, gap.reason)))
         if not blocks_digest:
