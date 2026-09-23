@@ -8,6 +8,7 @@ from injector import Injector
 from apps.cli.adapters.driving.initialize_workspace import initialize_workspace
 from apps.cli.adapters.driving.manage_harvest import run_harvest_cli
 from apps.cli.adapters.driving.manage_watch_profiles import run_watch_cli
+from apps.cli.adapters.driving.run_worker import run_worker_cli
 from apps.cli.adapters.driving.show_version import show_version
 from apps.cli.module import CliModule
 
@@ -17,7 +18,7 @@ def run() -> None:
         parser = argparse.ArgumentParser(prog="paper-radar", description="Local research workspace commands")
         parser.add_argument(
             "command",
-            choices=("version", "init", "domains", "profile", "harvest"),
+            choices=("version", "init", "domains", "profile", "harvest", "run-worker"),
             nargs="?",
         )
         parser.print_help()
@@ -54,6 +55,9 @@ def run() -> None:
         return
     if sys.argv[1:2] == ["harvest"]:
         run_harvest_cli(sys.argv[1:])
+        return
+    if sys.argv[1:2] == ["run-worker"]:
+        run_worker_cli(sys.argv[1:])
         return
     injector = Injector([CliModule()], auto_bind=False)
     Fire({"version": partial(show_version, injector)})
