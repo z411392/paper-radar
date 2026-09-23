@@ -221,3 +221,56 @@ def test_http_success_without_free_access_evidence_stays_unknown(tmp_path: Path)
         _probe(status=200),
     )
     assert assessment.reader_access == "unknown"
+
+
+
+def test_public_redirect_for_same_identity_is_allowed_and_final_url_is_saved(tmp_path: Path) -> None:
+    _, resolved, _, verify = _tools(tmp_path)
+    final = "https://export.arxiv.org/pdf/2609.00021"
+    assessment = verify(
+        _claim(resolved.manifestation_id),
+        _probe(
+            final_url=final,
+            redirects=(final,),
+            ips=("151.101.65.42",),
+        ),
+    )
+    assert assessment.location_url == final
+    assert assessment.reader_access == "free"
+
+
+def test_access_evidence_cannot_be_rebound_to_another_version(tmp_path: Path) -> None:
+    _, resolved, _, verify = _tools(tmp_path)
+    claim = _claim(resolved.manifestation_id)
+    claim = AccessLocationClaim(
+        claim.manifestation_id,
+        claim.evidence_source_id,
+        claim.location_url,
+        claim.content_scope,
+        claim.reader_access_signal,
+        claim.automated_retrieval_signal,
+        claim.permitted_uses,
+        claim.license_id,
+        claim.evidence_json,
+        claim.checked_at,
+        claim.expires_at,
+        "arxiv:2609.00021v2",
+    )
+    with pytest.raises(AccessAssessmentError, match="access_version_mismatch"):
+        verify(claim, _probe(identifier="2609.00021v1"))
+
+
+def test_full_text_requires_supported_content_type(tmp_path: Path) -> None:
+    _, resolved, _, verify = _tools(tmp_path)
+    probe = AccessLocationProbe(
+        "https://arxiv.org/pdf/2609.00021",
+        "https://arxiv.org/pdf/2609.00021",
+        (),
+        ("151.101.1.69",),
+        200,
+        "text/plain",
+        "arxiv",
+        "2609.00021v1",
+    )
+    with pytest.raises(AccessAssessmentError, match="unsupported_access_content"):
+        verify(_claim(resolved.manifestation_id), probe)
