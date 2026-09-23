@@ -44,6 +44,10 @@ class SafeAccessEvidencePolicyAdapter:
             result[key] = value
         return result
 
+    @staticmethod
+    def _constant(_value: str) -> None:
+        raise AccessAssessmentError("invalid_access_evidence")
+
     @classmethod
     def _evidence(cls, value: str) -> object:
         if not isinstance(value, str):
@@ -54,9 +58,7 @@ class SafeAccessEvidencePolicyAdapter:
             decoded = json.loads(
                 value,
                 object_pairs_hook=cls._unique,
-                parse_constant=lambda _value: (_ for _ in ()).throw(
-                    AccessAssessmentError("invalid_access_evidence")
-                ),
+                parse_constant=cls._constant,
             )
         except (json.JSONDecodeError, UnicodeEncodeError, RecursionError) as exc:
             raise AccessAssessmentError("invalid_access_evidence") from exc
@@ -131,24 +133,26 @@ class SafeAccessEvidencePolicyAdapter:
             if not address.is_global:
                 raise AccessAssessmentError("unsafe_access_target")
 
-    def _identity_matches(
+    def _observed_identifier(
         self,
         identity: ManifestationAccessIdentity,
         probe: AccessLocationProbe,
-    ) -> bool:
+    ):
         namespace, value = probe.observed_identifier_namespace, probe.observed_identifier_value
         if (namespace is None) != (value is None):
             raise AccessAssessmentError("invalid_access_probe")
         if namespace is None or value is None:
-            return False
+            return None
         try:
             observed = self._normalize(namespace, value)
         except PaperIdentityError as exc:
             raise AccessAssessmentError("access_identity_mismatch") from exc
-        return (
-            observed.namespace == identity.source_namespace
-            and observed.normalized_value == identity.native_id
-        )
+        if (
+            observed.namespace != identity.source_namespace
+            or observed.normalized_value != identity.native_id
+        ):
+            raise AccessAssessmentError("access_identity_mismatch")
+        return observed
 
     def evaluate(
         self,
@@ -198,15 +202,30 @@ class SafeAccessEvidencePolicyAdapter:
             raise AccessAssessmentError("invalid_access_probe")
         self._public_ips(probe.resolved_ips)
 
-        identity_matches = self._identity_matches(identity, probe)
-        if (
-            probe.observed_identifier_namespace is not None
-            and probe.observed_identifier_value is not None
-            and not identity_matches
-        ):
-            raise AccessAssessmentError("access_identity_mismatch")
+        observed = self._observed_identifier(identity, probe)
+        identity_matches = observed is not None
+        if claim.content_version_binding is not None:
+            if not isinstance(claim.content_version_binding, str) or not claim.content_version_binding:
+                raise AccessAssessmentError("invalid_access_evidence")
+            if observed is None:
+                raise AccessAssessmentError("access_version_mismatch")
+            suffix = f"v{observed.native_version}" if observed.native_version is not None else ""
+            expected_binding = f"{observed.namespace}:{observed.normalized_value}{suffix}"
+            if claim.content_version_binding != expected_binding:
+                raise AccessAssessmentError("access_version_mismatch")
 
+        if probe.content_type is not None and (
+            not isinstance(probe.content_type, str) or len(probe.content_type) > 256
+        ):
+            raise AccessAssessmentError("invalid_access_probe")
+        full_text_type = probe.content_type in {
+            "application/pdf",
+            "text/html",
+            "application/xhtml+xml",
+        }
         success = probe.http_status in {200, 206} and identity_matches
+        if success and claim.content_scope == "full_text" and not full_text_type:
+            raise AccessAssessmentError("unsupported_access_content")
         reader_access = claim.reader_access_signal if success and claim.content_scope == "full_text" else "unknown"
         automated = claim.automated_retrieval_signal if success else (
             "prohibited" if claim.automated_retrieval_signal == "prohibited" else "unknown"
