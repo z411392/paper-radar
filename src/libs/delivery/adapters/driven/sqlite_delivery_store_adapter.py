@@ -5,7 +5,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
-from libs.delivery.dtos.delivery_dispatch import DeliveryClaim, DeliveryDispatchCandidate
+from libs.delivery.dtos.delivery_dispatch import DeliveryClaim, DeliveryDispatchCandidate, MailSendResult
 from libs.delivery.dtos.delivery_queue import QueueDigestRequest, QueuedDigest
 from libs.delivery.dtos.digest_preview import DigestPreview, SelectedDigestItem
 
@@ -433,3 +433,78 @@ class SqliteDeliveryStoreAdapter:
                 (attempt_id, outbox_id, attempt_no, started_at),
             )
             return DeliveryClaim("sending", attempt_id, attempt_no)
+
+
+    def finish_dispatch(
+        self,
+        attempt_id: str,
+        result: MailSendResult,
+        finished_at: datetime,
+    ) -> str:
+        attempt_id = self._text(attempt_id, "invalid_attempt_id")
+        finished = self._time(finished_at, "invalid_dispatch_time")
+        if not isinstance(result, MailSendResult) or result.state not in {
+            "provider_accepted",
+            "rejected",
+            "unknown",
+        }:
+            raise DeliveryStoreError("invalid_mail_result")
+        if result.provider_message_id is not None:
+            self._text(result.provider_message_id, "invalid_provider_message_id", maximum=1024)
+        if result.error_code is not None:
+            self._text(result.error_code, "invalid_delivery_error", maximum=256)
+
+        with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT a.state AS attempt_state,a.outbox_id,o.state AS outbox_state,o.digest_id "
+                "FROM delivery_attempts a JOIN delivery_outbox o ON o.id=a.outbox_id "
+                "WHERE a.id=?",
+                (attempt_id,),
+            ).fetchone()
+            if row is None:
+                raise DeliveryStoreError("delivery_attempt_missing")
+            if row["attempt_state"] != "sending" or row["outbox_state"] != "sending":
+                if row["attempt_state"] in {"provider_accepted", "failed", "unknown"}:
+                    return row["outbox_state"]
+                raise DeliveryStoreError("delivery_state_corrupt")
+
+            if result.state == "provider_accepted":
+                attempt_state = "provider_accepted"
+                outbox_state = "provider_accepted"
+                digest_state = "sent"
+                ledger_state = "accepted"
+            elif result.state == "rejected":
+                attempt_state = "failed"
+                outbox_state = "failed"
+                digest_state = "queued"
+                ledger_state = "reserved"
+            else:
+                attempt_state = "unknown"
+                outbox_state = "unknown"
+                digest_state = "unknown"
+                ledger_state = "unknown"
+
+            connection.execute(
+                "UPDATE delivery_attempts SET state=?,provider_message_id=?,error_code=?,finished_at=? "
+                "WHERE id=? AND state='sending'",
+                (
+                    attempt_state,
+                    result.provider_message_id,
+                    result.error_code,
+                    finished,
+                    attempt_id,
+                ),
+            )
+            connection.execute(
+                "UPDATE delivery_outbox SET state=? WHERE id=? AND state='sending'",
+                (outbox_state, row["outbox_id"]),
+            )
+            connection.execute(
+                "UPDATE digests SET state=? WHERE id=?",
+                (digest_state, row["digest_id"]),
+            )
+            connection.execute(
+                "UPDATE notification_ledger SET state=? WHERE outbox_id=?",
+                (ledger_state, row["outbox_id"]),
+            )
+            return outbox_state
