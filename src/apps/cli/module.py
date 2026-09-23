@@ -43,9 +43,6 @@ from libs.paper_explanations.adapters.driven.sqlite_digest_current_summary_adapt
     SqliteDigestCurrentSummaryAdapter,
 )
 from libs.research_workflow.adapters.driven.python_runtime_version_adapter import PythonRuntimeVersionAdapter
-from libs.scholarly_catalog.adapters.driven.sqlite_digest_research_event_adapter import (
-    SqliteDigestResearchEventAdapter,
-)
 from libs.research_workflow.adapters.driven.sqlite_scheduler_input_adapter import SqliteSchedulerInputAdapter
 from libs.research_workflow.adapters.driven.sqlite_workflow_job_store_adapter import (
     SqliteWorkflowJobStoreAdapter,
@@ -67,6 +64,9 @@ from libs.research_workflow.ports.run_worker_cycle_port import RunWorkerCyclePor
 from libs.research_workflow.ports.runtime_version_provider_port import RuntimeVersionProviderPort
 from libs.research_workflow.ports.workflow_clock_port import WorkflowClockPort
 from libs.research_workflow.ports.workflow_job_store_port import WorkflowJobStorePort
+from libs.scholarly_catalog.adapters.driven.sqlite_digest_research_event_adapter import (
+    SqliteDigestResearchEventAdapter,
+)
 from libs.watch_profiles.adapters.driven.sqlite_digest_relevance_adapter import (
     SqliteDigestRelevanceAdapter,
 )

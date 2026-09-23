@@ -200,6 +200,19 @@ def _seed_workspace(root: Path) -> SqliteSchemaConnectionFactory:
             ),
         )
         connection.execute(
+            "INSERT INTO evidence_anchors VALUES(?,?,?,?,?,?,?,?)",
+            (
+                "anchor:runtime",
+                SNAPSHOT,
+                "abstract",
+                "p1",
+                "abstract",
+                0,
+                8,
+                None,
+            ),
+        )
+        connection.execute(
             "INSERT INTO model_runs("
             "id,task_kind,provider,model_name,prompt_digest,input_fingerprint,state,started_at"
             ") VALUES(?,?,?,?,?,?,?,?)",
