@@ -67,11 +67,13 @@ class SqliteDigestCurrentSummaryAdapter:
             row = connection.execute(
                 "SELECT c.summary_id,c.revision_id,c.expected_input_fingerprint,"
                 "s.work_id,s.snapshot_id,s.generation_fingerprint,s.output_object_id,"
-                "s.qa_state,s.language,s.explanation_profile "
+                "s.qa_state,s.language,s.explanation_profile,"
+                "m.state AS generation_state,m.input_fingerprint AS run_input_fingerprint "
                 "FROM current_summaries c "
                 "JOIN summary_revisions s "
                 "ON s.id=c.summary_id AND s.revision_id=c.revision_id "
                 "AND s.work_id=c.work_id "
+                "JOIN model_runs m ON m.id=s.generation_run_id "
                 "WHERE c.work_id=? AND c.revision_id=? "
                 "AND c.language='zh-TW' AND c.explanation_profile='plain-zh-TW-v1'",
                 (work_id, revision_id),
@@ -98,6 +100,8 @@ class SqliteDigestCurrentSummaryAdapter:
             or row["work_id"] != work_id
             or row["revision_id"] != revision_id
             or row["expected_input_fingerprint"] != row["generation_fingerprint"]
+            or row["generation_state"] != "succeeded"
+            or row["run_input_fingerprint"] != row["generation_fingerprint"]
         ):
             raise DigestSummaryReadError("digest_summary_corrupt")
 

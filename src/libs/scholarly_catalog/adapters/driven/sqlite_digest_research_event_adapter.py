@@ -56,7 +56,9 @@ class SqliteDigestResearchEventAdapter:
                 "FROM research_events e "
                 "JOIN paper_revisions r ON r.id=e.revision_id AND r.work_id=e.work_id "
                 "JOIN paper_manifestations m ON m.id=r.manifestation_id "
-                "WHERE e.revision_id IS NOT NULL AND e.observed_at>? AND e.observed_at<=? "
+                "WHERE e.revision_id IS NOT NULL "
+                "AND julianday(e.observed_at)>julianday(?) "
+                "AND julianday(e.observed_at)<=julianday(?) "
                 f"AND e.event_kind IN ({placeholders}) "
                 "ORDER BY e.observed_at,e.id",
                 (start.isoformat(), cutoff.isoformat(), *self._KINDS),
