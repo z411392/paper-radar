@@ -14,6 +14,8 @@ from libs.scholarly_catalog.dtos.paper_identity_view import (
     PaperIdentityView,
     PaperRevisionView,
 )
+from libs.scholarly_catalog.dtos.work_alias_result import WorkAliasResult
+from libs.scholarly_catalog.dtos.work_relation_result import WorkRelationResult
 from libs.scholarly_catalog.exceptions.paper_identity_error import PaperIdentityError
 
 
@@ -395,3 +397,30 @@ class SqlitePaperIdentityStoreAdapter:
                 identifier.normalized_value,
                 revisions,
             )
+
+    def merge_alias(
+        self,
+        alias_work_id: str,
+        canonical_work_id: str,
+        evidence_json: str,
+        decided_at: object,
+    ) -> WorkAliasResult:
+        raise PaperIdentityError("not_implemented")
+
+    def revoke_alias(
+        self,
+        alias_work_id: str,
+        evidence_json: str,
+        revoked_at: object,
+    ) -> WorkRelationResult:
+        raise PaperIdentityError("not_implemented")
+
+    def record_relation(
+        self,
+        source_work_id: str,
+        target_work_id: str,
+        relation_type: str,
+        evidence_json: str,
+        observed_at: object,
+    ) -> WorkRelationResult:
+        raise PaperIdentityError("not_implemented")

@@ -10,7 +10,10 @@ from libs.kernel.adapters.driven.sqlite_workspace_bootstrap_adapter import Sqlit
 from libs.scholarly_catalog.adapters.driven.sqlite_paper_identity_store_adapter import (
     SqlitePaperIdentityStoreAdapter,
 )
+from libs.scholarly_catalog.application.commands.merge_paper_work_alias import MergePaperWorkAlias
+from libs.scholarly_catalog.application.commands.record_paper_work_relation import RecordPaperWorkRelation
 from libs.scholarly_catalog.application.commands.resolve_paper_identity import ResolvePaperIdentity
+from libs.scholarly_catalog.application.commands.revoke_paper_work_alias import RevokePaperWorkAlias
 from libs.scholarly_catalog.application.queries.read_paper_identity import ReadPaperIdentity
 from libs.scholarly_catalog.domain.services.normalize_paper_identifier import NormalizePaperIdentifier
 from libs.scholarly_catalog.dtos.paper_identity_observation import PaperIdentityObservation
@@ -230,3 +233,132 @@ def test_same_content_fingerprint_cannot_describe_different_revision_content(tmp
             )
         )
     assert len(read("arxiv", "2609.00006").revisions) == 1
+
+
+
+def _three_works(tmp_path: Path):
+    root, resolve, read = _identity_tools(tmp_path)
+    left = resolve(_observation("obs:alias:left", "2609.00011v1", "a" * 64, title="Shared title"))
+    right = resolve(_observation("obs:alias:right", "2609.00012v1", "b" * 64, title="Shared title"))
+    third = resolve(_observation("obs:alias:third", "2609.00013v1", "c" * 64, title="Another"))
+    migrations = load_workspace_migrations(with_discovery=True)
+    connection = SqliteSchemaConnectionFactory(root, migrations, minimum_version=3)
+    store = SqlitePaperIdentityStoreAdapter(connection.connect)
+    return root, read, store, left, right, third
+
+
+def test_explicit_alias_merge_requires_evidence_and_resolves_canonical(tmp_path: Path) -> None:
+    root, read, store, canonical, alias, _ = _three_works(tmp_path)
+    evidence = '{"reason":"same-study","source_observation_ids":["obs:alias:left","obs:alias:right"]}'
+    result = MergePaperWorkAlias(store)(
+        alias.work_id,
+        canonical.work_id,
+        evidence,
+        decided_at=AT + timedelta(hours=2),
+    )
+    assert result.alias_work_id == alias.work_id
+    assert result.canonical_work_id == canonical.work_id
+    assert read("arxiv", "2609.00012").work_id == alias.work_id
+    assert read("arxiv", "2609.00012").canonical_work_id == canonical.work_id
+    assert read("arxiv", "2609.00011").canonical_work_id == canonical.work_id
+
+    connection = SqliteConnectionFactory(root).connect()
+    try:
+        row = connection.execute(
+            "SELECT decision_evidence_json FROM work_aliases WHERE alias_work_id=?",
+            (alias.work_id,),
+        ).fetchone()
+    finally:
+        connection.close()
+    assert row is not None
+    assert json.loads(row[0])["reason"] == "same-study"
+
+
+def test_alias_without_evidence_is_rejected_and_similar_titles_stay_separate(tmp_path: Path) -> None:
+    _, read, store, left, right, _ = _three_works(tmp_path)
+    assert left.work_id != right.work_id
+    with pytest.raises(PaperIdentityError, match="identity_evidence_required"):
+        MergePaperWorkAlias(store)(
+            right.work_id,
+            left.work_id,
+            "{}",
+            decided_at=AT + timedelta(hours=2),
+        )
+    assert read("arxiv", "2609.00011").canonical_work_id == left.work_id
+    assert read("arxiv", "2609.00012").canonical_work_id == right.work_id
+
+
+def test_alias_cycle_and_silent_retarget_are_rejected(tmp_path: Path) -> None:
+    _, read, store, left, right, third = _three_works(tmp_path)
+    merge = MergePaperWorkAlias(store)
+    evidence = '{"reason":"same-study"}'
+    merge(right.work_id, left.work_id, evidence, decided_at=AT + timedelta(hours=2))
+
+    with pytest.raises(PaperIdentityError, match="alias_cycle"):
+        merge(left.work_id, right.work_id, evidence, decided_at=AT + timedelta(hours=3))
+    with pytest.raises(PaperIdentityError, match="alias_conflict"):
+        merge(right.work_id, third.work_id, evidence, decided_at=AT + timedelta(hours=3))
+
+    assert read("arxiv", "2609.00012").canonical_work_id == left.work_id
+
+
+def test_correction_relation_is_recorded_without_merging_works(tmp_path: Path) -> None:
+    root, read, store, original, correction, _ = _three_works(tmp_path)
+    evidence = '{"reason":"explicit-correction","source_observation_ids":["obs:alias:left"]}'
+    result = RecordPaperWorkRelation(store)(
+        correction.work_id,
+        original.work_id,
+        "correction",
+        evidence,
+        observed_at=AT + timedelta(hours=2),
+    )
+    assert result.relation_type == "correction"
+    assert read("arxiv", "2609.00011").canonical_work_id == original.work_id
+    assert read("arxiv", "2609.00012").canonical_work_id == correction.work_id
+
+    connection = SqliteConnectionFactory(root).connect()
+    try:
+        row = connection.execute(
+            "SELECT relation_type,evidence_json FROM work_relations WHERE id=?",
+            (result.relation_id,),
+        ).fetchone()
+    finally:
+        connection.close()
+    assert row is not None and row[0] == "correction"
+    assert json.loads(row[1])["reason"] == "explicit-correction"
+
+
+def test_alias_revocation_restores_original_identity_and_preserves_merge_evidence(
+    tmp_path: Path,
+) -> None:
+    root, read, store, canonical, alias, _ = _three_works(tmp_path)
+    merge_evidence = '{"reason":"same-study","ticket":"decision-1"}'
+    MergePaperWorkAlias(store)(
+        alias.work_id,
+        canonical.work_id,
+        merge_evidence,
+        decided_at=AT + timedelta(hours=2),
+    )
+    revocation = RevokePaperWorkAlias(store)(
+        alias.work_id,
+        '{"reason":"merge-revoked","ticket":"decision-2"}',
+        revoked_at=AT + timedelta(hours=3),
+    )
+    assert revocation.relation_type == "alias_revoked"
+    assert read("arxiv", "2609.00012").canonical_work_id == alias.work_id
+
+    connection = SqliteConnectionFactory(root).connect()
+    try:
+        alias_row = connection.execute(
+            "SELECT 1 FROM work_aliases WHERE alias_work_id=?", (alias.work_id,)
+        ).fetchone()
+        relation = connection.execute(
+            "SELECT evidence_json FROM work_relations WHERE id=?",
+            (revocation.relation_id,),
+        ).fetchone()
+    finally:
+        connection.close()
+    assert alias_row is None
+    saved = json.loads(relation[0])
+    assert json.loads(saved["merge_evidence_json"])["ticket"] == "decision-1"
+    assert json.loads(saved["revocation_evidence_json"])["ticket"] == "decision-2"
