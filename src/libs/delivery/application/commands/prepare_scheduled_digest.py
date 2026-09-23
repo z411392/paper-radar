@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from libs.delivery.adapters.driven.sqlite_delivery_store_adapter import DeliveryStoreError
+from libs.delivery.exceptions.delivery_store_error import DeliveryStoreError
 from libs.delivery.application.commands.prepare_digest import PrepareDigest
 from libs.delivery.domain.services.digest_artifact_rules import DigestArtifactError
 from libs.delivery.domain.services.digest_selection_rules import DigestSelectionError

@@ -8,10 +8,7 @@ from datetime import datetime, timezone
 from libs.delivery.dtos.delivery_dispatch import DeliveryClaim, DeliveryDispatchCandidate, MailSendResult
 from libs.delivery.dtos.delivery_queue import QueueDigestRequest, QueuedDigest
 from libs.delivery.dtos.digest_preview import DigestPreview, SelectedDigestItem
-
-
-class DeliveryStoreError(RuntimeError):
-    pass
+from libs.delivery.exceptions.delivery_store_error import DeliveryStoreError
 
 
 class SqliteDeliveryStoreAdapter:
