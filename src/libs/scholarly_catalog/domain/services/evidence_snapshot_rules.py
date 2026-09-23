@@ -18,13 +18,15 @@ class EvidenceSnapshotRules:
     @staticmethod
     def _json(value: object) -> str:
         try:
-            return json.dumps(
+            encoded = json.dumps(
                 value,
                 ensure_ascii=False,
                 sort_keys=True,
                 separators=(",", ":"),
                 allow_nan=False,
             )
+            encoded.encode("utf-8")
+            return encoded
         except (TypeError, ValueError, RecursionError) as exc:
             raise EvidenceSnapshotError("invalid_evidence_json") from exc
 
@@ -79,7 +81,8 @@ class EvidenceSnapshotRules:
     def _media_type(value: object) -> str:
         if (
             not isinstance(value, str)
-            or not value
+            or not value.strip()
+            or value != value.strip()
             or len(value) > 256
             or any(ord(char) < 32 or ord(char) == 127 for char in value)
         ):
@@ -105,7 +108,10 @@ class EvidenceSnapshotRules:
             raise EvidenceSnapshotError("invalid_evidence_time") from exc
         if moment.tzinfo is None or moment.utcoffset() is None:
             raise EvidenceSnapshotError("invalid_evidence_time")
-        canonical = moment.astimezone(timezone.utc).isoformat()
+        try:
+            canonical = moment.astimezone(timezone.utc).isoformat()
+        except (ValueError, OverflowError) as exc:
+            raise EvidenceSnapshotError("invalid_evidence_time") from exc
         if canonical != value:
             raise EvidenceSnapshotError("invalid_evidence_time")
         return canonical
@@ -134,7 +140,7 @@ class EvidenceSnapshotRules:
 
     @staticmethod
     def _text(value: object) -> str:
-        if not isinstance(value, str) or not value or "\x00" in value or "\r" in value:
+        if not isinstance(value, str) or not value.strip() or "\x00" in value or "\r" in value:
             raise EvidenceSnapshotError("invalid_evidence_text")
         try:
             value.encode("utf-8")
@@ -146,7 +152,7 @@ class EvidenceSnapshotRules:
     def _anchor_request(
         cls,
         value: EvidenceAnchorRequest,
-        normalized_text: str,
+        normalized_text: str | None,
         included_sections: tuple[str, ...],
     ) -> tuple[str, int, int, str | None, str | None, str | None]:
         if not isinstance(value, EvidenceAnchorRequest):
@@ -160,8 +166,12 @@ class EvidenceSnapshotRules:
             or type(value.offset_end) is not int
             or value.offset_start < 0
             or value.offset_end <= value.offset_start
-            or value.offset_end > len(normalized_text)
-            or normalized_text[value.offset_start : value.offset_end] != quote
+            or value.offset_end - value.offset_start != len(quote)
+            or normalized_text is not None
+            and (
+                value.offset_end > len(normalized_text)
+                or normalized_text[value.offset_start : value.offset_end] != quote
+            )
         ):
             raise EvidenceSnapshotError("invalid_evidence_anchor")
         section = value.section_label
@@ -184,6 +194,26 @@ class EvidenceSnapshotRules:
         return quote, value.offset_start, value.offset_end, section, paragraph, table_json
 
     @classmethod
+    def _coverage_level(
+        cls,
+        scope: object,
+        complete: object,
+        included: tuple[str, ...],
+        missing: tuple[str, ...],
+    ) -> str:
+        if not isinstance(scope, str) or scope not in cls._SCOPES or type(complete) is not bool:
+            raise EvidenceSnapshotError("invalid_evidence_coverage")
+        if set(included) & set(missing):
+            raise EvidenceSnapshotError("invalid_evidence_coverage")
+        if scope == "abstract":
+            if complete or included != ("abstract",):
+                raise EvidenceSnapshotError("invalid_evidence_coverage")
+            return "abstract_only"
+        if complete and missing:
+            raise EvidenceSnapshotError("invalid_evidence_coverage")
+        return "full_text" if complete else "selected_sections"
+
+    @classmethod
     def _validate_input(
         cls,
         value: EvidencePreparationInput,
@@ -203,21 +233,9 @@ class EvidenceSnapshotRules:
                 raise EvidenceSnapshotError("invalid_parser_error")
             raise EvidenceSnapshotError("evidence_parse_failed")
         normalized_text = cls._text(value.normalized_text)
-        if value.content_scope not in cls._SCOPES or type(value.document_complete) is not bool:
-            raise EvidenceSnapshotError("invalid_evidence_coverage")
         included = cls._sections(value.included_sections, allow_empty=False)
         missing = cls._sections(value.missing_required_sections, allow_empty=True)
-        if set(included) & set(missing):
-            raise EvidenceSnapshotError("invalid_evidence_coverage")
-
-        if value.content_scope == "abstract":
-            if value.document_complete or "abstract" not in included:
-                raise EvidenceSnapshotError("invalid_evidence_coverage")
-            level = "abstract_only"
-        else:
-            if value.document_complete and missing:
-                raise EvidenceSnapshotError("invalid_evidence_coverage")
-            level = "full_text" if value.document_complete else "selected_sections"
+        level = cls._coverage_level(value.content_scope, value.document_complete, included, missing)
 
         if not isinstance(value.anchors, tuple) or not value.anchors:
             raise EvidenceSnapshotError("invalid_evidence_anchor")
@@ -248,7 +266,7 @@ class EvidenceSnapshotRules:
         if receipt.content_sha256 != digest:
             raise EvidenceSnapshotError("evidence_object_hash_mismatch")
         expected = {f"{kind}:{digest}" for kind in allowed_kinds}
-        if receipt.object_id not in expected:
+        if not isinstance(receipt.object_id, str) or receipt.object_id not in expected:
             raise EvidenceSnapshotError("invalid_evidence_object")
 
     @classmethod
@@ -330,19 +348,15 @@ class EvidenceSnapshotRules:
         )
 
     @classmethod
-    def verify(
-        cls,
-        snapshot: EvidenceSnapshot,
-        source_bytes: bytes,
-        normalized_text: str,
-    ) -> None:
+    def validate_metadata(cls, snapshot: EvidenceSnapshot) -> tuple[str, ...]:
+        """Check deterministic metadata; verify() additionally checks the actual object bytes."""
         if not isinstance(snapshot, EvidenceSnapshot):
             raise EvidenceSnapshotError("invalid_evidence_snapshot")
         cls._identifier(snapshot.revision_id, code="invalid_revision_identity")
         cls._identifier(snapshot.work_id, code="invalid_work_identity")
         cls._parser_version(snapshot.parser_version)
         cls._canonical_time(snapshot.created_at)
-        if snapshot.evidence_level not in cls._LEVELS:
+        if not isinstance(snapshot.evidence_level, str) or snapshot.evidence_level not in cls._LEVELS:
             raise EvidenceSnapshotError("invalid_evidence_coverage")
         coverage = cls._decode_canonical_json(snapshot.coverage_json)
         if not isinstance(coverage, dict) or set(coverage) != {
@@ -352,42 +366,21 @@ class EvidenceSnapshotRules:
             "missing_required_sections",
         }:
             raise EvidenceSnapshotError("invalid_evidence_coverage")
-        scope = coverage["content_scope"]
-        complete = coverage["document_complete"]
         included_raw = coverage["included_sections"]
         missing_raw = coverage["missing_required_sections"]
-        if (
-            scope not in cls._SCOPES
-            or type(complete) is not bool
-            or not isinstance(included_raw, list)
-            or not isinstance(missing_raw, list)
-        ):
+        if not isinstance(included_raw, list) or not isinstance(missing_raw, list):
             raise EvidenceSnapshotError("invalid_evidence_coverage")
         included = cls._sections(tuple(included_raw), allow_empty=False)
         missing = cls._sections(tuple(missing_raw), allow_empty=True)
-        if set(included) & set(missing):
-            raise EvidenceSnapshotError("invalid_evidence_coverage")
-        expected_level = (
-            "abstract_only"
-            if scope == "abstract" and not complete
-            else "full_text"
-            if scope == "document" and complete and not missing
-            else "selected_sections"
-            if scope == "document" and not complete
-            else None
+        level = cls._coverage_level(
+            coverage["content_scope"], coverage["document_complete"], included, missing
         )
-        if expected_level != snapshot.evidence_level:
+        if level != snapshot.evidence_level:
             raise EvidenceSnapshotError("invalid_evidence_coverage")
-
-        text = cls._text(normalized_text)
-        source_hash = hashlib.sha256(source_bytes).hexdigest()
-        text_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
-        source_kinds = {"evidence"} if snapshot.evidence_level == "abstract_only" else {"fulltext"}
-        if snapshot.object_id not in {f"{kind}:{source_hash}" for kind in source_kinds}:
-            raise EvidenceSnapshotError("evidence_object_hash_mismatch")
-        if snapshot.text_object_id != f"extracted:{text_hash}":
-            raise EvidenceSnapshotError("evidence_object_hash_mismatch")
-
+        source_kind = "evidence" if level == "abstract_only" else "fulltext"
+        for object_id, kind in ((snapshot.object_id, source_kind), (snapshot.text_object_id, "extracted")):
+            if not isinstance(object_id, str) or re.fullmatch(kind + r":[0-9a-f]{64}", object_id) is None:
+                raise EvidenceSnapshotError("invalid_evidence_object")
         fingerprint_input = cls._json(
             {
                 "format_version": 1,
@@ -403,11 +396,13 @@ class EvidenceSnapshotRules:
         fingerprint = hashlib.sha256(fingerprint_input.encode("utf-8")).hexdigest()
         if snapshot.fingerprint != fingerprint or snapshot.snapshot_id != f"snapshot:{fingerprint}":
             raise EvidenceSnapshotError("evidence_snapshot_fingerprint_mismatch")
-
+        if not isinstance(snapshot.anchors, tuple) or not snapshot.anchors:
+            raise EvidenceSnapshotError("invalid_evidence_anchor")
         seen: set[str] = set()
         for anchor in snapshot.anchors:
             if (
                 not isinstance(anchor, EvidenceAnchor)
+                or not isinstance(anchor.anchor_id, str)
                 or anchor.snapshot_id != snapshot.snapshot_id
                 or anchor.anchor_id in seen
             ):
@@ -420,11 +415,7 @@ class EvidenceSnapshotRules:
                 anchor.paragraph_id,
                 anchor.table_locator_json,
             )
-            quote, start, end, section, paragraph, table_json = cls._anchor_request(
-                request,
-                text,
-                included,
-            )
+            quote, start, end, section, paragraph, table_json = cls._anchor_request(request, None, included)
             payload = cls._json(
                 {
                     "snapshot_id": snapshot.snapshot_id,
@@ -440,3 +431,31 @@ class EvidenceSnapshotRules:
             if anchor.anchor_id != expected_anchor:
                 raise EvidenceSnapshotError("invalid_evidence_anchor")
             seen.add(anchor.anchor_id)
+        return included
+
+    @classmethod
+    def verify(cls, snapshot: EvidenceSnapshot, source_bytes: bytes, normalized_text: str) -> None:
+        included = cls.validate_metadata(snapshot)
+        if not isinstance(source_bytes, bytes) or not source_bytes:
+            raise EvidenceSnapshotError("invalid_evidence_source")
+        text = cls._text(normalized_text)
+        source_hash = hashlib.sha256(source_bytes).hexdigest()
+        text_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        source_kind = "evidence" if snapshot.evidence_level == "abstract_only" else "fulltext"
+        if snapshot.object_id != f"{source_kind}:{source_hash}":
+            raise EvidenceSnapshotError("evidence_object_hash_mismatch")
+        if snapshot.text_object_id != f"extracted:{text_hash}":
+            raise EvidenceSnapshotError("evidence_object_hash_mismatch")
+        for anchor in snapshot.anchors:
+            cls._anchor_request(
+                EvidenceAnchorRequest(
+                    anchor.quote,
+                    anchor.offset_start,
+                    anchor.offset_end,
+                    anchor.section_label,
+                    anchor.paragraph_id,
+                    anchor.table_locator_json,
+                ),
+                text,
+                included,
+            )

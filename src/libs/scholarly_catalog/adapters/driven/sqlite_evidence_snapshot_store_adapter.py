@@ -3,6 +3,7 @@ import sqlite3
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 
+from libs.scholarly_catalog.domain.services.evidence_snapshot_rules import EvidenceSnapshotRules
 from libs.scholarly_catalog.dtos.evidence_anchor import EvidenceAnchor
 from libs.scholarly_catalog.dtos.evidence_snapshot import EvidenceSnapshot
 from libs.scholarly_catalog.exceptions.evidence_snapshot_error import EvidenceSnapshotError
@@ -49,48 +50,10 @@ class SqliteEvidenceSnapshotStoreAdapter:
         return value
 
     @staticmethod
-    def _anchor_id(value: object) -> str:
-        if not isinstance(value, str) or re.fullmatch(r"anchor:[0-9a-f]{64}", value) is None:
-            raise EvidenceSnapshotError("invalid_evidence_anchor")
-        return value
-
-    @classmethod
-    def _structure(cls, snapshot: EvidenceSnapshot) -> None:
-        if not isinstance(snapshot, EvidenceSnapshot):
-            raise EvidenceSnapshotError("invalid_evidence_snapshot")
-        cls._snapshot_id(snapshot.snapshot_id)
-        if (
-            not isinstance(snapshot.fingerprint, str)
-            or re.fullmatch(r"[0-9a-f]{64}", snapshot.fingerprint) is None
-            or snapshot.snapshot_id != f"snapshot:{snapshot.fingerprint}"
-            or snapshot.evidence_level not in cls._LEVELS
-            or not isinstance(snapshot.coverage_json, str)
-            or not snapshot.coverage_json
-            or not isinstance(snapshot.created_at, str)
-            or not snapshot.created_at
-            or not isinstance(snapshot.anchors, tuple)
-            or not snapshot.anchors
-        ):
-            raise EvidenceSnapshotError("invalid_evidence_snapshot")
-        if not snapshot.object_id.startswith(("evidence:", "fulltext:")):
-            raise EvidenceSnapshotError("invalid_evidence_snapshot")
-        if not snapshot.text_object_id.startswith("extracted:"):
-            raise EvidenceSnapshotError("invalid_evidence_snapshot")
-        seen: set[str] = set()
-        for anchor in snapshot.anchors:
-            if (
-                not isinstance(anchor, EvidenceAnchor)
-                or cls._anchor_id(anchor.anchor_id) in seen
-                or anchor.snapshot_id != snapshot.snapshot_id
-                or type(anchor.offset_start) is not int
-                or type(anchor.offset_end) is not int
-                or anchor.offset_start < 0
-                or anchor.offset_end <= anchor.offset_start
-                or not isinstance(anchor.quote, str)
-                or not anchor.quote
-            ):
-                raise EvidenceSnapshotError("invalid_evidence_anchor")
-            seen.add(anchor.anchor_id)
+    def _structure(snapshot: EvidenceSnapshot) -> None:
+        # No file I/O in the catalog transaction. Public preparation/readback
+        # also use verify() to bind each quote to the immutable object bytes.
+        EvidenceSnapshotRules.validate_metadata(snapshot)
 
     @staticmethod
     def _require_revision(
@@ -111,13 +74,22 @@ class SqliteEvidenceSnapshotStoreAdapter:
         object_id: str,
     ) -> None:
         row = connection.execute(
-            "SELECT state FROM object_registry WHERE object_id=?",
+            "SELECT state,kind,content_sha256,relative_path,byte_size FROM object_registry WHERE object_id=?",
             (object_id,),
         ).fetchone()
         if row is None:
             raise EvidenceSnapshotError("evidence_object_missing")
         if row["state"] != "available":
             raise EvidenceSnapshotError("evidence_object_unavailable")
+        kind, digest = object_id.split(":", 1)
+        if (
+            row["kind"] != kind
+            or row["content_sha256"] != digest
+            or row["relative_path"] != f"objects/{kind}/{digest[:2]}/{digest}"
+            or type(row["byte_size"]) is not int
+            or row["byte_size"] <= 0
+        ):
+            raise EvidenceSnapshotError("evidence_object_metadata_mismatch")
 
     @staticmethod
     def _row_matches(snapshot: EvidenceSnapshot, row: sqlite3.Row) -> bool:
@@ -192,6 +164,9 @@ class SqliteEvidenceSnapshotStoreAdapter:
             anchors,
         )
         cls._structure(snapshot)
+        cls._require_revision(connection, snapshot.revision_id, snapshot.work_id)
+        cls._require_object(connection, snapshot.object_id)
+        cls._require_object(connection, snapshot.text_object_id)
         return snapshot
 
     def save(self, snapshot: EvidenceSnapshot) -> EvidenceSnapshot:
