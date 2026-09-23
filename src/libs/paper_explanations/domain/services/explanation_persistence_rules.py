@@ -170,8 +170,6 @@ class ExplanationPersistenceRules:
             "plain_language_card": [asdict(item) for item in draft.plain_language_card],
             "not_reported_in_read_evidence": list(draft.not_reported_in_read_evidence),
             "claim_ids": [claim.claim_id for claim in claims.claims],
-            "qa_state": verification.qa_state,
-            "verification": asdict(verification),
         }
         summary_text = cls._canonical(summary_payload)
         summary_id = "summary:" + hashlib.sha256(
