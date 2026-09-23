@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Protocol
 
 from libs.scholarly_catalog.dtos.normalized_identifier import NormalizedIdentifier
@@ -22,14 +23,14 @@ class PaperIdentityStorePort(Protocol):
         alias_work_id: str,
         canonical_work_id: str,
         evidence_json: str,
-        decided_at: object,
+        decided_at: datetime,
     ) -> WorkAliasResult: ...
 
     def revoke_alias(
         self,
         alias_work_id: str,
         evidence_json: str,
-        revoked_at: object,
+        revoked_at: datetime,
     ) -> WorkRelationResult: ...
 
     def record_relation(
@@ -38,5 +39,5 @@ class PaperIdentityStorePort(Protocol):
         target_work_id: str,
         relation_type: str,
         evidence_json: str,
-        observed_at: object,
+        observed_at: datetime,
     ) -> WorkRelationResult: ...
