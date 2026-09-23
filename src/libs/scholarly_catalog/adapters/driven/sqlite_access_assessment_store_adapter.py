@@ -239,15 +239,14 @@ class SqliteAccessAssessmentStoreAdapter:
             ).fetchall()
             if not rows:
                 raise AccessAssessmentError("access_assessment_missing")
-            saw_effective = False
             for row in rows:
                 value = self._decode(row)
                 checked = self._instant(value.checked_at)
                 if checked > moment:
                     continue
-                saw_effective = True
-                if value.expires_at is None or self._instant(value.expires_at) > moment:
-                    return value
-            raise AccessAssessmentError(
-                "access_assessment_expired" if saw_effective else "access_assessment_missing"
-            )
+                # Expiration means re-verification is required. A newer decision
+                # does not cease to supersede older knowledge when it expires.
+                if value.expires_at is not None and self._instant(value.expires_at) <= moment:
+                    raise AccessAssessmentError("access_assessment_expired")
+                return value
+            raise AccessAssessmentError("access_assessment_missing")
