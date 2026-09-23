@@ -143,11 +143,12 @@ def _setup(tmp_path: Path):
             "abstract_only",
             "{}",
             "f" * 64,
+            NOW.isoformat(),
         ),
     )
     connection.execute(
         "INSERT INTO evidence_anchors VALUES(?,?,?,?,?,?,?,?,?)",
-        (ANCHOR, SNAPSHOT, "abstract", "p1", "羽球", 0, 2, None, None),
+        (ANCHOR, SNAPSHOT, "abstract", "p1", "羽球", 0, 2, None),
     )
     connection.commit()
     connection.close()
