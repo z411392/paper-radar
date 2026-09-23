@@ -167,3 +167,30 @@ def test_uncertain_statement_never_becomes_passed():
     draft, claims = fixture()
     verifier = Mock(side_effect=lambda request: supported_candidate(request, "uncertain"))
     assert VerifyExplanation(verifier)(draft, claims).qa_state == "pending"
+
+
+
+def test_non_negating_chinese_words_do_not_trigger_hard_negation_failure():
+    quote = "We compare different methods and discuss future work."
+    text = "我們比較不同方法，並討論未來工作。"
+    draft, claims = fixture(text, translation=text, quote=quote)
+    codes = {finding.code for finding in ExplanationVerificationRules.deterministic(draft, claims).findings}
+    assert "negation_added" not in codes
+    assert "negation_dropped" not in codes
+
+
+def test_explicit_chinese_negation_matches_source_negation():
+    quote = "The method did not improve accuracy."
+    text = "這個方法沒有提高準確率。"
+    draft, claims = fixture(text, translation=text, quote=quote)
+    codes = {finding.code for finding in ExplanationVerificationRules.deterministic(draft, claims).findings}
+    assert "negation_added" not in codes
+    assert "negation_dropped" not in codes
+
+
+def test_unit_prefix_cannot_turn_milliseconds_into_meters():
+    quote = "Latency was 0.42 ms."
+    text = "延遲為 0.42 m。"
+    draft, claims = fixture(text, translation=text, quote=quote)
+    codes = {finding.code for finding in ExplanationVerificationRules.deterministic(draft, claims).findings}
+    assert "unit_mismatch" in codes
