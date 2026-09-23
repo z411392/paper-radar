@@ -1,6 +1,4 @@
-from libs.paper_explanations.domain.services.generation_execution_rules import (
-    GenerationExecutionRules,
-)
+from libs.paper_explanations.domain.services.generation_execution_rules import GenerationExecutionRules
 from libs.paper_explanations.dtos.generation_budget_policy import GenerationBudgetPolicy
 from libs.paper_explanations.dtos.structured_generation_request import StructuredGenerationRequest
 from libs.paper_explanations.dtos.structured_generation_result import StructuredGenerationResult
@@ -64,7 +62,6 @@ class RunBudgetedGeneration:
                 finished_at=self._clock(),
             )
             raise
-
         if not isinstance(result, StructuredGenerationResult):
             self._ledger.complete_failure(
                 run_id,
