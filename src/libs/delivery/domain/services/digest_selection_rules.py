@@ -65,6 +65,10 @@ class DigestSelectionRules:
         if not isinstance(request.candidates, tuple) or len(request.candidates) > 10000:
             raise DigestSelectionError("invalid_digest_candidates")
         settings_url = cls._url(request.settings_url, "invalid_settings_url")
+        if not isinstance(request.coverage_notes, tuple) or len(request.coverage_notes) > 128:
+            raise DigestSelectionError("invalid_coverage_notes")
+        for note in request.coverage_notes:
+            cls._text(note, "invalid_coverage_notes", maximum=1024)
         return cutoff, settings_url
 
     @classmethod

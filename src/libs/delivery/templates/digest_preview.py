@@ -9,6 +9,7 @@ class DigestPreviewTemplate:
         items: tuple[SelectedDigestItem, ...],
         *,
         settings_url: str | None,
+        coverage_notes: tuple[str, ...] = (),
     ) -> tuple[str, str, str]:
         subject = f"Paper Radar｜每日精選 {len(items)} 篇"
 
@@ -38,6 +39,14 @@ class DigestPreviewTemplate:
                 f"<li><h2>{title}</h2><p>領域：{domain_html}</p>{paragraphs}{source}</li>"
             )
 
+        if coverage_notes:
+            text_lines.extend(["資料覆蓋提醒：", *[f"- {note}" for note in coverage_notes], ""])
+            coverage_html = "<section><h2>資料覆蓋提醒</h2><ul>" + "".join(
+                f"<li>{html.escape(note)}</li>" for note in coverage_notes
+            ) + "</ul></section>"
+        else:
+            coverage_html = ""
+
         if settings_url is not None:
             text_lines.extend(["設定：" + settings_url, ""])
             settings = html.escape(settings_url, quote=True)
@@ -48,6 +57,6 @@ class DigestPreviewTemplate:
         text_body = "\n".join(text_lines).rstrip() + "\n"
         html_body = (
             "<!doctype html><html><body><h1>Paper Radar 每日精選</h1>"
-            f"<ol>{''.join(html_items)}</ol>{settings_html}</body></html>"
+            f"<ol>{''.join(html_items)}</ol>{coverage_html}{settings_html}</body></html>"
         )
         return subject, text_body, html_body

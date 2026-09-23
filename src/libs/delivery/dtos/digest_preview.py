@@ -41,6 +41,7 @@ class PrepareDigestRequest:
     max_items: int
     candidates: tuple[DigestCandidate, ...]
     settings_url: str | None = None
+    coverage_notes: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

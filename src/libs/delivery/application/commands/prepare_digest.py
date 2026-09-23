@@ -26,6 +26,7 @@ class PrepareDigest:
         subject, text_body, html_body = DigestPreviewTemplate.render(
             items,
             settings_url=settings_url,
+            coverage_notes=request.coverage_notes,
         )
         identity = {
             "subscription_id": request.subscription_id,
@@ -44,6 +45,7 @@ class PrepareDigest:
             "subject": subject,
             "text_body": text_body,
             "html_body": html_body,
+            "coverage_notes": request.coverage_notes,
         }
         encoded = json.dumps(
             identity,

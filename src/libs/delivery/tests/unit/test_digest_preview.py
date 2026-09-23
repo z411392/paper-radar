@@ -73,3 +73,25 @@ def test_dynamic_text_is_not_interpreted_as_html() -> None:
     assert 'onclick="alert(1)' not in preview.html_body
     assert "&lt;svg/onload=alert(1)&gt;" in preview.html_body
     assert "&lt;b&gt;domain&lt;/b&gt;" in preview.html_body
+
+
+def test_coverage_notes_are_escaped_rendered_and_part_of_preview_identity() -> None:
+    candidate = item("event:a", "work:a", 1)
+    base = request((candidate,))
+    first = PrepareDigest()(base)
+    with_gap = PrepareDigest()(
+        PrepareDigestRequest(
+            subscription_id=base.subscription_id,
+            period_key=base.period_key,
+            cutoff_at=base.cutoff_at,
+            max_items=base.max_items,
+            candidates=base.candidates,
+            coverage_notes=("arXiv 暫時失敗 <retry>",),
+        )
+    )
+
+    assert "資料覆蓋提醒" in with_gap.text_body
+    assert "arXiv 暫時失敗 <retry>" in with_gap.text_body
+    assert "&lt;retry&gt;" in with_gap.html_body
+    assert "<retry>" not in with_gap.html_body
+    assert first.content_fingerprint != with_gap.content_fingerprint
