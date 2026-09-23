@@ -280,3 +280,27 @@ def test_disabled_subscription_stops_before_reading_period_events():
     assert result.state == "disabled"
     assert events.calls == 0
     assert queue.calls == []
+
+
+def test_relevance_from_another_snapshot_does_not_qualify_current_summary():
+    summary = DigestCurrentSummary(
+        "work:1",
+        "revision:1",
+        "summary:1",
+        "snapshot:current",
+        ("重點",),
+    )
+    usecase, queue = command(
+        events=(event(),),
+        summaries={("work:1", "revision:1"): summary},
+        relevance={
+            ("revision:1", "snapshot:old"): (
+                DigestRelevance("statistics", "direct"),
+            )
+        },
+    )
+
+    result = usecase(request(), created_at=NOW)
+
+    assert result.state == "empty"
+    assert queue.calls == []

@@ -403,3 +403,10 @@ def test_corrupt_generation_run_cannot_be_used_for_digest(tmp_path: Path) -> Non
 
     with pytest.raises(DigestSummaryReadError, match="digest_summary_corrupt"):
         adapter(WORK, REVISION)
+
+
+def test_relevance_read_requires_exact_summary_snapshot(tmp_path: Path) -> None:
+    path = _setup(tmp_path)
+    adapter = SqliteDigestRelevanceAdapter(_connect(path))
+
+    assert adapter("reader:local", REVISION, "snapshot:other") == ()
