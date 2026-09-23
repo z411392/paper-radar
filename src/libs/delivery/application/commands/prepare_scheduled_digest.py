@@ -1,6 +1,9 @@
 from datetime import datetime, timezone
 
+from libs.delivery.adapters.driven.sqlite_delivery_store_adapter import DeliveryStoreError
 from libs.delivery.application.commands.prepare_digest import PrepareDigest
+from libs.delivery.domain.services.digest_artifact_rules import DigestArtifactError
+from libs.delivery.domain.services.digest_selection_rules import DigestSelectionError
 from libs.delivery.dtos.digest_preview import DigestCandidate, PrepareDigestRequest
 from libs.delivery.dtos.scheduled_digest import (
     DigestCoverageGap,
@@ -10,12 +13,16 @@ from libs.delivery.dtos.scheduled_digest import (
 from libs.delivery.exceptions.scheduled_digest_error import ScheduledDigestError
 from libs.delivery.ports.digest_delivery_context_port import DigestDeliveryContextPort
 from libs.delivery.ports.queue_digest_port import QueueDigestPort
+from libs.kernel.exceptions.storage_error import StorageError
+from libs.paper_explanations.exceptions.digest_summary_read_error import DigestSummaryReadError
 from libs.paper_explanations.ports.read_digest_current_summary_port import (
     ReadDigestCurrentSummaryPort,
 )
+from libs.scholarly_catalog.exceptions.digest_event_read_error import DigestEventReadError
 from libs.scholarly_catalog.ports.list_digest_research_events_port import (
     ListDigestResearchEventsPort,
 )
+from libs.watch_profiles.exceptions.digest_relevance_read_error import DigestRelevanceReadError
 from libs.watch_profiles.ports.read_digest_relevance_port import ReadDigestRelevancePort
 
 
@@ -62,14 +69,19 @@ class PrepareScheduledDigest:
             notes.append(f"{gap.kind}: {gap.identity} ({gap.reason})")
         return tuple(sorted(set(notes)))
 
-    def __call__(
+    @staticmethod
+    def _translate(exc: Exception) -> ScheduledDigestError:
+        code = getattr(exc, "code", None)
+        if not isinstance(code, str) or not code:
+            code = str(exc)
+        return ScheduledDigestError(code or "scheduled_digest_failed")
+
+    def _execute(
         self,
         request: ScheduledDigestRequest,
         *,
         created_at: datetime,
     ) -> ScheduledDigestOutcome:
-        if not isinstance(request, ScheduledDigestRequest):
-            raise ScheduledDigestError("invalid_scheduled_digest")
         period_start = self._instant(request.period_start, "invalid_digest_period")
         cutoff = self._instant(request.cutoff_at, "invalid_digest_period")
         created = self._instant(created_at, "invalid_digest_created_at")
@@ -159,3 +171,26 @@ class PrepareScheduledDigest:
             queued.digest_id,
             queued.outbox_id,
         )
+
+    def __call__(
+        self,
+        request: ScheduledDigestRequest,
+        *,
+        created_at: datetime,
+    ) -> ScheduledDigestOutcome:
+        if not isinstance(request, ScheduledDigestRequest):
+            raise ScheduledDigestError("invalid_scheduled_digest")
+        try:
+            return self._execute(request, created_at=created_at)
+        except ScheduledDigestError:
+            raise
+        except (
+            DigestEventReadError,
+            DigestSummaryReadError,
+            DigestRelevanceReadError,
+            StorageError,
+            DigestSelectionError,
+            DigestArtifactError,
+            DeliveryStoreError,
+        ) as exc:
+            raise self._translate(exc) from exc

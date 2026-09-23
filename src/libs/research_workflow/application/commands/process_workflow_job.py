@@ -1,6 +1,9 @@
 import json
 from datetime import datetime, timedelta, timezone
 
+from libs.delivery.dtos.scheduled_digest import DigestCoverageGap, ScheduledDigestRequest
+from libs.delivery.exceptions.scheduled_digest_error import ScheduledDigestError
+from libs.delivery.ports.prepare_scheduled_digest_port import PrepareScheduledDigestPort
 from libs.discovery.exceptions.harvest_error import HarvestError
 from libs.discovery.exceptions.source_fetch_error import SourceFetchError
 from libs.discovery.exceptions.source_query_error import SourceQueryError
@@ -35,12 +38,14 @@ class ProcessWorkflowJob:
         harvest: RunHarvestSlicePort | None,
         clock: WorkflowClockPort,
         live_source_enabled: bool,
+        digest: PrepareScheduledDigestPort | None = None,
     ) -> None:
         self._store = store
         self._builder = builder
         self._harvest = harvest
         self._clock = clock
         self._live_source_enabled = live_source_enabled
+        self._digest = digest
 
     @staticmethod
     def _instant(value: object) -> datetime:
@@ -225,6 +230,84 @@ class ProcessWorkflowJob:
             delay=delay,
         )
 
+    @staticmethod
+    def _coverage(value: object) -> tuple[DigestCoverageGap, ...]:
+        if not isinstance(value, list) or len(value) > 128:
+            raise WorkflowJobError("invalid_job_payload")
+        result = []
+        for row in value:
+            if not isinstance(row, dict) or set(row) != {"kind", "identity", "reason"}:
+                raise WorkflowJobError("invalid_job_payload")
+            if any(
+                not isinstance(row[key], str) or not row[key].strip()
+                for key in ("kind", "identity", "reason")
+            ):
+                raise WorkflowJobError("invalid_job_payload")
+            result.append(DigestCoverageGap(row["kind"], row["identity"], row["reason"]))
+        return tuple(result)
+
+    def _digest_job(self, lease) -> WorkflowJobProcessResult:
+        digest = self._digest
+        if digest is None:
+            return self._defer(
+                lease,
+                error_code="digest_candidate_pipeline_not_connected",
+                delay=timedelta(hours=1),
+                state="awaiting_external",
+            )
+        data = self._payload(lease.input_json)
+        if set(data) != {
+            "subscription_id",
+            "period_key",
+            "period_start",
+            "cutoff_at",
+            "coverage_gaps",
+        }:
+            raise WorkflowJobError("invalid_job_payload")
+        if (
+            not isinstance(data["subscription_id"], str)
+            or not isinstance(data["period_key"], str)
+        ):
+            raise WorkflowJobError("invalid_job_payload")
+        request = ScheduledDigestRequest(
+            subscription_id=data["subscription_id"],
+            period_key=data["period_key"],
+            period_start=self._instant(data["period_start"]),
+            cutoff_at=self._instant(data["cutoff_at"]),
+            coverage_gaps=self._coverage(data["coverage_gaps"]),
+        )
+        try:
+            digest(request, created_at=self._clock.now())
+        except ScheduledDigestError as exc:
+            if (
+                exc.code in {"delivery_subscription_missing", "unsupported_digest_channel"}
+                or exc.code.startswith("invalid_")
+            ):
+                return self._complete(
+                    lease,
+                    state="cancelled",
+                    error_code=exc.code,
+                    next_due_at=None,
+                )
+            state = (
+                "awaiting_external"
+                if any(part in exc.code for part in ("corrupt", "mismatch", "missing"))
+                else "failed"
+            )
+            delay = timedelta(hours=1) if state == "awaiting_external" else timedelta(minutes=5)
+            return self._defer(
+                lease,
+                error_code=exc.code,
+                delay=delay,
+                state=state,
+            )
+        return self._complete(
+            lease,
+            state="succeeded",
+            error_code=None,
+            next_due_at=None,
+        )
+
     def __call__(
         self,
         owner_id: str,
@@ -241,12 +324,7 @@ class ProcessWorkflowJob:
         if lease.job_kind == "harvest_window":
             return self._harvest_job(lease)
         if lease.job_kind == "prepare_digest":
-            return self._defer(
-                lease,
-                error_code="digest_candidate_pipeline_not_connected",
-                delay=timedelta(hours=1),
-                state="awaiting_external",
-            )
+            return self._digest_job(lease)
         return self._complete(
             lease,
             state="cancelled",
