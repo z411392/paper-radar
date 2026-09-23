@@ -183,6 +183,60 @@ class SqlitePaperIdentityStoreAdapter:
         return manifestation
 
     @staticmethod
+    def _unique_json_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        result: dict[str, object] = {}
+        for key, value in pairs:
+            if key in result:
+                raise PaperIdentityError("invalid_identity_evidence")
+            result[key] = value
+        return result
+
+    @classmethod
+    def _evidence(cls, value: str) -> str:
+        if not isinstance(value, str):
+            raise PaperIdentityError("identity_evidence_required")
+        try:
+            if not 1 <= len(value.encode("utf-8")) <= 16384:
+                raise PaperIdentityError("invalid_identity_evidence")
+            decoded = json.loads(value, object_pairs_hook=cls._unique_json_keys)
+        except (json.JSONDecodeError, UnicodeEncodeError, RecursionError) as exc:
+            raise PaperIdentityError("invalid_identity_evidence") from exc
+        if not isinstance(decoded, dict) or not decoded:
+            raise PaperIdentityError("identity_evidence_required")
+        return cls._json(decoded)
+
+    @classmethod
+    def _work_id(cls, value: str) -> str:
+        cls._text(value, maximum_bytes=256)
+        if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9:_-]{0,127}", value) is None:
+            raise PaperIdentityError("invalid_work_identity")
+        return value
+
+    @staticmethod
+    def _require_work(connection: sqlite3.Connection, work_id: str) -> None:
+        if connection.execute("SELECT 1 FROM paper_works WHERE id=?", (work_id,)).fetchone() is None:
+            raise PaperIdentityError("work_missing")
+
+    @classmethod
+    def _canonical_work(cls, connection: sqlite3.Connection, work_id: str) -> str:
+        cls._require_work(connection, work_id)
+        current = work_id
+        visited: set[str] = set()
+        for _ in range(128):
+            if current in visited:
+                raise PaperIdentityError("identity_corrupt")
+            visited.add(current)
+            row = connection.execute(
+                "SELECT canonical_work_id FROM work_aliases WHERE alias_work_id=?",
+                (current,),
+            ).fetchone()
+            if row is None:
+                return current
+            current = row["canonical_work_id"]
+            cls._require_work(connection, current)
+        raise PaperIdentityError("identity_corrupt")
+
+    @staticmethod
     def _revision(
         connection: sqlite3.Connection,
         manifestation_id: str,
@@ -350,9 +404,10 @@ class SqlitePaperIdentityStoreAdapter:
             elif existing_provenance["work_id"] != work_id:
                 raise PaperIdentityError("source_observation_conflict")
 
+            canonical_work_id = self._canonical_work(connection, work_id)
             return PaperIdentityResolution(
                 work_id,
-                work_id,
+                canonical_work_id,
                 manifestation_id,
                 revision_id,
                 identifier.namespace,
@@ -371,6 +426,7 @@ class SqlitePaperIdentityStoreAdapter:
             if manifestation is None:
                 raise PaperIdentityError("identity_missing")
             work_id = manifestation["work_id"]
+            canonical_work_id = self._canonical_work(connection, work_id)
             rows = connection.execute(
                 "SELECT id,native_version,content_fingerprint,title,observed_at "
                 "FROM paper_revisions WHERE manifestation_id=? "
@@ -391,7 +447,7 @@ class SqlitePaperIdentityStoreAdapter:
             )
             return PaperIdentityView(
                 work_id,
-                work_id,
+                canonical_work_id,
                 manifestation["id"],
                 identifier.namespace,
                 identifier.normalized_value,
@@ -403,17 +459,98 @@ class SqlitePaperIdentityStoreAdapter:
         alias_work_id: str,
         canonical_work_id: str,
         evidence_json: str,
-        decided_at: object,
+        decided_at: datetime,
     ) -> WorkAliasResult:
-        raise PaperIdentityError("not_implemented")
+        alias_work_id = self._work_id(alias_work_id)
+        canonical_work_id = self._work_id(canonical_work_id)
+        evidence = self._evidence(evidence_json)
+        decided = self._time(decided_at, required=True)
+        assert decided is not None
+        with self._transaction(write=True) as connection:
+            self._require_work(connection, alias_work_id)
+            self._require_work(connection, canonical_work_id)
+            existing = connection.execute(
+                "SELECT canonical_work_id,decision_evidence_json,created_at "
+                "FROM work_aliases WHERE alias_work_id=?",
+                (alias_work_id,),
+            ).fetchone()
+            target = self._canonical_work(connection, canonical_work_id)
+            if existing is not None:
+                if existing["canonical_work_id"] == target and existing["decision_evidence_json"] == evidence:
+                    return WorkAliasResult(
+                        alias_work_id,
+                        target,
+                        evidence,
+                        existing["created_at"],
+                        False,
+                    )
+                raise PaperIdentityError("alias_conflict")
+            if alias_work_id == target:
+                raise PaperIdentityError("alias_cycle")
+            connection.execute(
+                "INSERT INTO work_aliases("
+                "alias_work_id,canonical_work_id,decision_evidence_json,created_at"
+                ") VALUES(?,?,?,?)",
+                (alias_work_id, target, evidence, decided),
+            )
+            # Re-resolve inside the same transaction so a latent chain/cycle cannot
+            # be returned as successful state.
+            if self._canonical_work(connection, alias_work_id) != target:
+                raise PaperIdentityError("alias_cycle")
+            return WorkAliasResult(alias_work_id, target, evidence, decided, True)
 
     def revoke_alias(
         self,
         alias_work_id: str,
         evidence_json: str,
-        revoked_at: object,
+        revoked_at: datetime,
     ) -> WorkRelationResult:
-        raise PaperIdentityError("not_implemented")
+        alias_work_id = self._work_id(alias_work_id)
+        evidence = self._evidence(evidence_json)
+        revoked = self._time(revoked_at, required=True)
+        assert revoked is not None
+        with self._transaction(write=True) as connection:
+            self._require_work(connection, alias_work_id)
+            row = connection.execute(
+                "SELECT canonical_work_id,decision_evidence_json FROM work_aliases "
+                "WHERE alias_work_id=?",
+                (alias_work_id,),
+            ).fetchone()
+            if row is None:
+                raise PaperIdentityError("alias_missing")
+            target = row["canonical_work_id"]
+            combined = self._json(
+                {
+                    "format_version": 1,
+                    "merge_evidence_json": row["decision_evidence_json"],
+                    "revocation_evidence_json": evidence,
+                }
+            )
+            relation_id = "relation:" + self._hash(
+                "work-relation-v1", alias_work_id, target, "alias_revoked"
+            )
+            existing = connection.execute(
+                "SELECT evidence_json,observed_at FROM work_relations WHERE id=?",
+                (relation_id,),
+            ).fetchone()
+            if existing is not None:
+                raise PaperIdentityError("alias_revocation_conflict")
+            connection.execute(
+                "INSERT INTO work_relations("
+                "id,source_work_id,target_work_id,relation_type,evidence_json,observed_at"
+                ") VALUES(?,?,?,?,?,?)",
+                (relation_id, alias_work_id, target, "alias_revoked", combined, revoked),
+            )
+            connection.execute("DELETE FROM work_aliases WHERE alias_work_id=?", (alias_work_id,))
+            return WorkRelationResult(
+                relation_id,
+                alias_work_id,
+                target,
+                "alias_revoked",
+                combined,
+                revoked,
+                True,
+            )
 
     def record_relation(
         self,
@@ -421,6 +558,64 @@ class SqlitePaperIdentityStoreAdapter:
         target_work_id: str,
         relation_type: str,
         evidence_json: str,
-        observed_at: object,
+        observed_at: datetime,
     ) -> WorkRelationResult:
-        raise PaperIdentityError("not_implemented")
+        source_work_id = self._work_id(source_work_id)
+        target_work_id = self._work_id(target_work_id)
+        if source_work_id == target_work_id:
+            raise PaperIdentityError("invalid_work_relation")
+        relation_type = self._text(relation_type, maximum_bytes=128)
+        if re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", relation_type) is None:
+            raise PaperIdentityError("invalid_work_relation")
+        evidence = self._evidence(evidence_json)
+        observed = self._time(observed_at, required=True)
+        assert observed is not None
+        relation_id = "relation:" + self._hash(
+            "work-relation-v1", source_work_id, target_work_id, relation_type
+        )
+        with self._transaction(write=True) as connection:
+            self._require_work(connection, source_work_id)
+            self._require_work(connection, target_work_id)
+            existing = connection.execute(
+                "SELECT * FROM work_relations WHERE id=?",
+                (relation_id,),
+            ).fetchone()
+            if existing is not None:
+                if (
+                    existing["source_work_id"] == source_work_id
+                    and existing["target_work_id"] == target_work_id
+                    and existing["relation_type"] == relation_type
+                    and existing["evidence_json"] == evidence
+                ):
+                    return WorkRelationResult(
+                        relation_id,
+                        source_work_id,
+                        target_work_id,
+                        relation_type,
+                        evidence,
+                        existing["observed_at"],
+                        False,
+                    )
+                raise PaperIdentityError("work_relation_conflict")
+            connection.execute(
+                "INSERT INTO work_relations("
+                "id,source_work_id,target_work_id,relation_type,evidence_json,observed_at"
+                ") VALUES(?,?,?,?,?,?)",
+                (
+                    relation_id,
+                    source_work_id,
+                    target_work_id,
+                    relation_type,
+                    evidence,
+                    observed,
+                ),
+            )
+            return WorkRelationResult(
+                relation_id,
+                source_work_id,
+                target_work_id,
+                relation_type,
+                evidence,
+                observed,
+                True,
+            )
