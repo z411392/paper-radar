@@ -5,8 +5,7 @@ from libs.kernel.exceptions.storage_error import StorageError
 
 
 def load_workspace_migrations(
-    *, with_profiles: bool = False, with_discovery: bool = False
-) -> tuple[Migration, ...]:
+    *,\n    with_profiles: bool = False,\n    with_discovery: bool = False,\n    with_runtime: bool = False,\n) -> tuple[Migration, ...]:
     if type(with_profiles) is not bool or type(with_discovery) is not bool:
         raise StorageError("invalid_migrations", "schema selectors must be booleans")
     if with_discovery:
