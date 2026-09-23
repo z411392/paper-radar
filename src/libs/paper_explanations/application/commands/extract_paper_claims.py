@@ -10,5 +10,6 @@ class ExtractPaperClaims:
         self._model = model
 
     def __call__(self, snapshot_id: str) -> ClaimExtractionResult:
+        ClaimExtractionRules.snapshot_id(snapshot_id)
         request = ClaimExtractionRules.request(snapshot_id, self._evidence(snapshot_id))
         return ClaimExtractionRules.parse(request, self._model(request))
