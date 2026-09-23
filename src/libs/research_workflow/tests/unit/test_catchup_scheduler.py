@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 from libs.research_workflow.application.commands.run_scheduler_tick import RunSchedulerTick
 from libs.research_workflow.domain.services.plan_catchup_jobs import PlanCatchupJobs
 from libs.research_workflow.dtos.scheduler import (
+    CoverageGap,
     DeliverySchedule,
     HarvestBindingSchedule,
     KnownWorkflowJob,
@@ -248,10 +249,7 @@ def test_awaiting_first_window_is_not_rebuilt_when_clock_advances() -> None:
 
     assert later.jobs == ()
     assert later.coverage_gaps == (
-        __import__(
-            "libs.research_workflow.dtos.scheduler",
-            fromlist=["CoverageGap"],
-        ).CoverageGap(
+        CoverageGap(
             "harvest",
             "statistics",
             "harvest_window_awaiting_external",
