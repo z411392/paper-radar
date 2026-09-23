@@ -167,7 +167,39 @@ class GenerationExecutionRules:
         return asdict(receipt)
 
     @classmethod
-    def serialize_success(cls, result: StructuredGenerationResult) -> bytes:
+    def _cache_identity_dict(cls, identity: GenerationIdentity) -> dict[str, object]:
+        cls.validate_identity(identity)
+        return {
+            "generation_fingerprint": identity.generation_fingerprint,
+            "request_input_fingerprint": identity.request_input_fingerprint,
+            "task_kind": identity.task_kind,
+            "gateway": identity.gateway,
+            "endpoint": identity.endpoint,
+            "requested_model": identity.requested_model,
+            "prompt_digest": identity.prompt_digest,
+            "execution_policy_fingerprint": identity.execution_policy_fingerprint,
+        }
+
+    @classmethod
+    def _validate_receipt_identity(
+        cls,
+        receipt: GenerationReceipt,
+        identity: GenerationIdentity,
+    ) -> None:
+        if (
+            receipt.input_fingerprint != identity.request_input_fingerprint
+            or receipt.requested_model != identity.requested_model
+            or receipt.returned_model not in {None, identity.requested_model}
+        ):
+            raise GenerationLedgerError("generation_receipt_mismatch")
+
+    @classmethod
+    def serialize_success(
+        cls,
+        result: StructuredGenerationResult,
+        identity: GenerationIdentity,
+    ) -> bytes:
+        cls.validate_identity(identity)
         if not isinstance(result, StructuredGenerationResult) or not isinstance(result.content_json, str):
             raise GenerationLedgerError("invalid_generation_result")
         try:
@@ -192,6 +224,7 @@ class GenerationExecutionRules:
             result.content_json.encode("utf-8")
         except (json.JSONDecodeError, ValueError, TypeError, UnicodeEncodeError, RecursionError) as exc:
             raise GenerationLedgerError("invalid_generation_result") from exc
+        cls._validate_receipt_identity(result.receipt, identity)
         if (
             result.receipt.generation_id is None
             or result.receipt.returned_model != result.receipt.requested_model
@@ -199,17 +232,28 @@ class GenerationExecutionRules:
         ):
             raise GenerationLedgerError("invalid_generation_result")
         payload = {
-            "format_version": 1,
+            "format_version": 2,
             "kind": "success",
+            "identity": cls._cache_identity_dict(identity),
             "content_json": result.content_json,
             "receipt": cls._receipt_dict(result.receipt),
         }
         return cls._canonical(payload).encode("utf-8")
 
     @classmethod
-    def serialize_receipt(cls, receipt: GenerationReceipt) -> bytes:
+    def serialize_receipt(
+        cls,
+        receipt: GenerationReceipt,
+        identity: GenerationIdentity,
+    ) -> bytes:
+        cls._validate_receipt_identity(receipt, identity)
         return cls._canonical(
-            {"format_version": 1, "kind": "receipt", "receipt": cls._receipt_dict(receipt)}
+            {
+                "format_version": 2,
+                "kind": "receipt",
+                "identity": cls._cache_identity_dict(identity),
+                "receipt": cls._receipt_dict(receipt),
+            }
         ).encode("utf-8")
 
     @classmethod
@@ -225,10 +269,18 @@ class GenerationExecutionRules:
             data = json.loads(text)
             if cls._canonical(data) != text:
                 raise ValueError("noncanonical")
-            if not isinstance(data, dict) or set(data) != {"format_version", "kind", "content_json", "receipt"}:
+            if not isinstance(data, dict) or set(data) != {
+                "format_version",
+                "kind",
+                "identity",
+                "content_json",
+                "receipt",
+            }:
                 raise ValueError("shape")
-            if data["format_version"] != 1 or data["kind"] != "success":
+            if data["format_version"] != 2 or data["kind"] != "success":
                 raise ValueError("kind")
+            if data["identity"] != cls._cache_identity_dict(identity):
+                raise ValueError("identity")
             raw = data["receipt"]
             if not isinstance(raw, dict) or set(raw) != set(GenerationReceipt.__dataclass_fields__):
                 raise ValueError("receipt")
@@ -239,7 +291,7 @@ class GenerationExecutionRules:
             if receipt.requested_model != identity.requested_model or receipt.returned_model != identity.requested_model:
                 raise ValueError("model")
             result = StructuredGenerationResult(data["content_json"], receipt)
-            cls.serialize_success(result)
+            cls.serialize_success(result, identity)
             return result
         except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError, RecursionError) as exc:
             raise GenerationLedgerError("invalid_cached_generation") from exc

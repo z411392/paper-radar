@@ -262,7 +262,7 @@ class SqliteGenerationLedgerAdapter:
         run_id = self._run_id(run_id)
         finished = self._time(finished_at)
         self._validate_receipt_identity(result.receipt, identity)
-        payload = GenerationExecutionRules.serialize_success(result)
+        payload = GenerationExecutionRules.serialize_success(result, identity)
         object_id = self._objects.publish(payload)
         actual = (
             None if result.receipt.cost_usd is None else GenerationExecutionRules.cost_micros(result.receipt.cost_usd)
@@ -318,7 +318,9 @@ class SqliteGenerationLedgerAdapter:
         input_tokens = output_tokens = None
         if receipt is not None:
             self._validate_receipt_identity(receipt, identity)
-            object_id = self._objects.publish(GenerationExecutionRules.serialize_receipt(receipt))
+            object_id = self._objects.publish(
+                GenerationExecutionRules.serialize_receipt(receipt, identity)
+            )
             input_tokens = receipt.input_tokens
             output_tokens = receipt.output_tokens
             if receipt.cost_usd is not None:
@@ -352,7 +354,8 @@ class SqliteGenerationLedgerAdapter:
     def reconcile_stale(self, before: datetime, reconciled_at: datetime) -> tuple[int, int]:
         cutoff = self._time(before)
         reconciled = self._time(reconciled_at)
-        released = unknown = 0
+        released = 0
+        unknown = 0
         with self._transaction(write=True) as connection:
             rows = connection.execute(
                 "SELECT id,state FROM model_runs WHERE state IN ('reserved','running') AND started_at<? "
@@ -364,16 +367,9 @@ class SqliteGenerationLedgerAdapter:
                     "UPDATE model_runs SET state='stale',error_code='stale_attempt',finished_at=? WHERE id=?",
                     (reconciled, row["id"]),
                 )
-                if row["state"] == "reserved":
-                    connection.execute(
-                        "UPDATE usage_reservations SET state='released',actual_micros=NULL WHERE run_id=?",
-                        (row["id"],),
-                    )
-                    released += 1
-                else:
-                    connection.execute(
-                        "UPDATE usage_reservations SET state='unknown',actual_micros=NULL WHERE run_id=?",
-                        (row["id"],),
-                    )
-                    unknown += 1
+                connection.execute(
+                    "UPDATE usage_reservations SET state='unknown',actual_micros=NULL WHERE run_id=?",
+                    (row["id"],),
+                )
+                unknown += 1
         return released, unknown
