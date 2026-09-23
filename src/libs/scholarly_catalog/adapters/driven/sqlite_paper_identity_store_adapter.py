@@ -285,7 +285,6 @@ class SqlitePaperIdentityStoreAdapter:
                     manifestation["source_namespace"] != identifier.namespace
                     or manifestation["native_id"] != identifier.normalized_value
                     or manifestation["manifestation_kind"] != observation.manifestation_kind
-                    or manifestation["landing_url"] != observation.landing_url
                 ):
                     raise PaperIdentityError("manifestation_conflict")
 
