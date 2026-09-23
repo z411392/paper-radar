@@ -119,6 +119,7 @@ class SqliteAccessAssessmentStoreAdapter:
             or not assessment.location_url
             or len(assessment.location_url) > 8192
             or not isinstance(assessment.permitted_uses, tuple)
+            or any(not isinstance(item, str) or not item for item in assessment.permitted_uses)
             or tuple(sorted(set(assessment.permitted_uses))) != assessment.permitted_uses
         ):
             raise AccessAssessmentError("invalid_access_assessment")
