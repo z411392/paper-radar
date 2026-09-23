@@ -151,5 +151,6 @@ class SqliteDigestCurrentSummaryAdapter:
             work_id,
             revision_id,
             row["summary_id"],
+            row["snapshot_id"],
             tuple(lines),
         )

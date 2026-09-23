@@ -8,4 +8,5 @@ class ReadDigestRelevancePort(Protocol):
         self,
         reader_id: str,
         revision_id: str,
+        snapshot_id: str,
     ) -> tuple[DigestRelevance, ...]: ...

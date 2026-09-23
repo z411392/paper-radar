@@ -15,11 +15,14 @@ class SqliteDigestRelevanceAdapter:
         self,
         reader_id: str,
         revision_id: str,
+        snapshot_id: str,
     ) -> tuple[DigestRelevance, ...]:
         if not isinstance(reader_id, str) or not reader_id.strip():
             raise DigestRelevanceReadError("invalid_digest_reader")
         if not isinstance(revision_id, str) or not revision_id.strip():
             raise DigestRelevanceReadError("invalid_digest_revision")
+        if not isinstance(snapshot_id, str) or not snapshot_id.strip():
+            raise DigestRelevanceReadError("invalid_digest_snapshot")
         connection: sqlite3.Connection | None = None
         try:
             connection = self._connect()
@@ -38,10 +41,11 @@ class SqliteDigestRelevanceAdapter:
                 "AND pd.domain_id=d.domain_id AND pd.domain_revision=d.domain_revision "
                 "WHERE p.reader_id=? AND p.lifecycle='active' "
                 "AND p.published_revision=a.profile_revision "
-                "AND a.revision_id=? AND a.execution_state='succeeded' "
+                "AND a.revision_id=? AND d.snapshot_id=? "
+                "AND a.execution_state='succeeded' "
                 "AND a.decision IN ('direct','adjacent') "
                 "ORDER BY d.domain_id,a.decision",
-                (reader_id, revision_id),
+                (reader_id, revision_id, snapshot_id),
             ).fetchall()
             connection.commit()
         except DigestRelevanceReadError:

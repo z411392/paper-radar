@@ -122,7 +122,11 @@ class PrepareScheduledDigest:
             summary = self._summaries(event.work_id, event.revision_id)
             if summary is None or not summary.plain_language:
                 continue
-            relevance = self._relevance(context.reader_id, event.revision_id)
+            relevance = self._relevance(
+                context.reader_id,
+                event.revision_id,
+                summary.snapshot_id,
+            )
             if not relevance:
                 continue
             domains = tuple(sorted(item.domain_id for item in relevance))
