@@ -22,6 +22,7 @@ def load_workspace_migrations(
             "0006-retrieval.sql",
             "0007-delivery.sql",
             "0008-workflow-jobs.sql",
+            "0009-relevance-assessment-domains.sql",
         )
     elif with_discovery:
         names = (

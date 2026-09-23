@@ -30,6 +30,7 @@ def test_built_wheel_runs_in_a_clean_noneditable_environment(tmp_path: Path) -> 
         "0006-retrieval.sql",
         "0007-delivery.sql",
         "0008-workflow-jobs.sql",
+        "0009-relevance-assessment-domains.sql",
     ]
     with zipfile.ZipFile(artifacts[0]) as archive:
         names = archive.namelist()
@@ -121,7 +122,7 @@ def test_built_wheel_runs_in_a_clean_noneditable_environment(tmp_path: Path) -> 
         assert initialized.returncode == 0, initialized.stdout + initialized.stderr
         snapshots.append(json.loads(initialized.stdout))
     assert snapshots[0] == snapshots[1]
-    assert snapshots[0]["schema_version"] == 8
+    assert snapshots[0]["schema_version"] == 9
     assert snapshots[0]["external_effects_enabled"] is False
     assert (workspace / "state/app.sqlite3").is_file()
     assert list(cwd.iterdir()) == []
