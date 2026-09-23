@@ -89,6 +89,12 @@ def _observation(
     publication_status: str = "preprint",
     landing_url: str | None = None,
 ) -> PaperIdentityObservation:
+    normalized = NormalizePaperIdentifier()(namespace, identifier)
+    canonical_url = (
+        "https://doi.org/" + normalized.normalized_value
+        if namespace == "doi"
+        else "https://arxiv.org/abs/" + normalized.normalized_value
+    )
     return PaperIdentityObservation(
         source_observation_id=source_observation_id,
         identifier_namespace=namespace,
@@ -96,12 +102,7 @@ def _observation(
         title=title,
         content_fingerprint=fingerprint,
         manifestation_kind=manifestation_kind,
-        landing_url=landing_url
-        or (
-            "https://doi.org/" + identifier.removeprefix("doi:")
-            if namespace == "doi"
-            else "https://arxiv.org/abs/" + identifier.removeprefix("arXiv:")
-        ),
+        landing_url=landing_url or canonical_url,
         publication_status=publication_status,
         observed_at=observed_at,
         source_updated_at=source_updated_at,
