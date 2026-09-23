@@ -132,7 +132,7 @@ def _setup(tmp_path: Path):
             ),
         )
     connection.execute(
-        "INSERT INTO evidence_snapshots VALUES(?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO evidence_snapshots VALUES(?,?,?,?,?,?,?,?,?,?)",
         (
             SNAPSHOT,
             REVISION,
@@ -147,7 +147,7 @@ def _setup(tmp_path: Path):
         ),
     )
     connection.execute(
-        "INSERT INTO evidence_anchors VALUES(?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO evidence_anchors VALUES(?,?,?,?,?,?,?,?)",
         (ANCHOR, SNAPSHOT, "abstract", "p1", "羽球", 0, 2, None),
     )
     connection.commit()
