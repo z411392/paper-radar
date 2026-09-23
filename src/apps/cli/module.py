@@ -2,6 +2,14 @@ from pathlib import Path
 
 from injector import Binder, InstanceProvider, Module, singleton
 
+from libs.delivery.adapters.driven.kernel_digest_artifact_adapter import KernelDigestArtifactAdapter
+from libs.delivery.adapters.driven.sqlite_delivery_store_adapter import SqliteDeliveryStoreAdapter
+from libs.delivery.adapters.driven.sqlite_digest_delivery_context_adapter import (
+    SqliteDigestDeliveryContextAdapter,
+)
+from libs.delivery.application.commands.prepare_scheduled_digest import PrepareScheduledDigest
+from libs.delivery.application.commands.queue_digest import QueueDigest
+from libs.delivery.ports.prepare_scheduled_digest_port import PrepareScheduledDigestPort
 from libs.discovery.adapters.driven.arxiv_atom_parser_adapter import PARSER_VERSION, ArxivAtomParserAdapter
 from libs.discovery.adapters.driven.arxiv_query_compiler_adapter import ArxivQueryCompilerAdapter
 from libs.discovery.adapters.driven.arxiv_source_adapter import ArxivSourceAdapter
@@ -31,7 +39,13 @@ from libs.kernel.application.commands.publish_object import PublishObject
 from libs.kernel.application.queries.read_object import ReadObject
 from libs.kernel.ports.initialize_workspace_port import InitializeWorkspacePort
 from libs.kernel.ports.workspace_bootstrap_port import WorkspaceBootstrapPort
+from libs.paper_explanations.adapters.driven.sqlite_digest_current_summary_adapter import (
+    SqliteDigestCurrentSummaryAdapter,
+)
 from libs.research_workflow.adapters.driven.python_runtime_version_adapter import PythonRuntimeVersionAdapter
+from libs.scholarly_catalog.adapters.driven.sqlite_digest_research_event_adapter import (
+    SqliteDigestResearchEventAdapter,
+)
 from libs.research_workflow.adapters.driven.sqlite_scheduler_input_adapter import SqliteSchedulerInputAdapter
 from libs.research_workflow.adapters.driven.sqlite_workflow_job_store_adapter import (
     SqliteWorkflowJobStoreAdapter,
@@ -53,6 +67,9 @@ from libs.research_workflow.ports.run_worker_cycle_port import RunWorkerCyclePor
 from libs.research_workflow.ports.runtime_version_provider_port import RuntimeVersionProviderPort
 from libs.research_workflow.ports.workflow_clock_port import WorkflowClockPort
 from libs.research_workflow.ports.workflow_job_store_port import WorkflowJobStorePort
+from libs.watch_profiles.adapters.driven.sqlite_digest_relevance_adapter import (
+    SqliteDigestRelevanceAdapter,
+)
 from libs.watch_profiles.adapters.driven.sqlite_watch_profile_store_adapter import (
     SqliteWatchProfileStoreAdapter,
 )
@@ -255,7 +272,7 @@ class WorkerCliModule(Module):
         connection = SqliteSchemaConnectionFactory(
             root,
             load_workspace_migrations(with_runtime=True),
-            minimum_version=8,
+            minimum_version=9,
         )
         profile_store = SqliteWatchProfileStoreAdapter(connection.connect)
         builder = BuildHarvestQueryInput(
@@ -277,6 +294,21 @@ class WorkerCliModule(Module):
                 self._transport,
             )
 
+        files = FilesystemObjectBytesAdapter(root)
+        object_connection = SqliteConnectionFactory(root)
+        objects = SqliteObjectUnitOfWorkAdapter(object_connection)
+        read_object = ReadObject(files, objects)
+        publish_object = PublishObject(files, objects)
+        delivery_store = SqliteDeliveryStoreAdapter(connection.connect)
+        digest_artifacts = KernelDigestArtifactAdapter(publish_object, read_object)
+        scheduled_digest = PrepareScheduledDigest(
+            events=SqliteDigestResearchEventAdapter(connection.connect),
+            summaries=SqliteDigestCurrentSummaryAdapter(connection.connect, read_object),
+            relevance=SqliteDigestRelevanceAdapter(connection.connect),
+            context=SqliteDigestDeliveryContextAdapter(connection.connect),
+            queue=QueueDigest(digest_artifacts, delivery_store),
+        )
+
         jobs = SqliteWorkflowJobStoreAdapter(connection.connect)
         clock = SystemWorkflowClockAdapter()
         scheduler = RunSchedulerTick(
@@ -289,11 +321,13 @@ class WorkerCliModule(Module):
             harvest=harvest,
             clock=clock,
             live_source_enabled=self._allow_live_source,
+            digest=scheduled_digest,
         )
         cycle = RunWorkerCycle(scheduler, processor, clock)
 
         binder.bind(WorkflowJobStorePort, to=InstanceProvider(jobs))
         binder.bind(WorkflowClockPort, to=InstanceProvider(clock))
         binder.bind(RunSchedulerTickPort, to=InstanceProvider(scheduler))
+        binder.bind(PrepareScheduledDigestPort, to=InstanceProvider(scheduled_digest))
         binder.bind(ProcessWorkflowJobPort, to=InstanceProvider(processor))
         binder.bind(RunWorkerCyclePort, to=InstanceProvider(cycle))

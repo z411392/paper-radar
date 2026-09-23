@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from unittest.mock import Mock
 
+from libs.delivery.dtos.scheduled_digest import ScheduledDigestOutcome
 from libs.research_workflow.application.commands.process_workflow_job import (
     ProcessWorkflowJob,
 )
@@ -193,3 +194,41 @@ def test_no_due_job_is_idle_and_has_no_completion() -> None:
 
     assert result.state == "idle"
     assert store.completed == []
+
+
+def test_connected_prepare_digest_job_completes_without_smtp_dispatch() -> None:
+    payload = (
+        '{"coverage_gaps":[{"identity":"badminton:pubmed","kind":"harvest",'
+        '"reason":"source_scheduler_not_supported"}],'
+        '"cutoff_at":"2026-09-24T00:00:00+00:00",'
+        '"period_key":"2026-09-24","period_start":"2026-09-23T00:00:00+00:00",'
+        '"subscription_id":"subscription:daily"}'
+    )
+    store = Store(lease("prepare_digest", payload))
+    digest = Mock(
+        return_value=ScheduledDigestOutcome(
+            "queued",
+            1,
+            "digest-record:test",
+            "outbox:test",
+        )
+    )
+    command = ProcessWorkflowJob(
+        store=store,
+        builder=Mock(),
+        harvest=None,
+        clock=Clock(),
+        live_source_enabled=False,
+        digest=digest,
+    )
+
+    result = command("worker:test", lease_seconds=60)
+
+    assert result.state == "succeeded"
+    request = digest.call_args.args[0]
+    assert request.subscription_id == "subscription:daily"
+    assert request.period_key == "2026-09-24"
+    assert request.period_start == NOW - timedelta(days=1)
+    assert request.cutoff_at == NOW
+    assert request.coverage_gaps[0].identity == "badminton:pubmed"
+    assert store.completed[0].state == "succeeded"
