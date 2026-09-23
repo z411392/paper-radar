@@ -95,11 +95,14 @@ def _probe(
     namespace: str | None = "arxiv",
     identifier: str | None = "2609.00021v1",
 ) -> AccessLocationProbe:
+    requested = "https://arxiv.org/pdf/2609.00021"
+    hop_urls = (requested, *redirects)
+    network_hops = tuple((url, ips) for url in hop_urls)
     return AccessLocationProbe(
-        "https://arxiv.org/pdf/2609.00021",
+        requested,
         final_url,
         redirects,
-        ips,
+        network_hops,
         status,
         "application/pdf",
         namespace,
@@ -114,8 +117,8 @@ def test_free_full_text_does_not_imply_external_model_permission(tmp_path: Path)
     assert assessment.automated_retrieval == "permitted"
     assert assessment.permitted_uses == (
         "local_reading",
-        "local_storage",
         "local_research_processing",
+        "local_storage",
     )
     assert "external_model_processing" not in assessment.permitted_uses
     evidence = json.loads(assessment.evidence_json)
@@ -266,11 +269,53 @@ def test_full_text_requires_supported_content_type(tmp_path: Path) -> None:
         "https://arxiv.org/pdf/2609.00021",
         "https://arxiv.org/pdf/2609.00021",
         (),
-        ("151.101.1.69",),
+        (("https://arxiv.org/pdf/2609.00021", ("151.101.1.69",)),),
         200,
         "text/plain",
         "arxiv",
         "2609.00021v1",
     )
     with pytest.raises(AccessAssessmentError, match="unsupported_access_content"):
+        verify(_claim(resolved.manifestation_id), probe)
+
+
+
+def test_private_dns_on_intermediate_redirect_is_rejected(tmp_path: Path) -> None:
+    _, resolved, _, verify = _tools(tmp_path)
+    requested = "https://arxiv.org/pdf/2609.00021"
+    middle = "https://mirror.example.org/2609.00021"
+    final = "https://export.arxiv.org/pdf/2609.00021"
+    probe = AccessLocationProbe(
+        requested,
+        final,
+        (middle, final),
+        (
+            (requested, ("151.101.1.69",)),
+            (middle, ("10.0.0.8",)),
+            (final, ("151.101.65.42",)),
+        ),
+        200,
+        "application/pdf",
+        "arxiv",
+        "2609.00021v1",
+    )
+    with pytest.raises(AccessAssessmentError, match="unsafe_access_target"):
+        verify(_claim(resolved.manifestation_id), probe)
+
+
+def test_missing_dns_evidence_for_redirect_hop_is_rejected(tmp_path: Path) -> None:
+    _, resolved, _, verify = _tools(tmp_path)
+    requested = "https://arxiv.org/pdf/2609.00021"
+    final = "https://export.arxiv.org/pdf/2609.00021"
+    probe = AccessLocationProbe(
+        requested,
+        final,
+        (final,),
+        ((requested, ("151.101.1.69",)),),
+        200,
+        "application/pdf",
+        "arxiv",
+        "2609.00021v1",
+    )
+    with pytest.raises(AccessAssessmentError, match="invalid_access_probe"):
         verify(_claim(resolved.manifestation_id), probe)
