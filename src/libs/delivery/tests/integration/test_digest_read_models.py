@@ -355,10 +355,15 @@ def test_owner_read_models_return_only_digest_safe_current_data(tmp_path: Path) 
     summary = SqliteDigestCurrentSummaryAdapter(connect, reader)(WORK, REVISION)
     assert summary is not None
     assert summary.summary_id == SUMMARY
+    assert summary.snapshot_id == SNAPSHOT
     assert summary.plain_language == ("白話結果",)
     assert reader.calls == [OUTPUT]
 
-    relevance = SqliteDigestRelevanceAdapter(connect)("reader:local", REVISION)
+    relevance = SqliteDigestRelevanceAdapter(connect)(
+        "reader:local",
+        REVISION,
+        SNAPSHOT,
+    )
     assert [(item.domain_id, item.decision) for item in relevance] == [
         ("statistics", "direct")
     ]

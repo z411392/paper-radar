@@ -44,9 +44,9 @@ class FakeRelevance:
         self.values = values
         self.calls = []
 
-    def __call__(self, reader_id, revision_id):
-        self.calls.append((reader_id, revision_id))
-        return self.values.get(revision_id, ())
+    def __call__(self, reader_id, revision_id, snapshot_id):
+        self.calls.append((reader_id, revision_id, snapshot_id))
+        return self.values.get((revision_id, snapshot_id), ())
 
 
 class FakeContext:
@@ -141,13 +141,14 @@ def test_direct_and_adjacent_domains_make_one_queueable_card_with_coverage_notic
         "work:1",
         "revision:1",
         "summary:1",
+        "snapshot:1",
         ("白話重點一", "白話重點二"),
     )
     usecase, queue = command(
         events=(event(),),
         summaries={("work:1", "revision:1"): summary},
         relevance={
-            "revision:1": (
+            ("revision:1", "snapshot:1"): (
                 DigestRelevance("statistics", "adjacent"),
                 DigestRelevance("machine_learning", "direct"),
             )
@@ -181,11 +182,17 @@ def test_direct_and_adjacent_domains_make_one_queueable_card_with_coverage_notic
 def test_same_work_multiple_events_uses_latest_event_identity_only():
     older = event(event_id="event:old", observed_at=NOW - timedelta(hours=2))
     newer = event(event_id="event:new", observed_at=NOW - timedelta(hours=1))
-    summary = DigestCurrentSummary("work:1", "revision:1", "summary:1", ("重點",))
+    summary = DigestCurrentSummary(
+        "work:1",
+        "revision:1",
+        "summary:1",
+        "snapshot:1",
+        ("重點",),
+    )
     usecase, queue = command(
         events=(newer, older),
         summaries={("work:1", "revision:1"): summary},
-        relevance={"revision:1": (DigestRelevance("statistics", "direct"),)},
+        relevance={("revision:1", "snapshot:1"): (DigestRelevance("statistics", "direct"),)},
     )
 
     result = usecase(request(), created_at=NOW)
@@ -195,11 +202,17 @@ def test_same_work_multiple_events_uses_latest_event_identity_only():
 
 
 def test_already_notified_current_event_is_not_queued():
-    summary = DigestCurrentSummary("work:1", "revision:1", "summary:1", ("重點",))
+    summary = DigestCurrentSummary(
+        "work:1",
+        "revision:1",
+        "summary:1",
+        "snapshot:1",
+        ("重點",),
+    )
     usecase, queue = command(
         events=(event(),),
         summaries={("work:1", "revision:1"): summary},
-        relevance={"revision:1": (DigestRelevance("statistics", "direct"),)},
+        relevance={("revision:1", "snapshot:1"): (DigestRelevance("statistics", "direct"),)},
         context=FakeContext(notified=("event:1",)),
     )
 
@@ -212,13 +225,14 @@ def test_already_notified_current_event_is_not_queued():
 
 def test_missing_current_exact_revision_or_relevance_yields_empty_without_outbox():
     for summaries, relevance in (
-        ({}, {"revision:1": (DigestRelevance("statistics", "direct"),)}),
+        ({}, {("revision:1", "snapshot:1"): (DigestRelevance("statistics", "direct"),)}),
         (
             {
                 ("work:1", "revision:1"): DigestCurrentSummary(
                     "work:1",
                     "revision:1",
                     "summary:1",
+                    "snapshot:1",
                     ("重點",),
                 )
             },
@@ -230,10 +244,11 @@ def test_missing_current_exact_revision_or_relevance_yields_empty_without_outbox
                     "work:1",
                     "revision:1",
                     "summary:1",
+                    "snapshot:1",
                     (),
                 )
             },
-            {"revision:1": (DigestRelevance("statistics", "direct"),)},
+            {("revision:1", "snapshot:1"): (DigestRelevance("statistics", "direct"),)},
         ),
     ):
         usecase, queue = command(
