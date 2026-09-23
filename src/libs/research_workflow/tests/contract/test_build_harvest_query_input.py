@@ -127,3 +127,18 @@ def test_non_arxiv_source_is_outside_this_task():
         build(request(source_id="crossref"))
     profiles.assert_not_called()
     domains.assert_not_called()
+
+
+def test_scheduled_job_must_not_silently_switch_to_a_newer_profile_revision():
+    build, _, domains = builder(
+        profile_value=profile(revision=4, current_revision=4, domains=(("statistics", 7),))
+    )
+    with pytest.raises(HarvestWorkflowError, match="scheduled_input_stale"):
+        build(request(expected_profile_revision=3, expected_domain_revision=7))
+    domains.assert_not_called()
+
+
+def test_scheduled_job_must_not_silently_switch_domain_revision():
+    build, _, _ = builder()
+    with pytest.raises(HarvestWorkflowError, match="scheduled_input_stale"):
+        build(request(expected_profile_revision=3, expected_domain_revision=6))

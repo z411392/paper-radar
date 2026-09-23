@@ -12,3 +12,5 @@ class HarvestQueryRequest:
     deferred_mode: str = "reject"
     time_basis: str = "submittedDate"
     page_size: int = 200
+    expected_profile_revision: int | None = None
+    expected_domain_revision: int | None = None

@@ -30,7 +30,17 @@ class BuildHarvestQueryInput:
             or profile.revision != profile.current_revision
         ):
             raise HarvestWorkflowError("profile_not_current")
+        if (
+            request.expected_profile_revision is not None
+            and profile.revision != request.expected_profile_revision
+        ):
+            raise HarvestWorkflowError("scheduled_input_stale")
         revision = HarvestQueryRules.profile_domain_revision(profile, request.domain_id)
+        if (
+            request.expected_domain_revision is not None
+            and revision != request.expected_domain_revision
+        ):
+            raise HarvestWorkflowError("scheduled_input_stale")
         filters = HarvestQueryRules.filters(profile)
         if request.source_id not in filters["sources"]:
             raise HarvestWorkflowError("source_not_selected")
