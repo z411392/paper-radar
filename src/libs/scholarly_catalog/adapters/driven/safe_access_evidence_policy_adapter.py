@@ -265,11 +265,9 @@ class SafeAccessEvidencePolicyAdapter:
         success = probe.http_status in {200, 206} and identity_matches
         if success and claim.content_scope == "full_text" and not full_text_type:
             raise AccessAssessmentError("unsupported_access_content")
-        reader_access = claim.reader_access_signal if success and claim.content_scope == "full_text" else "unknown"
-        automated = claim.automated_retrieval_signal if success else (
-            "prohibited" if claim.automated_retrieval_signal == "prohibited" else "unknown"
-        )
-        uses = tuple(sorted(claim.permitted_uses)) if identity_matches else ()
+        reader_access = claim.reader_access_signal if success else "unknown"
+        automated = claim.automated_retrieval_signal
+        uses = tuple(sorted(claim.permitted_uses))
 
         evidence = self._json(
             {
