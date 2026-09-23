@@ -93,7 +93,7 @@ class WatchProfileCliModule(Module):
     def configure(self, binder: Binder) -> None:
         connection = SqliteSchemaConnectionFactory(
             Path(self._workspace),
-            load_workspace_migrations(with_discovery=True),
+            load_workspace_migrations(with_runtime=True),
             minimum_version=2,
         )
         store = SqliteWatchProfileStoreAdapter(connection.connect)
@@ -117,7 +117,7 @@ def _harvest_configuration(
     root = Path(workspace)
     connection = SqliteSchemaConnectionFactory(
         root,
-        load_workspace_migrations(with_discovery=True),
+        load_workspace_migrations(with_runtime=True),
         minimum_version=4,
     )
     store = SqliteWatchProfileStoreAdapter(connection.connect)
