@@ -390,3 +390,54 @@ def test_concurrent_identical_queue_creates_one_outbox_and_one_ledger(tmp_path: 
     assert {result.replayed for result in results} == {False, True}
     assert len({result.outbox_id for result in results}) == 1
     assert _counts(path) == (1, 1, 1, 1)
+
+
+def test_replay_after_delivery_progress_does_not_reset_states(tmp_path: Path) -> None:
+    path, store = _setup(tmp_path)
+    _seed_item(
+        path,
+        event_id="event:new",
+        work_id="work:1",
+        revision_id="revision:1",
+        summary_id="summary:1",
+    )
+    preview = _preview(
+        period="2026-09-23",
+        event_id="event:new",
+        work_id="work:1",
+        revision_id="revision:1",
+        summary_id="summary:1",
+    )
+    request = _request(preview, _object(path, b"frozen digest"))
+    first = store.queue(request)
+
+    connection = sqlite3.connect(path)
+    connection.execute(
+        "UPDATE delivery_outbox SET state='provider_accepted' WHERE id=?",
+        (first.outbox_id,),
+    )
+    connection.execute(
+        "UPDATE notification_ledger SET state='accepted' WHERE outbox_id=?",
+        (first.outbox_id,),
+    )
+    connection.execute(
+        "UPDATE digests SET state='sent' WHERE id=?",
+        (first.digest_id,),
+    )
+    connection.commit()
+    connection.close()
+
+    replay = store.queue(request)
+
+    assert replay.replayed is True
+    connection = sqlite3.connect(path)
+    assert connection.execute(
+        "SELECT state FROM delivery_outbox WHERE id=?", (first.outbox_id,)
+    ).fetchone()[0] == "provider_accepted"
+    assert connection.execute(
+        "SELECT state FROM notification_ledger WHERE outbox_id=?", (first.outbox_id,)
+    ).fetchone()[0] == "accepted"
+    assert connection.execute(
+        "SELECT state FROM digests WHERE id=?", (first.digest_id,)
+    ).fetchone()[0] == "sent"
+    connection.close()
