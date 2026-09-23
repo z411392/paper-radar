@@ -7,10 +7,7 @@ from decimal import Decimal, InvalidOperation, ROUND_CEILING
 from libs.paper_explanations.dtos.generation_budget_policy import GenerationBudgetPolicy
 from libs.paper_explanations.dtos.generation_identity import GenerationIdentity
 from libs.paper_explanations.dtos.structured_generation_request import StructuredGenerationRequest
-from libs.paper_explanations.dtos.structured_generation_result import (
-    GenerationReceipt,
-    StructuredGenerationResult,
-)
+from libs.paper_explanations.dtos.structured_generation_result import GenerationReceipt, StructuredGenerationResult
 from libs.paper_explanations.exceptions.generation_ledger_error import GenerationLedgerError
 
 
@@ -28,13 +25,7 @@ class GenerationExecutionRules:
     @staticmethod
     def _canonical(value: object) -> str:
         try:
-            text = json.dumps(
-                value,
-                ensure_ascii=False,
-                sort_keys=True,
-                separators=(",", ":"),
-                allow_nan=False,
-            )
+            text = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
             text.encode("utf-8")
             return text
         except (TypeError, ValueError, UnicodeEncodeError, RecursionError) as exc:
@@ -62,16 +53,8 @@ class GenerationExecutionRules:
         cls._hex(identity.execution_policy_fingerprint, "invalid_generation_identity")
         cls._text(identity.task_kind, r"[a-z][a-z0-9_]{0,63}", "invalid_generation_identity")
         cls._text(identity.gateway, r"[a-z][a-z0-9_-]{0,31}", "invalid_generation_identity")
-        cls._text(
-            identity.requested_model,
-            r"[a-z0-9-]+/[a-z0-9_.:-]{1,128}",
-            "invalid_generation_identity",
-        )
-        cls._text(
-            identity.period_key,
-            r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}",
-            "invalid_generation_budget",
-        )
+        cls._text(identity.requested_model, r"[a-z0-9-]+/[a-z0-9_.:-]{1,128}", "invalid_generation_identity")
+        cls._text(identity.period_key, r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}", "invalid_generation_budget")
         cls._text(identity.currency, r"[A-Z]{3}", "invalid_generation_budget")
         if identity.endpoint != "https://openrouter.ai/api/v1/chat/completions":
             raise GenerationLedgerError("invalid_generation_identity")
@@ -91,23 +74,13 @@ class GenerationExecutionRules:
         request: StructuredGenerationRequest,
         policy: GenerationBudgetPolicy,
     ) -> GenerationIdentity:
-        if not isinstance(request, StructuredGenerationRequest) or not isinstance(
-            policy, GenerationBudgetPolicy
-        ):
+        if not isinstance(request, StructuredGenerationRequest) or not isinstance(policy, GenerationBudgetPolicy):
             raise GenerationLedgerError("invalid_generation_identity")
         cls._hex(request.input_fingerprint, "invalid_generation_identity")
         cls._text(request.task_kind, r"[a-z][a-z0-9_]{0,63}", "invalid_generation_identity")
-        cls._text(
-            request.model_name,
-            r"[a-z0-9-]+/[a-z0-9_.:-]{1,128}",
-            "invalid_generation_identity",
-        )
+        cls._text(request.model_name, r"[a-z0-9-]+/[a-z0-9_.:-]{1,128}", "invalid_generation_identity")
         cls._hex(policy.execution_policy_fingerprint, "invalid_generation_budget")
-        cls._text(
-            policy.period_key,
-            r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}",
-            "invalid_generation_budget",
-        )
+        cls._text(policy.period_key, r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}", "invalid_generation_budget")
         cls._text(policy.currency, r"[A-Z]{3}", "invalid_generation_budget")
         cls._text(policy.gateway, r"[a-z][a-z0-9_-]{0,31}", "invalid_generation_budget")
         if policy.endpoint != "https://openrouter.ai/api/v1/chat/completions":
@@ -121,7 +94,6 @@ class GenerationExecutionRules:
             or policy.period_limit_micros >= 2**63
         ):
             raise GenerationLedgerError("invalid_generation_budget")
-
         prompt_digest = hashlib.sha256(
             cls._canonical(
                 {
@@ -177,10 +149,7 @@ class GenerationExecutionRules:
             (receipt.request_sha256, r"[0-9a-f]{64}"),
             (receipt.requested_model, r"[a-z0-9-]+/[a-z0-9_.:-]{1,128}"),
         )
-        if any(
-            not isinstance(value, str) or re.fullmatch(pattern, value) is None
-            for value, pattern in patterns
-        ):
+        if any(not isinstance(value, str) or re.fullmatch(pattern, value) is None for value, pattern in patterns):
             raise GenerationLedgerError("invalid_generation_receipt")
         for value, pattern in (
             (receipt.generation_id, r"[A-Za-z0-9_-]{1,128}"),
@@ -188,9 +157,7 @@ class GenerationExecutionRules:
             (receipt.provider, r"[A-Za-z0-9][A-Za-z0-9 ./_-]{0,127}"),
             (receipt.finish_reason, r"[a-z_]{1,32}"),
         ):
-            if value is not None and (
-                not isinstance(value, str) or re.fullmatch(pattern, value) is None
-            ):
+            if value is not None and (not isinstance(value, str) or re.fullmatch(pattern, value) is None):
                 raise GenerationLedgerError("invalid_generation_receipt")
         for value in (receipt.input_tokens, receipt.output_tokens):
             if value is not None and (type(value) is not int or not 0 <= value < 2**63):
@@ -201,9 +168,7 @@ class GenerationExecutionRules:
 
     @classmethod
     def serialize_success(cls, result: StructuredGenerationResult) -> bytes:
-        if not isinstance(result, StructuredGenerationResult) or not isinstance(
-            result.content_json, str
-        ):
+        if not isinstance(result, StructuredGenerationResult) or not isinstance(result.content_json, str):
             raise GenerationLedgerError("invalid_generation_result")
         try:
             seen_duplicate = False
@@ -225,13 +190,7 @@ class GenerationExecutionRules:
             if seen_duplicate or not isinstance(parsed, dict):
                 raise ValueError("object required")
             result.content_json.encode("utf-8")
-        except (
-            json.JSONDecodeError,
-            ValueError,
-            TypeError,
-            UnicodeEncodeError,
-            RecursionError,
-        ) as exc:
+        except (json.JSONDecodeError, ValueError, TypeError, UnicodeEncodeError, RecursionError) as exc:
             raise GenerationLedgerError("invalid_generation_result") from exc
         if (
             result.receipt.generation_id is None
@@ -266,12 +225,7 @@ class GenerationExecutionRules:
             data = json.loads(text)
             if cls._canonical(data) != text:
                 raise ValueError("noncanonical")
-            if not isinstance(data, dict) or set(data) != {
-                "format_version",
-                "kind",
-                "content_json",
-                "receipt",
-            }:
+            if not isinstance(data, dict) or set(data) != {"format_version", "kind", "content_json", "receipt"}:
                 raise ValueError("shape")
             if data["format_version"] != 1 or data["kind"] != "success":
                 raise ValueError("kind")
@@ -282,21 +236,12 @@ class GenerationExecutionRules:
             cls._receipt_dict(receipt)
             if receipt.input_fingerprint != identity.request_input_fingerprint:
                 raise ValueError("input")
-            if (
-                receipt.requested_model != identity.requested_model
-                or receipt.returned_model != identity.requested_model
-            ):
+            if receipt.requested_model != identity.requested_model or receipt.returned_model != identity.requested_model:
                 raise ValueError("model")
             result = StructuredGenerationResult(data["content_json"], receipt)
             cls.serialize_success(result)
             return result
-        except (
-            UnicodeDecodeError,
-            json.JSONDecodeError,
-            TypeError,
-            ValueError,
-            RecursionError,
-        ) as exc:
+        except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError, RecursionError) as exc:
             raise GenerationLedgerError("invalid_cached_generation") from exc
 
     @staticmethod
@@ -310,9 +255,7 @@ class GenerationExecutionRules:
             value = Decimal(cost_usd)
             if not value.is_finite() or value < 0 or value > Decimal("1000000"):
                 raise ValueError("cost")
-            micros = int(
-                (value * Decimal(1_000_000)).to_integral_value(rounding=ROUND_CEILING)
-            )
+            micros = int((value * Decimal(1_000_000)).to_integral_value(rounding=ROUND_CEILING))
             if not 0 <= micros < 2**63:
                 raise ValueError("cost")
             return micros
