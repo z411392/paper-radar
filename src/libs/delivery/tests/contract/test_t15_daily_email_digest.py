@@ -228,3 +228,25 @@ def test_explicit_rejection_is_failed_not_unknown(tmp_path: Path) -> None:
     digest, outbox, ledger, attempts = _states(path)
     assert (digest, outbox, ledger) == ("queued", "failed", "reserved")
     assert attempts == (("failed", "recipient_rejected"),)
+
+
+def test_unexpected_sender_exception_is_unknown_not_automatic_retry(tmp_path: Path) -> None:
+    path, store = _setup(tmp_path)
+
+    class ExplodingSender:
+        calls = 0
+
+        def send(self, message):
+            self.calls += 1
+            raise RuntimeError("transport vanished")
+
+    sender = ExplodingSender()
+    command = _dispatch(store, "reader@example.com", sender)
+
+    first = command("outbox:test", now=NOW)
+    second = command("outbox:test", now=NOW)
+
+    assert first.state == "unknown"
+    assert second.state == "unknown"
+    assert sender.calls == 1
+    assert ReconcileDelivery(store)("outbox:test").reason == "delivery_unknown_no_provider_lookup"
