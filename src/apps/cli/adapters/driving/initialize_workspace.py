@@ -14,6 +14,7 @@ def initialize_workspace(
     *,
     with_profiles: bool = False,
     with_discovery: bool = False,
+    with_runtime: bool = False,
 ) -> None:
     try:
         if not workspace.strip() or "\x00" in workspace:
@@ -24,6 +25,7 @@ def initialize_workspace(
                     workspace,
                     with_profiles=with_profiles,
                     with_discovery=with_discovery,
+                    with_runtime=with_runtime,
                 )
             ],
             auto_bind=False,

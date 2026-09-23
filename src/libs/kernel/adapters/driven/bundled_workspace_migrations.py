@@ -5,10 +5,25 @@ from libs.kernel.exceptions.storage_error import StorageError
 
 
 def load_workspace_migrations(
-    *,\n    with_profiles: bool = False,\n    with_discovery: bool = False,\n    with_runtime: bool = False,\n) -> tuple[Migration, ...]:
-    if type(with_profiles) is not bool or type(with_discovery) is not bool:
+    *,
+    with_profiles: bool = False,
+    with_discovery: bool = False,
+    with_runtime: bool = False,
+) -> tuple[Migration, ...]:
+    if any(type(value) is not bool for value in (with_profiles, with_discovery, with_runtime)):
         raise StorageError("invalid_migrations", "schema selectors must be booleans")
-    if with_discovery:
+    if with_runtime:
+        names = (
+            "0001-object-registry.sql",
+            "0002-watch-profiles.sql",
+            "0003-scholarly-catalog.sql",
+            "0004-discovery.sql",
+            "0005-paper-explanations.sql",
+            "0006-retrieval.sql",
+            "0007-delivery.sql",
+            "0008-workflow-jobs.sql",
+        )
+    elif with_discovery:
         names = (
             "0001-object-registry.sql",
             "0002-watch-profiles.sql",

@@ -36,11 +36,17 @@ def run() -> None:
             action="store_true",
             help="Explicitly install schemas 0001 through 0004",
         )
+        schema.add_argument(
+            "--with-runtime",
+            action="store_true",
+            help="Explicitly install schemas 0001 through 0008",
+        )
         arguments = parser.parse_args(sys.argv[2:])
         initialize_workspace(
             arguments.workspace,
             with_profiles=arguments.with_profiles,
             with_discovery=arguments.with_discovery,
+            with_runtime=arguments.with_runtime,
         )
         return
     if sys.argv[1:2] in (["domains"], ["profile"]):

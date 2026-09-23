@@ -30,6 +30,10 @@ exclude = ["**/tests/**", "**/__pycache__/**"]
 "migrations/0002-watch-profiles.sql" = "libs/kernel/resources/migrations/0002-watch-profiles.sql"
 "migrations/0003-scholarly-catalog.sql" = "libs/kernel/resources/migrations/0003-scholarly-catalog.sql"
 "migrations/0004-discovery.sql" = "libs/kernel/resources/migrations/0004-discovery.sql"
+"migrations/0005-paper-explanations.sql" = "libs/kernel/resources/migrations/0005-paper-explanations.sql"
+"migrations/0006-retrieval.sql" = "libs/kernel/resources/migrations/0006-retrieval.sql"
+"migrations/0007-delivery.sql" = "libs/kernel/resources/migrations/0007-delivery.sql"
+"migrations/0008-workflow-jobs.sql" = "libs/kernel/resources/migrations/0008-workflow-jobs.sql"
 
 [tool.hatch.build.targets.sdist]
 include = ["/src", "/migrations/0001-object-registry.sql", "/migrations/0002-watch-profiles.sql", "/migrations/0003-scholarly-catalog.sql", "/migrations/0004-discovery.sql", "/migrations/0005-paper-explanations.sql", "/migrations/0006-retrieval.sql", "/migrations/0007-delivery.sql", "/migrations/0008-workflow-jobs.sql", "/pyproject.toml", "/uv.lock", "/.python-version", "/README.md", "/Makefile"]

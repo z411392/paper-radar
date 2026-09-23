@@ -21,10 +21,24 @@ def test_built_wheel_runs_in_a_clean_noneditable_environment(tmp_path: Path) -> 
     assert built.returncode == 0, built.stdout + built.stderr
     artifacts = list(wheels.glob("*.whl"))
     assert len(artifacts) == 1
+    migration_names = [
+        "0001-object-registry.sql",
+        "0002-watch-profiles.sql",
+        "0003-scholarly-catalog.sql",
+        "0004-discovery.sql",
+        "0005-paper-explanations.sql",
+        "0006-retrieval.sql",
+        "0007-delivery.sql",
+        "0008-workflow-jobs.sql",
+    ]
     with zipfile.ZipFile(artifacts[0]) as archive:
         names = archive.namelist()
-        packaged_sql = archive.read("libs/kernel/resources/migrations/0001-object-registry.sql")
-    assert packaged_sql == (root / "migrations/0001-object-registry.sql").read_bytes()
+        packaged = {
+            name: archive.read(f"libs/kernel/resources/migrations/{name}")
+            for name in migration_names
+        }
+    for name in migration_names:
+        assert packaged[name] == (root / "migrations" / name).read_bytes()
     assert "apps/cli/__main__.py" in names
     assert "libs/research_workflow/ports/read_runtime_version_port.py" in names
     assert not any("/tests/" in name or "__init__.py" in name for name in names)
@@ -87,7 +101,16 @@ def test_built_wheel_runs_in_a_clean_noneditable_environment(tmp_path: Path) -> 
     snapshots = []
     for _ in range(2):
         initialized = subprocess.run(
-            [str(python), "-I", "-m", "apps.cli", "init", "--workspace", str(workspace)],
+            [
+                str(python),
+                "-I",
+                "-m",
+                "apps.cli",
+                "init",
+                "--workspace",
+                str(workspace),
+                "--with-runtime",
+            ],
             cwd=cwd,
             env=env,
             capture_output=True,
@@ -98,7 +121,7 @@ def test_built_wheel_runs_in_a_clean_noneditable_environment(tmp_path: Path) -> 
         assert initialized.returncode == 0, initialized.stdout + initialized.stderr
         snapshots.append(json.loads(initialized.stdout))
     assert snapshots[0] == snapshots[1]
-    assert snapshots[0]["schema_version"] == 1
+    assert snapshots[0]["schema_version"] == 8
     assert snapshots[0]["external_effects_enabled"] is False
     assert (workspace / "state/app.sqlite3").is_file()
     assert list(cwd.iterdir()) == []

@@ -63,10 +63,12 @@ class CliModule(Module):
         *,
         with_profiles: bool = False,
         with_discovery: bool = False,
+        with_runtime: bool = False,
     ) -> None:
         self._workspace = workspace
         self._with_profiles = with_profiles
         self._with_discovery = with_discovery
+        self._with_runtime = with_runtime
 
     def configure(self, binder: Binder) -> None:
         binder.bind(RuntimeVersionProviderPort, to=PythonRuntimeVersionAdapter, scope=singleton)
@@ -77,6 +79,7 @@ class CliModule(Module):
                 load_workspace_migrations(
                     with_profiles=self._with_profiles,
                     with_discovery=self._with_discovery,
+                    with_runtime=self._with_runtime,
                 ),
             )
             binder.bind(WorkspaceBootstrapPort, to=InstanceProvider(bootstrap), scope=singleton)
