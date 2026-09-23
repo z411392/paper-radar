@@ -133,6 +133,40 @@ class SafeAccessEvidencePolicyAdapter:
             if not address.is_global:
                 raise AccessAssessmentError("unsafe_access_target")
 
+    @classmethod
+    def _network_hops(
+        cls,
+        requested_url: str,
+        redirect_chain: tuple[str, ...],
+        final_url: str,
+        network_hops: tuple[tuple[str, tuple[str, ...]], ...],
+    ) -> None:
+        expected_urls = (requested_url, *redirect_chain)
+        if not redirect_chain or redirect_chain[-1] != final_url:
+            if final_url != requested_url:
+                raise AccessAssessmentError("invalid_access_probe")
+        if final_url != expected_urls[-1]:
+            expected_urls = (*expected_urls, final_url)
+        if (
+            not isinstance(network_hops, tuple)
+            or len(network_hops) != len(expected_urls)
+            or len(network_hops) > 6
+        ):
+            raise AccessAssessmentError("invalid_access_probe")
+        seen: set[str] = set()
+        for expected, hop in zip(expected_urls, network_hops, strict=True):
+            if (
+                not isinstance(hop, tuple)
+                or len(hop) != 2
+                or hop[0] != expected
+                or hop[0] in seen
+                or not isinstance(hop[1], tuple)
+            ):
+                raise AccessAssessmentError("invalid_access_probe")
+            cls._safe_url(hop[0])
+            cls._public_ips(hop[1])
+            seen.add(hop[0])
+
     def _observed_identifier(
         self,
         identity: ManifestationAccessIdentity,
@@ -200,7 +234,12 @@ class SafeAccessEvidencePolicyAdapter:
         expected_final = probe.redirect_chain[-1] if probe.redirect_chain else probe.requested_url
         if probe.final_url != expected_final:
             raise AccessAssessmentError("invalid_access_probe")
-        self._public_ips(probe.resolved_ips)
+        self._network_hops(
+            probe.requested_url,
+            probe.redirect_chain,
+            probe.final_url,
+            probe.network_hops,
+        )
 
         observed = self._observed_identifier(identity, probe)
         identity_matches = observed is not None
@@ -247,7 +286,10 @@ class SafeAccessEvidencePolicyAdapter:
                     "requested_url": probe.requested_url,
                     "final_url": probe.final_url,
                     "redirect_chain": list(probe.redirect_chain),
-                    "resolved_ips": list(probe.resolved_ips),
+                    "network_hops": [
+                        [url, list(ips)]
+                        for url, ips in probe.network_hops
+                    ],
                     "http_status": probe.http_status,
                     "content_type": probe.content_type,
                     "observed_identifier_namespace": probe.observed_identifier_namespace,
