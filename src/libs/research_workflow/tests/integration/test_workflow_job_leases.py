@@ -252,3 +252,51 @@ def test_two_concurrent_claimers_produce_one_active_attempt(tmp_path: Path) -> N
         "SELECT count(*) FROM workflow_jobs WHERE state='running'"
     ).fetchone()[0] == 1
     connection.close()
+
+
+def test_old_owner_cannot_overwrite_after_new_owner_has_completed(tmp_path: Path) -> None:
+    path, store = _setup(tmp_path)
+    store.enqueue(_job())
+    old = store.claim_due("worker:old", now=NOW, lease_seconds=10)
+    assert old is not None
+    takeover_at = NOW + timedelta(seconds=11)
+    new = store.claim_due("worker:new", now=takeover_at, lease_seconds=60)
+    assert new is not None
+
+    current = store.complete(
+        CompleteWorkflowJob(
+            job_id=new.job_id,
+            owner_id=new.owner_id,
+            fencing_token=new.fencing_token,
+            state="succeeded",
+            error_code=None,
+            finished_at=takeover_at + timedelta(seconds=1),
+            next_due_at=None,
+        )
+    )
+    assert current.state == "succeeded"
+
+    with pytest.raises(WorkflowJobError, match="fencing_mismatch"):
+        store.complete(
+            CompleteWorkflowJob(
+                job_id=old.job_id,
+                owner_id=old.owner_id,
+                fencing_token=old.fencing_token,
+                state="failed",
+                error_code="late_old_result",
+                finished_at=takeover_at + timedelta(seconds=2),
+                next_due_at=takeover_at + timedelta(minutes=5),
+            )
+        )
+
+    connection = sqlite3.connect(path)
+    assert connection.execute(
+        "SELECT state,lease_owner,fencing_token,attempt_count FROM workflow_jobs"
+    ).fetchone() == ("succeeded", "worker:new", 2, 2)
+    assert connection.execute(
+        "SELECT attempt_no,state,error_code FROM job_attempts ORDER BY attempt_no"
+    ).fetchall() == [
+        (1, "failed", "lease_expired"),
+        (2, "succeeded", None),
+    ]
+    connection.close()
