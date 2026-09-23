@@ -101,7 +101,10 @@ class OpenRouterStructuredAdapter:
 
     @classmethod
     def _receipt(cls, data: dict, receipt: GenerationReceipt) -> GenerationReceipt:
+        # Validate independent receipt fields independently. A bad token count
+        # must reject the response, not erase an otherwise valid reported cost.
         values = {}
+        failure = None
         for name, source, pattern in (
             ('generation_id', 'id', r'[A-Za-z0-9_-]{1,128}'),
             ('returned_model', 'model', r'[a-z0-9-]+/[a-z0-9_.:-]{1,128}'),
@@ -109,22 +112,40 @@ class OpenRouterStructuredAdapter:
         ):
             value = data.get(source)
             if value is not None:
-                values[name] = cls._text(value, pattern=pattern, code='invalid_model_response')
+                try:
+                    values[name] = cls._text(value, pattern=pattern, code='invalid_model_response')
+                except ModelGatewayError:
+                    failure = 'invalid_model_response'
         usage = data.get('usage')
         if usage is not None:
             if not isinstance(usage, dict):
-                raise ModelGatewayError('invalid_model_usage')
-            for field, target in (('prompt_tokens', 'input_tokens'), ('completion_tokens', 'output_tokens')):
-                amount = usage.get(field)
-                if amount is not None and (type(amount) is not int or not 0 <= amount < 2**63):
-                    raise ModelGatewayError('invalid_model_usage')
-                values[target] = amount
-            cost = usage.get('cost')
-            if cost is not None:
-                if type(cost) not in (Decimal, int) or cost < 0:
-                    raise ModelGatewayError('invalid_model_usage')
-                values['cost_usd'] = format(Decimal(cost), 'f')
-        return replace(receipt, **values)
+                failure = failure or 'invalid_model_usage'
+            else:
+                for field, target in (('prompt_tokens', 'input_tokens'), ('completion_tokens', 'output_tokens')):
+                    amount = usage.get(field)
+                    if amount is not None and (type(amount) is not int or not 0 <= amount < 2**63):
+                        failure = failure or 'invalid_model_usage'
+                        amount = None
+                    values[target] = amount
+                total = usage.get('total_tokens')
+                if total is not None:
+                    invalid_total = type(total) is not int or not 0 <= total < 2**63
+                    prompt_tokens, completion_tokens = values['input_tokens'], values['output_tokens']
+                    if prompt_tokens is not None and completion_tokens is not None:
+                        invalid_total = invalid_total or total != prompt_tokens + completion_tokens
+                    if invalid_total:
+                        failure = failure or 'invalid_model_usage'
+                cost = usage.get('cost')
+                if cost is not None:
+                    if type(cost) not in (Decimal, int) or not Decimal(cost).is_finite() or cost < 0:
+                        failure = failure or 'invalid_model_usage'
+                    else:
+                        # Zero with a huge negative exponent must not expand the receipt.
+                        values['cost_usd'] = '0' if cost == 0 else format(Decimal(cost), 'f')
+        partial = replace(receipt, **values)
+        if failure is not None:
+            raise ModelGatewayError(failure, partial)
+        return partial
 
     def __call__(self, request: StructuredGenerationRequest) -> StructuredGenerationResult:
         if not self._policy.enabled:
@@ -141,15 +162,29 @@ class OpenRouterStructuredAdapter:
                 or not 100 <= response.status <= 599 or not isinstance(response.body, bytes)
             ):
                 raise ModelGatewayError('invalid_model_response')
-            if response.status != 200:
-                # Error bodies may echo credentials/prompts. Never surface or retain them.
-                raise ModelGatewayError(self._http_code(response.status))
             if len(response.body) > self._policy.max_response_bytes:
-                raise ModelGatewayError('response_too_large')
-            data = GenerationJson.object(
-                response.body, 'invalid_model_response', limit=self._policy.max_response_bytes, decimals=True,
-            )
-            receipt = self._receipt(data, receipt)
+                code = self._http_code(response.status) if response.status != 200 else 'response_too_large'
+                raise ModelGatewayError(code)
+            try:
+                data = GenerationJson.object(
+                    response.body, 'invalid_model_response', limit=self._policy.max_response_bytes, decimals=True,
+                )
+            except ModelGatewayError:
+                # Non-JSON error pages still have a meaningful HTTP failure code.
+                code = self._http_code(response.status) if response.status != 200 else 'invalid_model_response'
+                raise ModelGatewayError(code) from None
+            try:
+                receipt = self._receipt(data, receipt)
+            except ModelGatewayError as exc:
+                # Only this local validator can contribute a sanitized partial receipt.
+                # Never trust a receipt attached by the transport or an unrelated request.
+                if exc.receipt is not None:
+                    receipt = exc.receipt
+                if response.status == 200:
+                    raise ModelGatewayError(exc.code) from None
+            if response.status != 200:
+                # Preserve whitelisted accounting fields, never the provider error body.
+                raise ModelGatewayError(self._http_code(response.status))
             if 'error' in data:
                 error = data['error']
                 status = error.get('code') if isinstance(error, dict) else None
