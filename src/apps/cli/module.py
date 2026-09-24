@@ -14,12 +14,34 @@ from libs.discovery.adapters.driven.arxiv_atom_parser_adapter import PARSER_VERS
 from libs.discovery.adapters.driven.arxiv_query_compiler_adapter import ArxivQueryCompilerAdapter
 from libs.discovery.adapters.driven.arxiv_source_adapter import ArxivSourceAdapter
 from libs.discovery.adapters.driven.http_client_arxiv_transport_adapter import HttpClientArxivTransportAdapter
+from libs.discovery.adapters.driven.http_client_crossref_transport_adapter import (
+    HttpClientCrossrefTransportAdapter,
+)
 from libs.discovery.adapters.driven.http_client_ncbi_transport_adapter import HttpClientNcbiTransportAdapter
 from libs.discovery.adapters.driven.posix_arxiv_rate_limit_adapter import PosixArxivRateLimitAdapter
+from libs.discovery.adapters.driven.posix_crossref_rate_gate_adapter import (
+    PosixCrossrefRateGateAdapter,
+)
 from libs.discovery.adapters.driven.posix_ncbi_rate_limit_adapter import PosixNcbiRateLimitAdapter
 from libs.discovery.adapters.driven.pubmed_source_adapter import PubmedSourceAdapter
+from libs.discovery.adapters.driven.crossref_source_adapter import CrossrefSourceAdapter
+from libs.discovery.adapters.driven.kernel_crossref_capture_store_adapter import (
+    KernelCrossrefCaptureStoreAdapter,
+)
 from libs.discovery.adapters.driven.rate_limited_source_http_transport_adapter import (
     RateLimitedSourceHttpTransportAdapter,
+)
+from libs.discovery.adapters.driven.sqlite_claimed_crossref_attachment_adapter import (
+    SqliteClaimedCrossrefAttachmentAdapter,
+)
+from libs.discovery.adapters.driven.sqlite_crossref_capture_claim_store_adapter import (
+    SqliteCrossrefCaptureClaimStoreAdapter,
+)
+from libs.discovery.adapters.driven.sqlite_crossref_capture_inbox_adapter import (
+    SqliteCrossrefCaptureInboxAdapter,
+)
+from libs.discovery.adapters.driven.sqlite_crossref_harvest_journal_adapter import (
+    SqliteCrossrefHarvestJournalAdapter,
 )
 from libs.discovery.adapters.driven.sqlite_harvest_processing_adapter import SqliteHarvestProcessingAdapter
 from libs.discovery.adapters.driven.sqlite_harvest_resume_adapter import SqliteHarvestResumeAdapter
@@ -27,16 +49,30 @@ from libs.discovery.adapters.driven.sqlite_harvest_store_adapter import SqliteHa
 from libs.discovery.adapters.driven.sqlite_pubmed_harvest_store_adapter import (
     SqlitePubmedHarvestStoreAdapter,
 )
+from libs.discovery.application.commands.attach_claimed_crossref_capture import (
+    AttachClaimedCrossrefCapture,
+)
+from libs.discovery.application.commands.capture_claimed_crossref_response import (
+    CaptureClaimedCrossrefResponse,
+)
 from libs.discovery.application.commands.process_harvest_page import ProcessHarvestPage
 from libs.discovery.application.commands.record_harvest_capture import RecordHarvestCapture
+from libs.discovery.application.commands.resolve_claimed_crossref_capture import (
+    ResolveClaimedCrossrefCapture,
+)
+from libs.discovery.application.commands.run_claimed_crossref_harvest_window import (
+    RunClaimedCrossrefHarvestWindow,
+)
 from libs.discovery.application.commands.run_pubmed_harvest_window import RunPubmedHarvestWindow
 from libs.discovery.application.commands.start_harvest_attempt import StartHarvestAttempt
 from libs.discovery.application.queries.compile_source_query import CompileSourceQuery
 from libs.discovery.application.queries.fetch_source_page import FetchSourcePage
 from libs.discovery.application.queries.parse_source_page import ParseSourcePage
+from libs.discovery.application.queries.replay_crossref_capture import ReplayCrossrefCapture
 from libs.discovery.application.queries.read_harvest_attempt import ReadHarvestAttempt
 from libs.discovery.application.queries.read_harvest_resume import ReadHarvestResume
 from libs.discovery.ports.compile_source_query_port import CompileSourceQueryPort
+from libs.discovery.ports.crossref_http_transport_port import CrossrefHttpTransportPort
 from libs.discovery.ports.run_pubmed_harvest_window_port import RunPubmedHarvestWindowPort
 from libs.discovery.ports.source_http_transport_port import SourceHttpTransportPort
 from libs.kernel.adapters.driven.bundled_workspace_migrations import load_workspace_migrations
@@ -45,6 +81,7 @@ from libs.kernel.adapters.driven.sqlite_connection_factory import SqliteConnecti
 from libs.kernel.adapters.driven.sqlite_object_unit_of_work_adapter import SqliteObjectUnitOfWorkAdapter
 from libs.kernel.adapters.driven.sqlite_schema_connection_factory import SqliteSchemaConnectionFactory
 from libs.kernel.adapters.driven.sqlite_workspace_bootstrap_adapter import SqliteWorkspaceBootstrapAdapter
+from libs.kernel.adapters.driven.sqlite_workspace_info_adapter import SqliteWorkspaceInfoAdapter
 from libs.kernel.application.commands.initialize_workspace import InitializeWorkspace
 from libs.kernel.application.commands.publish_object import PublishObject
 from libs.kernel.application.queries.read_object import ReadObject
@@ -64,11 +101,20 @@ from libs.research_workflow.application.commands.process_workflow_job import Pro
 from libs.research_workflow.application.commands.run_harvest_slice import RunHarvestSlice
 from libs.research_workflow.application.commands.run_scheduler_tick import RunSchedulerTick
 from libs.research_workflow.application.commands.run_worker_cycle import RunWorkerCycle
+from libs.research_workflow.application.queries.build_crossref_window_plan import (
+    BuildCrossrefWindowPlan,
+)
 from libs.research_workflow.application.queries.build_harvest_query_input import BuildHarvestQueryInput
 from libs.research_workflow.application.queries.read_runtime_version import ReadRuntimeVersion
+from libs.research_workflow.ports.build_crossref_window_plan_port import (
+    BuildCrossrefWindowPlanPort,
+)
 from libs.research_workflow.ports.build_harvest_query_input_port import BuildHarvestQueryInputPort
 from libs.research_workflow.ports.process_workflow_job_port import ProcessWorkflowJobPort
 from libs.research_workflow.ports.read_runtime_version_port import ReadRuntimeVersionPort
+from libs.research_workflow.ports.run_crossref_harvest_window_port import (
+    RunCrossrefHarvestWindowPort,
+)
 from libs.research_workflow.ports.run_harvest_slice_port import RunHarvestSlicePort
 from libs.research_workflow.ports.run_scheduler_tick_port import RunSchedulerTickPort
 from libs.research_workflow.ports.run_worker_cycle_port import RunWorkerCyclePort
@@ -276,6 +322,9 @@ class WorkerCliModule(Module):
         ncbi_api_key: str | None = None,
         ncbi_rate_limit_state: str | None = None,
         ncbi_transport: SourceHttpTransportPort | None = None,
+        crossref_email: str | None = None,
+        crossref_rate_limit_dir: str | None = None,
+        crossref_transport: CrossrefHttpTransportPort | None = None,
     ) -> None:
         self._workspace = workspace
         self._allow_live_source = allow_live_source
@@ -285,13 +334,21 @@ class WorkerCliModule(Module):
         self._ncbi_api_key = ncbi_api_key
         self._ncbi_rate_limit_state = ncbi_rate_limit_state
         self._ncbi_transport = ncbi_transport
+        self._crossref_email = crossref_email
+        self._crossref_rate_limit_dir = crossref_rate_limit_dir
+        self._crossref_transport = crossref_transport
 
     def configure(self, binder: Binder) -> None:
         root = Path(self._workspace)
+        crossref_requested = (
+            self._allow_live_source
+            and self._crossref_email is not None
+            and self._crossref_rate_limit_dir is not None
+        )
         connection = SqliteSchemaConnectionFactory(
             root,
             load_workspace_migrations(with_runtime=True),
-            minimum_version=10,
+            minimum_version=16 if crossref_requested else 10,
         )
         profile_store = SqliteWatchProfileStoreAdapter(connection.connect)
         builder = BuildHarvestQueryInput(
@@ -305,6 +362,8 @@ class WorkerCliModule(Module):
         objects = SqliteObjectUnitOfWorkAdapter(object_connection)
         read_object = ReadObject(files, objects)
         publish_object = PublishObject(files, objects)
+
+        clock = SystemWorkflowClockAdapter()
 
         harvest = None
         if self._allow_live_source and self._rate_limit_state is not None:
@@ -341,6 +400,83 @@ class WorkerCliModule(Module):
                 publish_object,
                 SqlitePubmedHarvestStoreAdapter(connection.connect),
             )
+
+        crossref_plan = None
+        crossref = None
+        if crossref_requested:
+            assert self._crossref_email is not None
+            assert self._crossref_rate_limit_dir is not None
+            crossref_source = CrossrefSourceAdapter()
+            crossref_gate = PosixCrossrefRateGateAdapter(
+                Path(self._crossref_rate_limit_dir),
+                self._crossref_email,
+            )
+            crossref_transport = (
+                self._crossref_transport
+                or HttpClientCrossrefTransportAdapter(
+                    contact_email=self._crossref_email,
+                    enabled=True,
+                )
+            )
+            crossref_claims = SqliteCrossrefCaptureClaimStoreAdapter(
+                connection.connect
+            )
+            crossref_inbox = SqliteCrossrefCaptureInboxAdapter(
+                connection.connect
+            )
+            crossref_captures = KernelCrossrefCaptureStoreAdapter(
+                publish_object,
+                read_object,
+            )
+            crossref_publisher = PublishClaimedCrossrefCapture(
+                crossref_inbox,
+                crossref_captures,
+            )
+            crossref_attachments = SqliteClaimedCrossrefAttachmentAdapter(
+                connection.connect
+            )
+            crossref_capture = CaptureClaimedCrossrefResponse(
+                crossref_transport,
+                crossref_gate,
+                crossref_claims,
+                crossref_inbox,
+                crossref_publisher,
+                source=crossref_source,
+                clock=clock.now,
+            )
+            crossref_recover = AttachClaimedCrossrefCapture(
+                crossref_publisher,
+                crossref_gate,
+                crossref_attachments,
+                source=crossref_source,
+                clock=clock.now,
+            )
+            crossref_resolve = ResolveClaimedCrossrefCapture(
+                crossref_publisher,
+                crossref_attachments,
+                source=crossref_source,
+                clock=clock.now,
+            )
+            crossref = RunClaimedCrossrefHarvestWindow(
+                crossref_source,
+                SqliteCrossrefHarvestJournalAdapter(connection.connect),
+                crossref_claims,
+                crossref_inbox,
+                crossref_capture,
+                crossref_attachments,
+                crossref_recover,
+                crossref_resolve,
+                ReplayCrossrefCapture(
+                    crossref_captures,
+                    crossref_source,
+                ),
+                SqliteWorkspaceInfoAdapter(connection.connect),
+                clock=clock.now,
+            )
+            crossref_plan = BuildCrossrefWindowPlan(
+                crossref_source,
+                contact_email=self._crossref_email,
+            )
         delivery_store = SqliteDeliveryStoreAdapter(connection.connect)
         digest_artifacts = KernelDigestArtifactAdapter(publish_object, read_object)
         scheduled_digest = PrepareScheduledDigest(
@@ -352,7 +488,6 @@ class WorkerCliModule(Module):
         )
 
         jobs = SqliteWorkflowJobStoreAdapter(connection.connect)
-        clock = SystemWorkflowClockAdapter()
         scheduler = RunSchedulerTick(
             SqliteSchedulerInputAdapter(connection.connect),
             jobs,
@@ -365,6 +500,8 @@ class WorkerCliModule(Module):
             live_source_enabled=self._allow_live_source,
             digest=scheduled_digest,
             pubmed=pubmed,
+            crossref_plan=crossref_plan,
+            crossref=crossref,
         )
         cycle = RunWorkerCycle(scheduler, processor, clock)
 
@@ -374,5 +511,14 @@ class WorkerCliModule(Module):
         binder.bind(PrepareScheduledDigestPort, to=InstanceProvider(scheduled_digest))
         if pubmed is not None:
             binder.bind(RunPubmedHarvestWindowPort, to=InstanceProvider(pubmed))
+        if crossref is not None and crossref_plan is not None:
+            binder.bind(
+                BuildCrossrefWindowPlanPort,
+                to=InstanceProvider(crossref_plan),
+            )
+            binder.bind(
+                RunCrossrefHarvestWindowPort,
+                to=InstanceProvider(crossref),
+            )
         binder.bind(ProcessWorkflowJobPort, to=InstanceProvider(processor))
         binder.bind(RunWorkerCyclePort, to=InstanceProvider(cycle))

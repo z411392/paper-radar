@@ -10,6 +10,8 @@ def test_live_master_switch_does_not_implicitly_enable_a_provider() -> None:
     assert value.rate_limit_state is None
     assert value.ncbi_email is None
     assert value.ncbi_rate_limit_state is None
+    assert value.crossref_email is None
+    assert value.crossref_rate_limit_dir is None
 
 
 def test_ncbi_commissioning_arguments_are_independent_from_arxiv() -> None:
@@ -34,3 +36,18 @@ def test_parser_shape_keeps_api_key_optional() -> None:
         "/tmp/ncbi-rate.json",
     )
     assert value.ncbi_api_key is None
+
+
+def test_crossref_commissioning_arguments_are_independent_from_other_providers() -> None:
+    value = parse(
+        "--allow-live-source",
+        "--crossref-email",
+        "reader@example.com",
+        "--crossref-rate-limit-dir",
+        "/tmp/crossref-rate",
+    )
+
+    assert value.rate_limit_state is None
+    assert value.ncbi_email is None
+    assert value.crossref_email == "reader@example.com"
+    assert value.crossref_rate_limit_dir == "/tmp/crossref-rate"

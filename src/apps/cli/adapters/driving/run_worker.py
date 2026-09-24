@@ -70,6 +70,14 @@ def _parser() -> argparse.ArgumentParser:
         "--ncbi-rate-limit-state",
         help="Absolute path to the shared local NCBI rate-limit state file.",
     )
+    parser.add_argument(
+        "--crossref-email",
+        help="Contact email used for the Crossref polite pool when commissioned.",
+    )
+    parser.add_argument(
+        "--crossref-rate-limit-dir",
+        help="Absolute private directory for shared local Crossref rate-limit state.",
+    )
     return parser
 
 
@@ -154,6 +162,33 @@ def run_worker_cli(argv: list[str]) -> None:
         ):
             parser.error("--ncbi-api-key must be a non-whitespace token")
 
+    crossref_values = (
+        arguments.crossref_email,
+        arguments.crossref_rate_limit_dir,
+    )
+    if any(value is not None for value in crossref_values) and not arguments.allow_live_source:
+        parser.error("Crossref options require --allow-live-source")
+    if arguments.crossref_email is None:
+        if arguments.crossref_rate_limit_dir is not None:
+            parser.error("--crossref-email is required for Crossref options")
+    else:
+        if (
+            not arguments.crossref_email.strip()
+            or "\0" in arguments.crossref_email
+            or arguments.crossref_email.count("@") != 1
+            or any(char.isspace() for char in arguments.crossref_email)
+        ):
+            parser.error("--crossref-email must be a single non-whitespace email value")
+        if arguments.crossref_rate_limit_dir is None:
+            parser.error("--crossref-rate-limit-dir is required with --crossref-email")
+        if (
+            "\0" in arguments.crossref_rate_limit_dir
+            or not Path(arguments.crossref_rate_limit_dir).is_absolute()
+        ):
+            parser.error(
+                "--crossref-rate-limit-dir must be an absolute path without NUL characters"
+            )
+
     owner_id = "worker:" + uuid4().hex
     try:
         injector = Injector(
@@ -165,6 +200,8 @@ def run_worker_cli(argv: list[str]) -> None:
                     ncbi_email=arguments.ncbi_email,
                     ncbi_api_key=arguments.ncbi_api_key,
                     ncbi_rate_limit_state=arguments.ncbi_rate_limit_state,
+                    crossref_email=arguments.crossref_email,
+                    crossref_rate_limit_dir=arguments.crossref_rate_limit_dir,
                 )
             ],
             auto_bind=False,
