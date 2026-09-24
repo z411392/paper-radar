@@ -14,6 +14,7 @@ from libs.research_workflow.exceptions.harvest_workflow_error import HarvestWork
 from libs.research_workflow.exceptions.workflow_job_error import WorkflowJobError
 from libs.research_workflow.ports.build_harvest_query_input_port import BuildHarvestQueryInputPort
 from libs.research_workflow.ports.run_harvest_slice_port import RunHarvestSlicePort
+from libs.discovery.ports.run_pubmed_harvest_window_port import RunPubmedHarvestWindowPort
 from libs.research_workflow.ports.workflow_clock_port import WorkflowClockPort
 from libs.research_workflow.ports.workflow_job_store_port import WorkflowJobStorePort
 
@@ -39,6 +40,7 @@ class ProcessWorkflowJob:
         clock: WorkflowClockPort,
         live_source_enabled: bool,
         digest: PrepareScheduledDigestPort | None = None,
+        pubmed: RunPubmedHarvestWindowPort | None = None,
     ) -> None:
         self._store = store
         self._builder = builder
@@ -46,6 +48,7 @@ class ProcessWorkflowJob:
         self._clock = clock
         self._live_source_enabled = live_source_enabled
         self._digest = digest
+        self._pubmed = pubmed
 
     @staticmethod
     def _instant(value: object) -> datetime:
@@ -161,20 +164,37 @@ class ProcessWorkflowJob:
             or not isinstance(data["source_id"], str)
         ):
             raise WorkflowJobError("invalid_job_payload")
+        source_id = data["source_id"]
         request = HarvestQueryRequest(
             profile_id=data["profile_id"],
             domain_id=data["domain_id"],
             window_start=self._instant(data["window_start"]),
             window_end=self._instant(data["window_end"]),
-            source_id=data["source_id"],
+            source_id=source_id,
             deferred_mode="defer",
+            time_basis="createDate" if source_id == "pubmed" else "submittedDate",
             page_size=200,
             expected_profile_revision=data["profile_revision"],
             expected_domain_revision=data["domain_revision"],
         )
         try:
             query = self._builder(request)
-            result = harvest(query, max_pages=10, retry_failed=True)
+            if source_id == "pubmed":
+                pubmed = self._pubmed
+                if pubmed is None:
+                    return self._defer(
+                        lease,
+                        error_code="pubmed_runtime_not_connected",
+                        delay=timedelta(hours=1),
+                        state="awaiting_external",
+                    )
+                result = pubmed(
+                    query,
+                    started_at=self._clock.now(),
+                    max_batches=10,
+                )
+            else:
+                result = harvest(query, max_pages=10, retry_failed=True)
         except HarvestWorkflowError as exc:
             if exc.code in self._STALE_CODES:
                 return self._complete(

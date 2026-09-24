@@ -17,7 +17,7 @@ from libs.research_workflow.exceptions.workflow_job_error import WorkflowJobErro
 
 class PlanCatchupJobs:
     HARVEST_INTERVAL = timedelta(hours=24)
-    SUPPORTED_SOURCES = frozenset({"arxiv"})
+    SUPPORTED_SOURCES = frozenset({"arxiv", "pubmed"})
 
     @staticmethod
     def _instant(value: object, code: str) -> datetime:
@@ -166,6 +166,29 @@ class PlanCatchupJobs:
             created_at=now,
         )
 
+    @classmethod
+    def _harvest_window_end(
+        cls,
+        schedule: HarvestBindingSchedule,
+        current: datetime,
+    ) -> datetime | None:
+        last = (
+            None
+            if schedule.last_succeeded_window_end is None
+            else cls._instant(schedule.last_succeeded_window_end, "invalid_harvest_window")
+        )
+        if schedule.source_id == "pubmed":
+            boundary = current.replace(hour=0, minute=0, second=0, microsecond=0)
+            if last is None:
+                return boundary
+            if last != last.replace(hour=0, minute=0, second=0, microsecond=0):
+                raise WorkflowJobError("invalid_pubmed_harvest_window")
+            return last + cls.HARVEST_INTERVAL if last + cls.HARVEST_INTERVAL <= boundary else None
+
+        if last is None:
+            return current
+        return last + cls.HARVEST_INTERVAL if last + cls.HARVEST_INTERVAL <= current else None
+
     @staticmethod
     def _binding_order(schedule: HarvestBindingSchedule) -> tuple[float, str]:
         if schedule.last_succeeded_window_end is None:
@@ -219,17 +242,9 @@ class PlanCatchupJobs:
                     blocks_digest = True
                 continue
 
-            if schedule.last_succeeded_window_end is None:
-                window_end = current
-            else:
-                last = self._instant(
-                    schedule.last_succeeded_window_end,
-                    "invalid_harvest_window",
-                )
-                if last + self.HARVEST_INTERVAL > current:
-                    continue
-                window_end = last + self.HARVEST_INTERVAL
-
+            window_end = self._harvest_window_end(schedule, current)
+            if window_end is None:
+                continue
             jobs.append(self.harvest_job(schedule, window_end))
             blocks_digest = True
 
