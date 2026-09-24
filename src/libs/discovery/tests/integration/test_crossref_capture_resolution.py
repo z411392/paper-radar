@@ -14,6 +14,10 @@ import pytest
 
 from libs.discovery.tests.integration.test_crossref_claimed_attachment import Fixture, NOW
 from libs.discovery.dtos.crossref_capture_resolution import CrossrefCaptureResolution
+from libs.discovery.application.commands.resolve_claimed_crossref_capture import (
+    ResolveClaimedCrossrefCapture,
+)
+from libs.discovery.adapters.driven.crossref_source_adapter import CrossrefSourceAdapter
 from libs.discovery.exceptions.crossref_attachment_error import CrossrefAttachmentError
 from libs.discovery.exceptions.crossref_capture_claim_error import CrossrefCaptureClaimError
 
@@ -453,3 +457,40 @@ def test_unexplained_later_attempt_still_blocks_historical_replay(f):
             attached_at=NOW + timedelta(days=1),
         )
     assert first.attempt_id != 'unexplained'
+
+
+def test_resolution_application_is_local_and_uses_published_evidence(f):
+    f.stage(status=503)
+    f.attach()
+    command = ResolveClaimedCrossrefCapture(
+        f.publisher,
+        f.store,
+        source=CrossrefSourceAdapter(),
+        clock=lambda: NOW,
+    )
+
+    result = command(f.plan, f.claim)
+
+    assert result.action == 'retry'
+    assert len(f.sql('SELECT * FROM crossref_capture_resolutions')) == 1
+
+
+def test_resolution_application_rejects_changed_plan_before_publication(f):
+    class NoPublish:
+        def __call__(self, claim):
+            raise AssertionError('publication must not run for a mismatched plan')
+
+    f.stage(status=503)
+    f.attach()
+    changed = CrossrefSourceAdapter().compile(
+        replace(f.plan.definition, contact_email='other@example.invalid'),
+    )
+    command = ResolveClaimedCrossrefCapture(
+        NoPublish(),
+        f.store,
+        source=CrossrefSourceAdapter(),
+        clock=lambda: NOW,
+    )
+
+    with pytest.raises(CrossrefAttachmentError, match='resolution_request_mismatch'):
+        command(changed, f.claim)
