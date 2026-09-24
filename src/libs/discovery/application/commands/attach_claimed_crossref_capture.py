@@ -20,9 +20,15 @@ from libs.discovery.ports.crossref_rate_gate_port import CrossrefRateGatePort
 
 
 class AttachClaimedCrossrefCapture:
-    def __init__(self, publish: PublishClaimedCrossrefCapturePort, gate: CrossrefRateGatePort,
-                 attachments: ClaimedCrossrefAttachmentPort, *,
-                 source: CrossrefPageSourcePort, clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc)) -> None:
+    def __init__(
+        self,
+        publish: PublishClaimedCrossrefCapturePort,
+        gate: CrossrefRateGatePort,
+        attachments: ClaimedCrossrefAttachmentPort,
+        *,
+        source: CrossrefPageSourcePort,
+        clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+    ) -> None:
         self._source = source
         self._publish = publish
         self._gate = gate
