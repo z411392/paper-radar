@@ -90,7 +90,7 @@ def _summary_artifact() -> bytes:
 def _seed_workspace(root: Path) -> SqliteSchemaConnectionFactory:
     migrations = load_workspace_migrations(with_runtime=True)
     info = SqliteWorkspaceBootstrapAdapter(root, migrations).initialize()
-    assert info.schema_version == 9
+    assert info.schema_version == 16
     assert info.external_effects_enabled is False
 
     raw = SqliteConnectionFactory(root)
@@ -115,7 +115,7 @@ def _seed_workspace(root: Path) -> SqliteSchemaConnectionFactory:
                 "badminton",
                 "羽球",
                 '{"aliases":["badminton"],"exclude":[],"include":["badminton"],'
-                '"source_categories":{},"sources":["pubmed"]}',
+                '"source_categories":{},"sources":["semantic_scholar"]}',
                 1,
                 NOW.isoformat(),
             ),
@@ -131,7 +131,7 @@ def _seed_workspace(root: Path) -> SqliteSchemaConnectionFactory:
                 1,
                 "羽球研究",
                 '{"allow_preprints":true,"exclude":[],"free_only":true,"include":[],'
-                '"languages":["en"],"sources":["pubmed"]}',
+                '"languages":["en"],"sources":["semantic_scholar"]}',
                 "c" * 64,
                 NOW.isoformat(),
             ),
