@@ -18,6 +18,14 @@ class CrossrefRepairStorePort(Protocol):
         created_at: datetime,
     ) -> str: ...
 
+    def list_finalizable(
+        self,
+        plan: CrossrefWindowPlan,
+        *,
+        now: datetime,
+        policy: CrossrefRepairPolicy,
+    ) -> tuple[CrossrefRepairCandidate, ...]: ...
+
     def list_candidates(
         self,
         plan: CrossrefWindowPlan,

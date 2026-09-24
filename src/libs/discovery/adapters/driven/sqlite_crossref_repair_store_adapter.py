@@ -203,6 +203,74 @@ class SqliteCrossrefRepairStoreAdapter:
             raise CrossrefRepairError("crossref_window_plan_mismatch")
         return row
 
+
+    def list_finalizable(
+        self,
+        plan: CrossrefWindowPlan,
+        *,
+        now: datetime,
+        policy: CrossrefRepairPolicy,
+    ) -> tuple[CrossrefRepairCandidate, ...]:
+        checked = Rules.policy(policy)
+        current = Rules.instant(now)
+        values = self._plan(plan)
+        stream_id = self.ensure_stream(plan, current)
+        cutoff = current - timedelta(seconds=checked.safety_lag_seconds)
+        with self._transaction(write=False) as connection:
+            windows = connection.execute(
+                "SELECT * FROM crossref_harvest_windows "
+                "WHERE binding_key=? AND config_version=? AND rows=? "
+                "AND state='traversed' "
+                "AND julianday(until_index)<=julianday(?) "
+                "ORDER BY julianday(from_index),julianday(until_index),id",
+                (
+                    values["binding_key"],
+                    values["config_version"],
+                    values["rows"],
+                    cutoff.isoformat(),
+                ),
+            ).fetchall()
+            result = []
+            for window in windows:
+                if connection.execute(
+                    "SELECT 1 FROM crossref_repair_runs "
+                    "WHERE window_id=? AND state='running' LIMIT 1",
+                    (window["id"],),
+                ).fetchone() is not None:
+                    continue
+                latest = connection.execute(
+                    "SELECT * FROM crossref_harvest_passes "
+                    "WHERE window_id=? ORDER BY pass_no DESC LIMIT 1",
+                    (window["id"],),
+                ).fetchone()
+                if (
+                    latest is None
+                    or latest["state"] != "completed"
+                    or not bool(latest["traversal_complete"])
+                    or not bool(latest["accounting_complete"])
+                    or bool(latest["repair_pending"])
+                    or bool(latest["drift_suspected"])
+                    or latest["parse_gap_count"] != 0
+                    or latest["source_completeness"] != "provisional"
+                ):
+                    continue
+                already = connection.execute(
+                    "SELECT 1 FROM crossref_window_finalizations "
+                    "WHERE stream_id=? AND pass_id=? LIMIT 1",
+                    (stream_id, latest["id"]),
+                ).fetchone()
+                if already is not None:
+                    continue
+                result.append(
+                    CrossrefRepairCandidate(
+                        window["id"],
+                        "finalize",
+                        Rules.parse_instant(window["from_index"]),
+                        Rules.parse_instant(window["until_index"]),
+                    )
+                )
+            return tuple(result)
+
     def list_candidates(
         self,
         plan: CrossrefWindowPlan,

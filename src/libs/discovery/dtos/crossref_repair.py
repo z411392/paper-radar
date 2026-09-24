@@ -51,3 +51,9 @@ class CrossrefBindingWatermark:
     latest_window_id: str
     latest_finalization_id: str
     updated_at: datetime
+
+
+@dataclass(frozen=True)
+class CrossrefMaintenanceResult:
+    finalized_window_ids: tuple[str, ...]
+    started_repair_ids: tuple[str, ...]
