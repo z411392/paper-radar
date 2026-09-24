@@ -21,7 +21,7 @@ class BuildHarvestQueryInput:
     def __call__(self, request: HarvestQueryRequest) -> SourceQueryInput:
         if not isinstance(request, HarvestQueryRequest):
             raise HarvestWorkflowError("invalid_query_request")
-        if request.source_id not in {"arxiv", "pubmed"}:
+        if request.source_id not in {"arxiv", "pubmed", "crossref"}:
             raise HarvestWorkflowError("unsupported_source")
         profile = self._profiles(request.profile_id)
         if (

@@ -17,7 +17,7 @@ from libs.research_workflow.exceptions.workflow_job_error import WorkflowJobErro
 
 class PlanCatchupJobs:
     HARVEST_INTERVAL = timedelta(hours=24)
-    SUPPORTED_SOURCES = frozenset({"arxiv", "pubmed"})
+    SUPPORTED_SOURCES = frozenset({"arxiv", "pubmed", "crossref"})
 
     @staticmethod
     def _instant(value: object, code: str) -> datetime:

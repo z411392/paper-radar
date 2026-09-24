@@ -8,12 +8,18 @@ from libs.discovery.exceptions.harvest_error import HarvestError
 from libs.discovery.exceptions.source_fetch_error import SourceFetchError
 from libs.discovery.exceptions.source_query_error import SourceQueryError
 from libs.discovery.ports.run_pubmed_harvest_window_port import RunPubmedHarvestWindowPort
+from libs.research_workflow.ports.build_crossref_window_plan_port import (
+    BuildCrossrefWindowPlanPort,
+)
 from libs.research_workflow.dtos.harvest_query_request import HarvestQueryRequest
 from libs.research_workflow.dtos.worker import WorkflowJobProcessResult
 from libs.research_workflow.dtos.workflow_job import CompleteWorkflowJob
 from libs.research_workflow.exceptions.harvest_workflow_error import HarvestWorkflowError
 from libs.research_workflow.exceptions.workflow_job_error import WorkflowJobError
 from libs.research_workflow.ports.build_harvest_query_input_port import BuildHarvestQueryInputPort
+from libs.research_workflow.ports.run_crossref_harvest_window_port import (
+    RunCrossrefHarvestWindowPort,
+)
 from libs.research_workflow.ports.run_harvest_slice_port import RunHarvestSlicePort
 from libs.research_workflow.ports.workflow_clock_port import WorkflowClockPort
 from libs.research_workflow.ports.workflow_job_store_port import WorkflowJobStorePort
@@ -41,6 +47,8 @@ class ProcessWorkflowJob:
         live_source_enabled: bool,
         digest: PrepareScheduledDigestPort | None = None,
         pubmed: RunPubmedHarvestWindowPort | None = None,
+        crossref_plan: BuildCrossrefWindowPlanPort | None = None,
+        crossref: RunCrossrefHarvestWindowPort | None = None,
     ) -> None:
         self._store = store
         self._builder = builder
@@ -49,6 +57,8 @@ class ProcessWorkflowJob:
         self._live_source_enabled = live_source_enabled
         self._digest = digest
         self._pubmed = pubmed
+        self._crossref_plan = crossref_plan
+        self._crossref = crossref
 
     @staticmethod
     def _instant(value: object) -> datetime:
@@ -134,7 +144,12 @@ class ProcessWorkflowJob:
             error_code,
         )
 
-    def _harvest_job(self, lease) -> WorkflowJobProcessResult:
+    def _harvest_job(
+        self,
+        lease,
+        *,
+        lease_seconds: int,
+    ) -> WorkflowJobProcessResult:
         if not self._live_source_enabled:
             return self._defer(
                 lease,
@@ -171,13 +186,70 @@ class ProcessWorkflowJob:
             window_end=self._instant(data["window_end"]),
             source_id=source_id,
             deferred_mode="defer",
-            time_basis="createDate" if source_id == "pubmed" else "submittedDate",
-            page_size=200,
+            time_basis=(
+                "createDate"
+                if source_id == "pubmed"
+                else "indexDate"
+                if source_id == "crossref"
+                else "submittedDate"
+            ),
+            page_size=1000 if source_id == "crossref" else 200,
             expected_profile_revision=data["profile_revision"],
             expected_domain_revision=data["domain_revision"],
         )
         try:
             query = self._builder(request)
+            if source_id == "crossref":
+                runner = self._crossref
+                planner = self._crossref_plan
+                if runner is None or planner is None:
+                    return self._defer(
+                        lease,
+                        error_code="crossref_runtime_not_connected",
+                        delay=timedelta(hours=1),
+                        state="awaiting_external",
+                    )
+                plan = planner(
+                    query,
+                    binding_key=data["binding_key"],
+                )
+                result = runner(
+                    plan,
+                    owner_id=lease.owner_id,
+                    max_pages=10,
+                    lease_seconds=lease_seconds,
+                )
+                if result.state == "pass_completed":
+                    return self._complete(
+                        lease,
+                        state="succeeded",
+                        error_code=None,
+                        next_due_at=None,
+                    )
+                if result.state == "projection_required":
+                    return self._defer(
+                        lease,
+                        error_code="crossref_projection_required",
+                        delay=timedelta(hours=1),
+                        state="awaiting_external",
+                    )
+                if result.state == "page_committed":
+                    return self._defer(
+                        lease,
+                        error_code="crossref_page_budget",
+                        delay=timedelta(minutes=1),
+                    )
+                state = (
+                    "awaiting_external"
+                    if result.state in {"stop", "replay_failed"}
+                    else "failed"
+                )
+                return self._defer(
+                    lease,
+                    error_code=result.error_code or "crossref_harvest_incomplete",
+                    delay=timedelta(hours=1) if state == "awaiting_external" else timedelta(minutes=5),
+                    state=state,
+                )
             if source_id == "pubmed":
                 pubmed = self._pubmed
                 if pubmed is None:
@@ -349,7 +421,10 @@ class ProcessWorkflowJob:
         if lease is None:
             return WorkflowJobProcessResult("idle", None, None, None)
         if lease.job_kind == "harvest_window":
-            return self._harvest_job(lease)
+            return self._harvest_job(
+                lease,
+                lease_seconds=lease_seconds,
+            )
         if lease.job_kind == "prepare_digest":
             return self._digest_job(lease)
         return self._complete(
