@@ -75,6 +75,7 @@ def _completed_window(
     plan,
     *,
     repair_pending: bool = False,
+    finished_at: datetime = NOW,
 ):
     window = journal.ensure_window(plan, NOW)
     state = journal.start_pass(plan, NOW)
@@ -89,7 +90,7 @@ def _completed_window(
             1 if repair_pending else 0,
             1 if repair_pending else 0,
             1 if repair_pending else 0,
-            NOW.isoformat(),
+            finished_at.isoformat(),
             state.pass_id,
         ),
     )
@@ -97,7 +98,7 @@ def _completed_window(
         "UPDATE crossref_harvest_windows SET state=?,updated_at=? WHERE id=?",
         (
             "repair_pending" if repair_pending else "traversed",
-            NOW.isoformat(),
+            finished_at.isoformat(),
             window.window_id,
         ),
     )
@@ -144,7 +145,12 @@ def test_candidates_prioritize_explicit_repair_and_respect_safety_lag_and_limit(
         NOW - timedelta(hours=2),
         NOW - timedelta(minutes=30),
     )
-    clean_window, _ = _completed_window(path, journal, old_clean)
+    clean_window, _ = _completed_window(
+        path,
+        journal,
+        old_clean,
+        finished_at=NOW - timedelta(days=2, hours=1),
+    )
     explicit_window, _ = _completed_window(
         path,
         journal,
