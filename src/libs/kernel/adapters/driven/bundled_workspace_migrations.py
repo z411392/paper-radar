@@ -25,6 +25,7 @@ def load_workspace_migrations(
             "0009-relevance-assessment-domains.sql",
             "0010-pubmed-harvest.sql",
             "0011-crossref-harvest.sql",
+            "0012-crossref-repair.sql",
         )
     elif with_discovery:
         names = (

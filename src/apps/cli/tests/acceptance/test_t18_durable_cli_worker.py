@@ -28,7 +28,7 @@ def test_runtime_workspace_can_run_one_idle_worker_cycle_and_restart(tmp_path: P
         "--with-runtime",
     )
     assert initialized.returncode == 0, initialized.stdout + initialized.stderr
-    assert json.loads(initialized.stdout)["schema_version"] == 11
+    assert json.loads(initialized.stdout)["schema_version"] == 12
 
     first = _run("run-worker", "--workspace", str(workspace), "--once")
     second = _run("run-worker", "--workspace", str(workspace), "--once")
