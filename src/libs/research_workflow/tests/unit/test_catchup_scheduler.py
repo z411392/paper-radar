@@ -1,6 +1,6 @@
-import pytest
-
 from datetime import datetime, timedelta, timezone
+
+import pytest
 
 from libs.research_workflow.application.commands.run_scheduler_tick import RunSchedulerTick
 from libs.research_workflow.domain.services.plan_catchup_jobs import PlanCatchupJobs

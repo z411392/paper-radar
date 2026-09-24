@@ -7,6 +7,7 @@ from libs.delivery.ports.prepare_scheduled_digest_port import PrepareScheduledDi
 from libs.discovery.exceptions.harvest_error import HarvestError
 from libs.discovery.exceptions.source_fetch_error import SourceFetchError
 from libs.discovery.exceptions.source_query_error import SourceQueryError
+from libs.discovery.ports.run_pubmed_harvest_window_port import RunPubmedHarvestWindowPort
 from libs.research_workflow.dtos.harvest_query_request import HarvestQueryRequest
 from libs.research_workflow.dtos.worker import WorkflowJobProcessResult
 from libs.research_workflow.dtos.workflow_job import CompleteWorkflowJob
@@ -14,7 +15,6 @@ from libs.research_workflow.exceptions.harvest_workflow_error import HarvestWork
 from libs.research_workflow.exceptions.workflow_job_error import WorkflowJobError
 from libs.research_workflow.ports.build_harvest_query_input_port import BuildHarvestQueryInputPort
 from libs.research_workflow.ports.run_harvest_slice_port import RunHarvestSlicePort
-from libs.discovery.ports.run_pubmed_harvest_window_port import RunPubmedHarvestWindowPort
 from libs.research_workflow.ports.workflow_clock_port import WorkflowClockPort
 from libs.research_workflow.ports.workflow_job_store_port import WorkflowJobStorePort
 
