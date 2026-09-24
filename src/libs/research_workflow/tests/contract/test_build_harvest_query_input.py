@@ -142,3 +142,35 @@ def test_scheduled_job_must_not_silently_switch_domain_revision():
     build, _, _ = builder()
     with pytest.raises(HarvestWorkflowError, match="scheduled_input_stale"):
         build(request(expected_profile_revision=3, expected_domain_revision=6))
+
+
+def test_pubmed_source_builds_frozen_query_input_without_arxiv_categories():
+    pubmed_profile = profile(
+        filters_json='{"allow_preprints":true,"exclude":["noise"],"free_only":false,'
+        '"include":["causal"],"languages":["english"],'
+        '"sources":["arxiv","pubmed"]}'
+    )
+    pubmed_domain = domain(
+        sources=("arxiv", "pubmed"),
+        source_categories=(("arxiv", ("stat.ML",)),),
+    )
+    build, _, _ = builder(
+        profile_value=pubmed_profile,
+        domain_value=pubmed_domain,
+    )
+
+    query_value = build(
+        request(
+            source_id="pubmed",
+            time_basis="createDate",
+            page_size=100,
+            expected_profile_revision=3,
+            expected_domain_revision=7,
+        )
+    )
+
+    assert query_value.source_id == "pubmed"
+    assert query_value.time_basis == "createDate"
+    assert query_value.page_size == 100
+    assert query_value.domain.categories == ()
+    assert query_value.profile_sources == ("arxiv", "pubmed")

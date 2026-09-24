@@ -96,10 +96,7 @@ def test_failed_window_is_left_for_job_store_retry_and_never_rebuilt() -> None:
 
 def test_unsupported_source_is_a_coverage_gap_not_a_fake_success_job() -> None:
     snapshot = SchedulerSnapshot(
-        harvest_bindings=(
-            binding("badminton:pubmed", source="pubmed"),
-            binding("badminton:crossref", source="crossref"),
-        ),
+        harvest_bindings=(binding("badminton:crossref", source="crossref"),),
         delivery_schedules=(),
         known_jobs=(),
         input_gaps=(),
@@ -110,8 +107,44 @@ def test_unsupported_source_is_a_coverage_gap_not_a_fake_success_job() -> None:
     assert plan.jobs == ()
     assert {(gap.identity, gap.reason) for gap in plan.coverage_gaps} == {
         ("badminton:crossref", "source_scheduler_not_supported"),
-        ("badminton:pubmed", "source_scheduler_not_supported"),
     }
+
+
+def test_pubmed_first_window_uses_last_complete_utc_day() -> None:
+    current = datetime(2026, 9, 24, 5, 30, tzinfo=timezone.utc)
+    snapshot = SchedulerSnapshot(
+        harvest_bindings=(binding("badminton:pubmed", source="pubmed"),),
+        delivery_schedules=(),
+        known_jobs=(),
+        input_gaps=(),
+    )
+
+    plan = PlanCatchupJobs()(snapshot, now=current)
+
+    assert len(plan.jobs) == 1
+    payload = PlanCatchupJobs.decode(plan.jobs[0].input_json)
+    assert payload["window_start"] == "2026-09-23T00:00:00+00:00"
+    assert payload["window_end"] == "2026-09-24T00:00:00+00:00"
+
+
+def test_pubmed_does_not_schedule_a_partial_current_utc_day() -> None:
+    current = datetime(2026, 9, 24, 5, 30, tzinfo=timezone.utc)
+    snapshot = SchedulerSnapshot(
+        harvest_bindings=(
+            binding(
+                "badminton:pubmed",
+                source="pubmed",
+                last=datetime(2026, 9, 24, tzinfo=timezone.utc),
+            ),
+        ),
+        delivery_schedules=(),
+        known_jobs=(),
+        input_gaps=(),
+    )
+
+    plan = PlanCatchupJobs()(snapshot, now=current)
+
+    assert plan.jobs == ()
 
 
 def test_daily_digest_catchup_collapses_missed_days_into_one_latest_period() -> None:

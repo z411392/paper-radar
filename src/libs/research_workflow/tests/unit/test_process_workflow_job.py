@@ -6,6 +6,7 @@ from libs.research_workflow.application.commands.process_workflow_job import (
     ProcessWorkflowJob,
 )
 from libs.research_workflow.dtos.harvest_run_result import HarvestRunResult
+from libs.research_workflow.dtos.pubmed_window_run_result import PubmedWindowRunResult
 from libs.research_workflow.dtos.workflow_job import (
     WorkflowJobCompletion,
     WorkflowJobLease,
@@ -232,3 +233,100 @@ def test_connected_prepare_digest_job_completes_without_smtp_dispatch() -> None:
     assert request.cutoff_at == NOW
     assert request.coverage_gaps[0].identity == "badminton:pubmed"
     assert store.completed[0].state == "succeeded"
+
+
+def pubmed_payload() -> str:
+    return (
+        '{"binding_key":"personal:3:badminton:1:pubmed",'
+        '"domain_id":"badminton","domain_revision":1,'
+        '"profile_id":"personal","profile_revision":3,"source_id":"pubmed",'
+        '"window_end":"2026-09-24T00:00:00+00:00",'
+        '"window_start":"2026-09-23T00:00:00+00:00"}'
+    )
+
+
+def test_pubmed_without_commissioning_waits_without_building_query() -> None:
+    store = Store(lease("harvest_window", pubmed_payload()))
+    builder = Mock()
+    command = ProcessWorkflowJob(
+        store=store,
+        builder=builder,
+        harvest=Mock(),
+        clock=Clock(),
+        live_source_enabled=True,
+        pubmed=None,
+    )
+
+    result = command("worker:test", lease_seconds=60)
+
+    assert result.state == "awaiting_external"
+    assert store.completed[0].error_code == "pubmed_live_source_not_authorized"
+    builder.assert_not_called()
+
+
+def test_pubmed_job_uses_create_date_and_one_page_per_workflow_attempt() -> None:
+    store = Store(lease("harvest_window", pubmed_payload()))
+    query_value = object()
+    builder = Mock(return_value=query_value)
+    pubmed = Mock(
+        return_value=PubmedWindowRunResult(
+            "succeeded",
+            "complete",
+            2,
+            1,
+            1,
+            1,
+        )
+    )
+    command = ProcessWorkflowJob(
+        store=store,
+        builder=builder,
+        harvest=Mock(),
+        clock=Clock(),
+        live_source_enabled=True,
+        pubmed=pubmed,
+    )
+
+    result = command("worker:test", lease_seconds=60)
+
+    request_value = builder.call_args.args[0]
+    assert request_value.source_id == "pubmed"
+    assert request_value.time_basis == "createDate"
+    assert request_value.page_size == 100
+    assert request_value.expected_profile_revision == 3
+    assert request_value.expected_domain_revision == 1
+    pubmed.assert_called_once_with(
+        "business:test",
+        query_value,
+        max_pages=1,
+    )
+    assert result.state == "succeeded"
+
+
+def test_pubmed_page_budget_releases_lease_for_freshness_recheck() -> None:
+    store = Store(lease("harvest_window", pubmed_payload()))
+    pubmed = Mock(
+        return_value=PubmedWindowRunResult(
+            "pending",
+            "page_budget",
+            2,
+            1,
+            100,
+            200,
+        )
+    )
+    command = ProcessWorkflowJob(
+        store=store,
+        builder=Mock(return_value=object()),
+        harvest=Mock(),
+        clock=Clock(),
+        live_source_enabled=True,
+        pubmed=pubmed,
+    )
+
+    result = command("worker:test", lease_seconds=60)
+
+    assert result.state == "failed"
+    completion = store.completed[0]
+    assert completion.error_code == "pubmed_page_budget"
+    assert completion.next_due_at == NOW + timedelta(minutes=1, seconds=2)
