@@ -70,8 +70,12 @@ class RunPubmedHarvestWindow:
         progress = self._store.ensure(plan, started_at)
         search_fetches = 0
         bibliography_fetches = 0
+        iterations = 0
+        # Reading/claim races must also be bounded even when no HTTP batch is fetched.
+        maximum_iterations = max_batches * 2 + 1
 
-        while bibliography_fetches < max_batches:
+        while bibliography_fetches < max_batches and iterations < maximum_iterations:
+            iterations += 1
             progress = self._store.read(plan)
             if progress.state in {"succeeded", "verified_empty", "unavailable"}:
                 return PubmedHarvestRunResult(
@@ -110,6 +114,11 @@ class RunPubmedHarvestWindow:
                 maximum_batch_size=100,
             )
             if pending is None:
+                latest = self._store.read(plan)
+                if latest == progress:
+                    raise HarvestError("pubmed_harvest_no_progress")
+                # Another worker may have completed the page since our earlier read.
+                # Re-read on the next bounded iteration rather than guessing success.
                 continue
             request = self._source.bibliography_request(pending.pmids)
             response = self._response(self._transport.get(request))
