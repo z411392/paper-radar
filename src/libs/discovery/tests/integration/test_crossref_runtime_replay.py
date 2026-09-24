@@ -133,7 +133,7 @@ def test_runtime_v11_replays_durable_receipt_after_decode_crash_without_refetch(
     root = tmp_path / "workspace"
     migrations = load_workspace_migrations(with_runtime=True)
     info = SqliteWorkspaceBootstrapAdapter(root, migrations).initialize()
-    assert info.schema_version == 13
+    assert info.schema_version == len(migrations)
     assert info.external_effects_enabled is False
 
     schema = SqliteSchemaConnectionFactory(root, migrations, minimum_version=11)
