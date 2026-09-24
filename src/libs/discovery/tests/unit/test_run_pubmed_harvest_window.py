@@ -78,15 +78,22 @@ def test_orchestrates_search_then_bibliography_outside_store_calls() -> None:
     objects = Mock(side_effect=lambda body, *_: object_ref(body))
     store = Mock()
     store.ensure.return_value = state()
-    store.read.side_effect = [
-        state(),
-        state(page_start=0, pmids=("100",)),
-        state(status="succeeded", next_start=1),
-    ]
-    store.save_search.return_value = state(page_start=0, pmids=("100",))
+    store.read.return_value = state()
+
+    def save_search(*_):
+        store.read.return_value = state(page_start=0, pmids=("100",))
+        return store.read.return_value
+
+    def save_bibliography(*_):
+        store.read.return_value = state(status="succeeded", next_start=1)
+        return store.read.return_value
+
+    # A successful write changes the next authoritative read, just like the SQLite store.
+    # Do not replay an old pre-write state after the complete bibliography has committed.
+    store.save_search.side_effect = save_search
     pending = PendingPubmedBatch("unit:test", 0, 0, ("100",))
     store.next_batch.return_value = pending
-    store.save_bibliography.return_value = state(status="succeeded", next_start=1)
+    store.save_bibliography.side_effect = save_bibliography
 
     result = RunPubmedHarvestWindow(source, transport, objects, store)(
         Mock(),
