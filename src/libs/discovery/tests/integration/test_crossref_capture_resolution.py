@@ -12,14 +12,14 @@ from threading import Barrier
 
 import pytest
 
-from libs.discovery.tests.integration.test_crossref_claimed_attachment import Fixture, NOW
-from libs.discovery.dtos.crossref_capture_resolution import CrossrefCaptureResolution
+from libs.discovery.adapters.driven.crossref_source_adapter import CrossrefSourceAdapter
 from libs.discovery.application.commands.resolve_claimed_crossref_capture import (
     ResolveClaimedCrossrefCapture,
 )
-from libs.discovery.adapters.driven.crossref_source_adapter import CrossrefSourceAdapter
+from libs.discovery.dtos.crossref_capture_resolution import CrossrefCaptureResolution
 from libs.discovery.exceptions.crossref_attachment_error import CrossrefAttachmentError
 from libs.discovery.exceptions.crossref_capture_claim_error import CrossrefCaptureClaimError
+from libs.discovery.tests.integration.test_crossref_claimed_attachment import Fixture, NOW
 
 
 @pytest.fixture

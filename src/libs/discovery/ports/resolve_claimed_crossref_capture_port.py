@@ -1,4 +1,3 @@
-from datetime import datetime
 from typing import Protocol
 
 from libs.discovery.dtos.crossref_capture_claim import CrossrefCaptureClaim
