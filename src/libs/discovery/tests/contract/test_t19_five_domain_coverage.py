@@ -120,7 +120,9 @@ def test_pubmed_efetch_parses_bibliography_but_pmc_remains_separate() -> None:
       <PMID Version="1">12345678</PMID>
       <Article>
         <Journal>
-          <JournalIssue CitedMedium="Internet"><PubDate><Year>2026</Year><Month>Sep</Month><Day>20</Day></PubDate></JournalIssue>
+          <JournalIssue CitedMedium="Internet">
+            <PubDate><Year>2026</Year><Month>Sep</Month><Day>20</Day></PubDate>
+          </JournalIssue>
           <Title>Sports Science</Title>
         </Journal>
         <ArticleTitle>Badminton biomechanics</ArticleTitle>
@@ -176,7 +178,9 @@ def test_pmc_oai_full_text_requires_exact_identity_and_keeps_license_evidence() 
 <OAI-PMH xmlns="http://www.openarchives.org/OAI/2.0/"
          xmlns:xlink="http://www.w3.org/1999/xlink">
   <responseDate>2026-09-24T00:00:00Z</responseDate>
-  <request verb="GetRecord" identifier="oai:pubmedcentral.nih.gov:PMC9999999" metadataPrefix="pmc">https://pmc.ncbi.nlm.nih.gov/api/oai/v1/mh/</request>
+  <request verb="GetRecord"
+           identifier="oai:pubmedcentral.nih.gov:PMC9999999"
+           metadataPrefix="pmc">https://pmc.ncbi.nlm.nih.gov/api/oai/v1/mh/</request>
   <GetRecord><record>
     <header>
       <identifier>oai:pubmedcentral.nih.gov:PMC9999999</identifier>
