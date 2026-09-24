@@ -253,9 +253,6 @@ class HarvestRunCliModule(Module):
         self._workspace = workspace
         self._rate_limit_state = rate_limit_state
         self._transport = transport
-        self._ncbi_email = ncbi_email
-        self._ncbi_rate_limit_state = ncbi_rate_limit_state
-        self._ncbi_transport = ncbi_transport
 
     def configure(self, binder: Binder) -> None:
         root, connection, store, compiler = _harvest_configuration(binder, self._workspace)
@@ -288,6 +285,9 @@ class WorkerCliModule(Module):
         self._allow_live_source = allow_live_source
         self._rate_limit_state = rate_limit_state
         self._transport = transport
+        self._ncbi_email = ncbi_email
+        self._ncbi_rate_limit_state = ncbi_rate_limit_state
+        self._ncbi_transport = ncbi_transport
 
     def configure(self, binder: Binder) -> None:
         root = Path(self._workspace)
