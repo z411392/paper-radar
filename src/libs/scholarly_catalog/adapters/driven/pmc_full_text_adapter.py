@@ -53,7 +53,8 @@ class PmcFullTextAdapter:
             normalized = NormalizePaperIdentifier()("pmc", pmcid)
         except PaperIdentityError as exc:
             raise SourceParseError("invalid_pmc_identifier") from exc
-        identifier = "oai:pubmedcentral.nih.gov:" + normalized.normalized_value
+        numeric = normalized.normalized_value.removeprefix("PMC")
+        identifier = "oai:pubmedcentral.nih.gov:" + numeric
         parameters = (
             ("verb", "GetRecord"),
             ("identifier", identifier),
@@ -105,8 +106,10 @@ class PmcFullTextAdapter:
         if len(values) != 1 or not values[0].startswith("oai:pubmedcentral.nih.gov:"):
             raise SourceParseError("invalid_page_request", digest)
         raw = values[0].rsplit(":", 1)[-1]
+        if re.fullmatch(r"[0-9]{1,10}", raw) is None:
+            raise SourceParseError("invalid_page_request", digest)
         try:
-            return NormalizePaperIdentifier()("pmc", raw).normalized_value
+            return NormalizePaperIdentifier()("pmc", "PMC" + raw).normalized_value
         except PaperIdentityError:
             raise SourceParseError("invalid_page_request", digest) from None
 
@@ -206,7 +209,10 @@ class PmcFullTextAdapter:
         if header is None or metadata is None:
             raise SourceParseError("invalid_pmc_oai", digest)
         identifier = self._text(self._first_descendant(header, "identifier"))
-        if identifier != "oai:pubmedcentral.nih.gov:" + pmcid:
+        expected_identifier = (
+            "oai:pubmedcentral.nih.gov:" + pmcid.removeprefix("PMC")
+        )
+        if identifier != expected_identifier:
             raise SourceParseError("pmc_identity_mismatch", digest)
         sets = [
             self._text(node)
