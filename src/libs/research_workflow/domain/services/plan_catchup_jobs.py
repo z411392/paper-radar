@@ -17,7 +17,7 @@ from libs.research_workflow.exceptions.workflow_job_error import WorkflowJobErro
 
 class PlanCatchupJobs:
     HARVEST_INTERVAL = timedelta(hours=24)
-    SUPPORTED_SOURCES = frozenset({"arxiv"})
+    SUPPORTED_SOURCES = frozenset({"arxiv", "pubmed"})
 
     @staticmethod
     def _instant(value: object, code: str) -> datetime:
@@ -219,7 +219,31 @@ class PlanCatchupJobs:
                     blocks_digest = True
                 continue
 
-            if schedule.last_succeeded_window_end is None:
+            if schedule.source_id == "pubmed":
+                boundary = current.replace(
+                    hour=0,
+                    minute=0,
+                    second=0,
+                    microsecond=0,
+                )
+                if schedule.last_succeeded_window_end is None:
+                    window_end = boundary
+                else:
+                    last = self._instant(
+                        schedule.last_succeeded_window_end,
+                        "invalid_harvest_window",
+                    )
+                    if (
+                        last.hour
+                        or last.minute
+                        or last.second
+                        or last.microsecond
+                    ):
+                        raise WorkflowJobError("invalid_harvest_window")
+                    if last + self.HARVEST_INTERVAL > boundary:
+                        continue
+                    window_end = last + self.HARVEST_INTERVAL
+            elif schedule.last_succeeded_window_end is None:
                 window_end = current
             else:
                 last = self._instant(

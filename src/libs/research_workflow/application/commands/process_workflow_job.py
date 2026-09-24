@@ -5,7 +5,9 @@ from libs.delivery.dtos.scheduled_digest import DigestCoverageGap, ScheduledDige
 from libs.delivery.exceptions.scheduled_digest_error import ScheduledDigestError
 from libs.delivery.ports.prepare_scheduled_digest_port import PrepareScheduledDigestPort
 from libs.discovery.exceptions.harvest_error import HarvestError
+from libs.discovery.exceptions.pubmed_window_error import PubmedWindowError
 from libs.discovery.exceptions.source_fetch_error import SourceFetchError
+from libs.discovery.exceptions.source_parse_error import SourceParseError
 from libs.discovery.exceptions.source_query_error import SourceQueryError
 from libs.research_workflow.dtos.harvest_query_request import HarvestQueryRequest
 from libs.research_workflow.dtos.worker import WorkflowJobProcessResult
@@ -14,8 +16,10 @@ from libs.research_workflow.exceptions.harvest_workflow_error import HarvestWork
 from libs.research_workflow.exceptions.workflow_job_error import WorkflowJobError
 from libs.research_workflow.ports.build_harvest_query_input_port import BuildHarvestQueryInputPort
 from libs.research_workflow.ports.run_harvest_slice_port import RunHarvestSlicePort
+from libs.research_workflow.ports.run_pubmed_window_port import RunPubmedWindowPort
 from libs.research_workflow.ports.workflow_clock_port import WorkflowClockPort
 from libs.research_workflow.ports.workflow_job_store_port import WorkflowJobStorePort
+from libs.scholarly_catalog.exceptions.paper_identity_error import PaperIdentityError
 
 
 class ProcessWorkflowJob:
@@ -39,6 +43,7 @@ class ProcessWorkflowJob:
         clock: WorkflowClockPort,
         live_source_enabled: bool,
         digest: PrepareScheduledDigestPort | None = None,
+        pubmed: RunPubmedWindowPort | None = None,
     ) -> None:
         self._store = store
         self._builder = builder
@@ -46,6 +51,7 @@ class ProcessWorkflowJob:
         self._clock = clock
         self._live_source_enabled = live_source_enabled
         self._digest = digest
+        self._pubmed = pubmed
 
     @staticmethod
     def _instant(value: object) -> datetime:
@@ -131,16 +137,7 @@ class ProcessWorkflowJob:
             error_code,
         )
 
-    def _harvest_job(self, lease) -> WorkflowJobProcessResult:
-        harvest = self._harvest
-        if not self._live_source_enabled or harvest is None:
-            return self._defer(
-                lease,
-                error_code="live_source_not_authorized",
-                delay=timedelta(hours=1),
-                state="awaiting_external",
-            )
-        data = self._payload(lease.input_json)
+    def _harvest_request(self, data: dict) -> HarvestQueryRequest:
         required = {
             "binding_key",
             "profile_id",
@@ -158,20 +155,109 @@ class ProcessWorkflowJob:
             or type(data["profile_revision"]) is not int
             or not isinstance(data["domain_id"], str)
             or type(data["domain_revision"]) is not int
-            or not isinstance(data["source_id"], str)
+            or data["source_id"] not in {"arxiv", "pubmed"}
         ):
             raise WorkflowJobError("invalid_job_payload")
-        request = HarvestQueryRequest(
+        is_pubmed = data["source_id"] == "pubmed"
+        return HarvestQueryRequest(
             profile_id=data["profile_id"],
             domain_id=data["domain_id"],
             window_start=self._instant(data["window_start"]),
             window_end=self._instant(data["window_end"]),
             source_id=data["source_id"],
             deferred_mode="defer",
-            page_size=200,
+            time_basis="createDate" if is_pubmed else "submittedDate",
+            page_size=100 if is_pubmed else 200,
             expected_profile_revision=data["profile_revision"],
             expected_domain_revision=data["domain_revision"],
         )
+
+    def _pubmed_job(
+        self,
+        lease,
+        request: HarvestQueryRequest,
+    ) -> WorkflowJobProcessResult:
+        runner = self._pubmed
+        if not self._live_source_enabled or runner is None:
+            return self._defer(
+                lease,
+                error_code="pubmed_live_source_not_authorized",
+                delay=timedelta(hours=1),
+                state="awaiting_external",
+            )
+        try:
+            query = self._builder(request)
+            result = runner(
+                lease.business_key,
+                query,
+                max_pages=1,
+            )
+        except HarvestWorkflowError as exc:
+            if exc.code in self._STALE_CODES:
+                return self._complete(
+                    lease,
+                    state="cancelled",
+                    error_code=exc.code,
+                    next_due_at=None,
+                )
+            return self._defer(
+                lease,
+                error_code=exc.code,
+                delay=timedelta(minutes=5),
+            )
+        except SourceFetchError as exc:
+            if exc.retryable:
+                delay = (
+                    timedelta(seconds=max(1.0, exc.retry_after_seconds))
+                    if exc.retry_after_seconds is not None
+                    else timedelta(minutes=5)
+                )
+                return self._defer(
+                    lease,
+                    error_code=exc.code,
+                    delay=delay,
+                )
+            return self._defer(
+                lease,
+                error_code=exc.code,
+                delay=timedelta(hours=1),
+                state="awaiting_external",
+            )
+        except (SourceParseError, PubmedWindowError, PaperIdentityError) as exc:
+            return self._defer(
+                lease,
+                error_code=exc.code,
+                delay=timedelta(hours=1),
+                state="awaiting_external",
+            )
+
+        if result.stop_reason == "complete":
+            return self._complete(
+                lease,
+                state="succeeded",
+                error_code=None,
+                next_due_at=None,
+            )
+        return self._defer(
+            lease,
+            error_code="pubmed_" + result.stop_reason,
+            delay=timedelta(minutes=1),
+        )
+
+    def _harvest_job(self, lease) -> WorkflowJobProcessResult:
+        data = self._payload(lease.input_json)
+        request = self._harvest_request(data)
+        if request.source_id == "pubmed":
+            return self._pubmed_job(lease, request)
+
+        harvest = self._harvest
+        if not self._live_source_enabled or harvest is None:
+            return self._defer(
+                lease,
+                error_code="live_source_not_authorized",
+                delay=timedelta(hours=1),
+                state="awaiting_external",
+            )
         try:
             query = self._builder(request)
             result = harvest(query, max_pages=10, retry_failed=True)
