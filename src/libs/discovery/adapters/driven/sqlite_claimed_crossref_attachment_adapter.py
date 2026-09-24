@@ -116,11 +116,32 @@ class SqliteClaimedCrossrefAttachmentAdapter:
         return row, inbox['staged_us']
 
     @staticmethod
-    def _existing(connection, claim, stored, expected):
+    def _existing(
+        connection, claim, stored, expected, claim_row, staged_us, *, attached_us: int | None = None,
+    ):
         row = connection.execute('SELECT * FROM crossref_harvest_page_attempts WHERE receipt_id=?',
                                  (stored.receipt_id,)).fetchone()
         if row is None:
             return None
+        # Historical replay validates the original authority interval, not today's lease.
+        # A different timezone representation of the same instant remains valid.
+        try:
+            recorded_us = InboxRules.instant_us(datetime.fromisoformat(row['recorded_at']))
+        except (ValueError, TypeError, OverflowError, CrossrefCaptureInboxError) as exc:
+            raise Error('crossref_attachment_outcome_conflict') from exc
+        dispatched_us = claim_row['dispatched_us']
+        if (type(dispatched_us) is not int or type(staged_us) is not int
+                or not max(claim_row['reserved_us'], dispatched_us, staged_us)
+                <= recorded_us < claim_row['lease_until_us']
+                or (attached_us is not None and recorded_us != attached_us)):
+            raise Error('crossref_attachment_outcome_conflict')
+        # This first-attempt protocol cannot legitimate an additional unexplained row.
+        count = connection.execute(
+            'SELECT count(*) FROM crossref_harvest_page_attempts WHERE page_id=?',
+            (claim.page_id,),
+        ).fetchone()[0]
+        if count != 1:
+            raise Error('crossref_attachment_outcome_conflict')
         expected_id = 'crossref-attempt:' + Rules.sha(Rules.canonical(
             (claim.page_id, 1, stored.receipt_id),
         ))
@@ -139,11 +160,19 @@ class SqliteClaimedCrossrefAttachmentAdapter:
             or page['state'] not in {'captured', 'decoded', 'accounted'}
         ):
             raise Error('crossref_attachment_outcome_conflict')
+        if row['action'] != 'accept' and (
+            page['state'] != 'requested' or page['successful_receipt_id'] is not None
+            or page['last_error_code'] != row['failure_code']
+        ):
+            raise Error('crossref_attachment_outcome_conflict')
         return CrossrefAttachment(claim.claim_id, claim.page_id, stored.receipt_id,
                                   row['id'], row['action'], row['failure_code'], True)
 
     @staticmethod
-    def _active(connection, claim, row, staged_us, now_us):
+    def _active(
+        connection, claim, row, staged_us, now_us, *,
+        attached: CrossrefStoredCapture | None = None, expected: CrossrefRateDecision | None = None,
+    ):
         if (type(row['dispatched_us']) is not int or now_us < max(row['dispatched_us'], staged_us)
                 or now_us >= row['lease_until_us']):
             raise Error('crossref_attachment_lease_invalid')
@@ -162,8 +191,7 @@ class SqliteClaimedCrossrefAttachmentAdapter:
                 or state['parameters_fingerprint'] != claim.request.parameters_fingerprint
                 or state['current_cursor'] != claim.request.cursor or page is None
                 or page['pass_id'] != claim.pass_id or page['page_no'] != state['next_page_no']
-                or page['cursor_in'] != claim.request.cursor or page['state'] != 'requested'
-                or page['successful_receipt_id'] is not None
+                or page['cursor_in'] != claim.request.cursor
                 or page['request_fingerprint'] != claim.request.request_fingerprint):
             raise Error('crossref_attachment_page_not_active')
         if connection.execute('SELECT 1 FROM crossref_window_splits WHERE parent_window_id=?',
@@ -177,15 +205,28 @@ class SqliteClaimedCrossrefAttachmentAdapter:
                 raise Error('crossref_attachment_page_not_active')
         elif state['window_state'] != 'running':
             raise Error('crossref_attachment_page_not_active')
-        if connection.execute('SELECT 1 FROM crossref_harvest_page_attempts WHERE page_id=? LIMIT 1',
-                              (claim.page_id,)).fetchone() is not None:
-            raise Error('crossref_attachment_outcome_conflict')
+        if attached is None:
+            if page['state'] != 'requested' or page['successful_receipt_id'] is not None:
+                raise Error('crossref_attachment_page_not_active')
+            if connection.execute('SELECT 1 FROM crossref_harvest_page_attempts WHERE page_id=? LIMIT 1',
+                                  (claim.page_id,)).fetchone() is not None:
+                raise Error('crossref_attachment_outcome_conflict')
+        else:
+            if expected is None:
+                raise Error('crossref_attachment_decision_mismatch')
+            success = expected.action == 'accept'
+            if (page['state'] != ('captured' if success else 'requested')
+                    or page['successful_receipt_id'] != (attached.receipt_id if success else None)
+                    or page['last_error_code'] != expected.failure_code):
+                raise Error('crossref_attachment_outcome_conflict')
 
-    def replay(self, claim: CrossrefCaptureClaim, stored: CrossrefStoredCapture) -> CrossrefAttachment | None:
+    def replay(
+        self, claim: CrossrefCaptureClaim, stored: CrossrefStoredCapture,
+    ) -> CrossrefAttachment | None:
         proof = self._evidence(claim, stored)
         with self._transaction(write=False) as connection:
-            self._proof(connection, claim, stored, proof)
-            return self._existing(connection, claim, stored, proof[3])
+            row, staged_us = self._proof(connection, claim, stored, proof)
+            return self._existing(connection, claim, stored, proof[3], row, staged_us)
 
     def attach(self, claim: CrossrefCaptureClaim, stored: CrossrefStoredCapture,
                decision: CrossrefRateDecision, *, attached_at: datetime) -> CrossrefAttachment:
@@ -200,7 +241,7 @@ class SqliteClaimedCrossrefAttachmentAdapter:
             raise Error('invalid_crossref_attachment_time') from exc
         with self._transaction(write=True) as connection:
             row, staged_us = self._proof(connection, claim, stored, proof)
-            prior = self._existing(connection, claim, stored, expected)
+            prior = self._existing(connection, claim, stored, expected, row, staged_us)
             if prior is not None:
                 return prior
             self._active(connection, claim, row, staged_us, now_us)
@@ -208,10 +249,13 @@ class SqliteClaimedCrossrefAttachmentAdapter:
             attempt_id = 'crossref-attempt:' + Rules.sha(Rules.canonical(
                 (claim.page_id, attempt_no, stored.receipt_id),
             ))
-            connection.execute('INSERT INTO crossref_harvest_page_attempts VALUES(?,?,?,?,?,?,?)', (
-                attempt_id, claim.page_id, attempt_no, stored.receipt_id, decision.action,
-                decision.failure_code, Rules.instant(attached_at).isoformat(),
-            ))
+            inserted = connection.execute(
+                'INSERT INTO crossref_harvest_page_attempts VALUES(?,?,?,?,?,?,?)',
+                (attempt_id, claim.page_id, attempt_no, stored.receipt_id, decision.action,
+                 decision.failure_code, Rules.instant(attached_at).isoformat()),
+            ).rowcount
+            if inserted != 1:
+                raise Error('crossref_attachment_outcome_conflict')
             if decision.action == 'accept':
                 changed = connection.execute("UPDATE crossref_harvest_pages SET state='captured',"
                     'successful_receipt_id=?,last_error_code=NULL WHERE id=? AND state=\'requested\'',
@@ -221,5 +265,14 @@ class SqliteClaimedCrossrefAttachmentAdapter:
                     "WHERE id=? AND state='requested'", (decision.failure_code, claim.page_id)).rowcount
             if changed != 1:
                 raise Error('crossref_attachment_page_not_active')
+            # A statement count is not a proof of the final joined state. Re-read inside
+            # the same writer transaction; any inconsistency rolls back both writes.
+            final_claim, final_staged = self._proof(connection, claim, stored, proof)
+            self._active(connection, claim, final_claim, final_staged, now_us,
+                         attached=stored, expected=expected)
+            verified = self._existing(connection, claim, stored, expected, final_claim, final_staged,
+                                      attached_us=now_us)
+            if verified is None or verified.attempt_id != attempt_id:
+                raise Error('crossref_attachment_outcome_conflict')
             return CrossrefAttachment(claim.claim_id, claim.page_id, stored.receipt_id,
                                       attempt_id, decision.action, decision.failure_code, False)
