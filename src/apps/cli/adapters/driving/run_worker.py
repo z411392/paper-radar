@@ -13,6 +13,8 @@ from uuid import uuid4
 from injector import Injector
 
 from apps.cli.module import WorkerCliModule
+from libs.discovery.exceptions.source_fetch_error import SourceFetchError
+from libs.discovery.exceptions.source_query_error import SourceQueryError
 from libs.kernel.exceptions.storage_error import StorageError
 from libs.research_workflow.exceptions.workflow_job_error import WorkflowJobError
 from libs.research_workflow.ports.run_worker_cycle_port import RunWorkerCyclePort
@@ -132,8 +134,13 @@ def run_worker_cli(argv: list[str]) -> None:
         if arguments.ncbi_api_key is not None or arguments.ncbi_rate_limit_state is not None:
             parser.error("--ncbi-email is required for NCBI options")
     else:
-        if not arguments.ncbi_email.strip() or "\0" in arguments.ncbi_email:
-            parser.error("--ncbi-email must be a non-empty value without NUL characters")
+        if (
+            not arguments.ncbi_email.strip()
+            or "\0" in arguments.ncbi_email
+            or arguments.ncbi_email.count("@") != 1
+            or any(char.isspace() for char in arguments.ncbi_email)
+        ):
+            parser.error("--ncbi-email must be a single non-whitespace email value")
         if arguments.ncbi_rate_limit_state is None:
             parser.error("--ncbi-rate-limit-state is required with --ncbi-email")
         if (
@@ -141,6 +148,11 @@ def run_worker_cli(argv: list[str]) -> None:
             or not Path(arguments.ncbi_rate_limit_state).is_absolute()
         ):
             parser.error("--ncbi-rate-limit-state must be an absolute path without NUL characters")
+        if arguments.ncbi_api_key is not None and (
+            not arguments.ncbi_api_key
+            or any(char.isspace() or ord(char) < 33 or ord(char) == 127 for char in arguments.ncbi_api_key)
+        ):
+            parser.error("--ncbi-api-key must be a non-whitespace token")
 
     owner_id = "worker:" + uuid4().hex
     try:
@@ -181,4 +193,7 @@ def run_worker_cli(argv: list[str]) -> None:
         raise SystemExit(1) from None
     except WorkflowJobError as exc:
         _error(str(exc))
+        raise SystemExit(1) from None
+    except (SourceQueryError, SourceFetchError) as exc:
+        _error(exc.code)
         raise SystemExit(1) from None
