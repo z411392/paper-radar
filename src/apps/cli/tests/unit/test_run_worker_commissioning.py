@@ -1,5 +1,3 @@
-import pytest
-
 from apps.cli.adapters.driving.run_worker import _parser
 
 
