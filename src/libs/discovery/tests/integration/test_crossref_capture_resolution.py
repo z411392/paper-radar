@@ -331,3 +331,111 @@ def test_resolution_requires_existing_outcome_even_with_damaged_attempt_id(f):
     with pytest.raises(CrossrefAttachmentError):
         resolve(f)
     assert f.sql('SELECT * FROM crossref_capture_resolutions') == []
+
+
+def test_released_unused_retry_reservation_keeps_prior_retry_authority(f):
+    f.stage(status=503)
+    f.attach()
+    first = resolve(f)
+    second = reserve(f, first.retry_not_before, owner='worker:reserved')
+    f.claims.release(second, now=first.retry_not_before)
+    third = reserve(
+        f,
+        first.retry_not_before + timedelta(seconds=1),
+        owner='worker:third',
+    )
+
+    assert third.fencing_token == 3
+    f.claims.begin_dispatch(
+        third,
+        now=first.retry_not_before + timedelta(seconds=1),
+    )
+    assert f.claims.read(third.claim_id).state == 'dispatching'
+
+
+def test_expired_unused_retry_reservation_keeps_prior_retry_authority(f):
+    f.stage(status=503)
+    f.attach()
+    first = resolve(f)
+    second = reserve(f, first.retry_not_before, owner='worker:reserved')
+    third_at = first.retry_not_before + timedelta(seconds=61)
+    third = reserve(f, third_at, owner='worker:third')
+
+    assert f.claims.read(second.claim_id).state == 'expired'
+    assert third.fencing_token == 3
+    f.claims.begin_dispatch(third, now=third_at)
+    assert f.claims.read(third.claim_id).state == 'dispatching'
+
+
+def test_historical_failure_attachment_replays_after_later_success(f):
+    f.stage(status=503)
+    first_claim = f.claim
+    first_stored = f.stored
+    first_decision = f.decision
+    first_attachment = f.attach()
+    first_resolution = resolve(f)
+
+    second = reserve(f, first_resolution.retry_not_before)
+    f.claims.begin_dispatch(second, now=first_resolution.retry_not_before)
+    f.claim = second
+    capture = replace(
+        first_stored.capture,
+        status=200,
+        headers=(),
+        received_at=first_resolution.retry_not_before,
+    )
+    f.inbox.stage(second, capture, staged_at=first_resolution.retry_not_before)
+    f.stored = f.publisher(second)
+    from libs.discovery.domain.services.crossref_rate_policy import CrossrefRatePolicy
+    f.decision = CrossrefRatePolicy().evaluate(
+        200,
+        (),
+        now=first_resolution.retry_not_before,
+    )
+    f.store.attach(
+        second,
+        f.stored,
+        f.decision,
+        attached_at=first_resolution.retry_not_before,
+    )
+    resolve(f, first_resolution.retry_not_before)
+
+    replay = f.store.attach(
+        first_claim,
+        first_stored,
+        first_decision,
+        attached_at=first_resolution.retry_not_before + timedelta(days=1),
+    )
+
+    assert replay.replayed
+    assert replay.attempt_id == first_attachment.attempt_id
+
+
+def test_unexplained_later_attempt_still_blocks_historical_replay(f):
+    f.stage(status=503)
+    first_claim = f.claim
+    first_stored = f.stored
+    first_decision = f.decision
+    first = f.attach()
+    resolve(f)
+    f.sql(
+        'INSERT INTO crossref_harvest_page_attempts VALUES(?,?,?,?,?,?,?)',
+        (
+            'unexplained',
+            first_claim.page_id,
+            2,
+            'raw:' + 'f' * 64,
+            'retry',
+            'crossref_server_error',
+            NOW.isoformat(),
+        ),
+    )
+
+    with pytest.raises(CrossrefAttachmentError, match='outcome_conflict'):
+        f.store.attach(
+            first_claim,
+            first_stored,
+            first_decision,
+            attached_at=NOW + timedelta(days=1),
+        )
+    assert first.attempt_id != 'unexplained'

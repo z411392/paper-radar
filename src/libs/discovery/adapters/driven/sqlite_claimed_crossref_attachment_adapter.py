@@ -183,8 +183,13 @@ class SqliteClaimedCrossrefAttachmentAdapter:
             or page['state'] not in {'captured', 'decoded', 'accounted'}
         ):
             raise Error('crossref_attachment_outcome_conflict')
-        if row['action'] != 'accept' and (
-            page['state'] != 'requested' or page['successful_receipt_id'] is not None
+        latest_attempt_no = connection.execute(
+            'SELECT MAX(attempt_no) FROM crossref_harvest_page_attempts WHERE page_id=?',
+            (claim.page_id,),
+        ).fetchone()[0]
+        if row['action'] != 'accept' and row['attempt_no'] == latest_attempt_no and (
+            page['state'] != 'requested'
+            or page['successful_receipt_id'] is not None
             or page['last_error_code'] != row['failure_code']
         ):
             raise Error('crossref_attachment_outcome_conflict')
