@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock
 
 import pytest
 
@@ -75,9 +75,9 @@ def test_rate_limited_wrapper_defers_retry_after() -> None:
     transport = Mock()
     transport.get.return_value = response
     lease = Mock()
-    manager = Mock()
-    manager.__enter__ = Mock(return_value=lease)
-    manager.__exit__ = Mock(return_value=False)
+    manager = MagicMock()
+    manager.__enter__.return_value = lease
+    manager.__exit__.return_value = False
     gate = Mock()
     gate.slot.return_value = manager
 

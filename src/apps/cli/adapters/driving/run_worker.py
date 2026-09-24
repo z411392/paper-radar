@@ -56,6 +56,18 @@ def _parser() -> argparse.ArgumentParser:
         "--rate-limit-state",
         help="Absolute path to the shared local arXiv rate-limit state file.",
     )
+    parser.add_argument(
+        "--ncbi-email",
+        help="Contact email sent to NCBI E-utilities when PubMed live access is commissioned.",
+    )
+    parser.add_argument(
+        "--ncbi-api-key",
+        help="Optional NCBI API key; never printed by the worker.",
+    )
+    parser.add_argument(
+        "--ncbi-rate-limit-state",
+        help="Absolute path to the shared local NCBI rate-limit state file.",
+    )
     return parser
 
 
@@ -103,13 +115,32 @@ def run_worker_cli(argv: list[str]) -> None:
     arguments = parser.parse_args(argv[1:])
     if not arguments.workspace.strip() or "\0" in arguments.workspace:
         parser.error("workspace must be a non-empty path")
-    if arguments.allow_live_source:
-        if arguments.rate_limit_state is None:
-            parser.error("--rate-limit-state is required with --allow-live-source")
+    if arguments.rate_limit_state is not None:
+        if not arguments.allow_live_source:
+            parser.error("--rate-limit-state requires --allow-live-source")
         if "\0" in arguments.rate_limit_state or not Path(arguments.rate_limit_state).is_absolute():
             parser.error("--rate-limit-state must be an absolute path without NUL characters")
-    elif arguments.rate_limit_state is not None:
-        parser.error("--rate-limit-state requires --allow-live-source")
+
+    ncbi_values = (
+        arguments.ncbi_email,
+        arguments.ncbi_api_key,
+        arguments.ncbi_rate_limit_state,
+    )
+    if any(value is not None for value in ncbi_values) and not arguments.allow_live_source:
+        parser.error("NCBI options require --allow-live-source")
+    if arguments.ncbi_email is None:
+        if arguments.ncbi_api_key is not None or arguments.ncbi_rate_limit_state is not None:
+            parser.error("--ncbi-email is required for NCBI options")
+    else:
+        if not arguments.ncbi_email.strip() or "\0" in arguments.ncbi_email:
+            parser.error("--ncbi-email must be a non-empty value without NUL characters")
+        if arguments.ncbi_rate_limit_state is None:
+            parser.error("--ncbi-rate-limit-state is required with --ncbi-email")
+        if (
+            "\0" in arguments.ncbi_rate_limit_state
+            or not Path(arguments.ncbi_rate_limit_state).is_absolute()
+        ):
+            parser.error("--ncbi-rate-limit-state must be an absolute path without NUL characters")
 
     owner_id = "worker:" + uuid4().hex
     try:
@@ -119,6 +150,9 @@ def run_worker_cli(argv: list[str]) -> None:
                     arguments.workspace,
                     allow_live_source=arguments.allow_live_source,
                     rate_limit_state=arguments.rate_limit_state,
+                    ncbi_email=arguments.ncbi_email,
+                    ncbi_api_key=arguments.ncbi_api_key,
+                    ncbi_rate_limit_state=arguments.ncbi_rate_limit_state,
                 )
             ],
             auto_bind=False,
