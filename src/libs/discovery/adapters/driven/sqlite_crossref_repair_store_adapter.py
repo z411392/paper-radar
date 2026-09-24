@@ -271,6 +271,38 @@ class SqliteCrossrefRepairStoreAdapter:
                 )
             return tuple(result)
 
+
+    @staticmethod
+    def _repair_retry_allowed(
+        connection: sqlite3.Connection,
+        window_id: str,
+        current: datetime,
+        policy: CrossrefRepairPolicy,
+    ) -> bool:
+        rows = connection.execute(
+            "SELECT state,finished_at FROM crossref_repair_runs "
+            "WHERE window_id=? ORDER BY repair_no DESC",
+            (window_id,),
+        ).fetchall()
+        consecutive = 0
+        latest_failed_at = None
+        for row in rows:
+            if row["state"] != "failed":
+                break
+            if row["finished_at"] is None:
+                raise CrossrefRepairError("crossref_repair_state_corrupt")
+            if latest_failed_at is None:
+                latest_failed_at = Rules.parse_instant(row["finished_at"])
+            consecutive += 1
+        if consecutive >= policy.max_consecutive_failures:
+            raise CrossrefRepairError("crossref_repair_retry_exhausted")
+        if latest_failed_at is None:
+            return True
+        retry_at = latest_failed_at + timedelta(
+            seconds=policy.repair_retry_after_seconds
+        )
+        return current >= retry_at
+
     def list_candidates(
         self,
         plan: CrossrefWindowPlan,
@@ -315,6 +347,13 @@ class SqliteCrossrefRepairStoreAdapter:
             candidates = []
             for row in rows:
                 if row["repair_running"]:
+                    continue
+                if not self._repair_retry_allowed(
+                    connection,
+                    row["id"],
+                    current,
+                    checked,
+                ):
                     continue
                 reason = None
                 if row["state"] == "repair_pending":

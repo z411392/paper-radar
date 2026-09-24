@@ -8,6 +8,8 @@ class CrossrefRepairPolicy:
     lookback_windows: int
     periodic_repair_after_seconds: int
     max_windows: int
+    repair_retry_after_seconds: int = 3600
+    max_consecutive_failures: int = 5
 
 
 @dataclass(frozen=True)

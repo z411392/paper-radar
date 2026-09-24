@@ -126,6 +126,8 @@ class CrossrefRepairRules:
             value.lookback_windows,
             value.periodic_repair_after_seconds,
             value.max_windows,
+            value.repair_retry_after_seconds,
+            value.max_consecutive_failures,
         )
         if any(type(item) is not int for item in fields):
             raise CrossrefRepairError("invalid_crossref_repair_policy")
@@ -134,6 +136,8 @@ class CrossrefRepairRules:
             or not 1 <= value.lookback_windows <= 365
             or not 60 <= value.periodic_repair_after_seconds <= 365 * 86400
             or not 1 <= value.max_windows <= 100
+            or not 60 <= value.repair_retry_after_seconds <= 30 * 86400
+            or not 1 <= value.max_consecutive_failures <= 100
         ):
             raise CrossrefRepairError("invalid_crossref_repair_policy")
         return value

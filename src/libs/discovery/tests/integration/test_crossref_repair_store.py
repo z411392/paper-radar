@@ -325,3 +325,80 @@ def test_failed_repair_never_creates_or_advances_watermark(tmp_path: Path) -> No
             finalized_at=NOW,
             policy=policy(safety_lag_seconds=0),
         )
+
+
+def test_failed_repair_cooldown_prevents_maintenance_hot_loop(tmp_path: Path) -> None:
+    path, journal, store = _setup(tmp_path)
+    plan = _plan(NOW - timedelta(days=3), NOW - timedelta(days=2))
+    window, _ = _completed_window(path, journal, plan, repair_pending=True)
+    repair = store.start_repair(
+        plan,
+        window.window_id,
+        reason="repair_pending",
+        started_at=NOW,
+    )
+    connection = sqlite3.connect(path)
+    connection.execute(
+        "UPDATE crossref_harvest_passes SET state='failed',error_code='timeout',"
+        "finished_at=? WHERE id=?",
+        (NOW.isoformat(), repair.pass_id),
+    )
+    connection.commit()
+    connection.close()
+    store.reconcile_repair(repair.repair_id, NOW)
+
+    early = store.list_candidates(
+        plan,
+        now=NOW + timedelta(minutes=59),
+        policy=policy(repair_retry_after_seconds=3600),
+    )
+    due = store.list_candidates(
+        plan,
+        now=NOW + timedelta(hours=1),
+        policy=policy(repair_retry_after_seconds=3600),
+    )
+
+    assert early == ()
+    assert [(item.window_id, item.reason) for item in due] == [
+        (window.window_id, "repair_pending")
+    ]
+
+
+def test_consecutive_failed_repairs_hit_visible_cap(tmp_path: Path) -> None:
+    path, journal, store = _setup(tmp_path)
+    plan = _plan(NOW - timedelta(days=3), NOW - timedelta(days=2))
+    window, _ = _completed_window(path, journal, plan, repair_pending=True)
+
+    for index in range(2):
+        started = NOW + timedelta(hours=index)
+        repair = store.start_repair(
+            plan,
+            window.window_id,
+            reason="repair_pending",
+            started_at=started,
+        )
+        connection = sqlite3.connect(path)
+        connection.execute(
+            "UPDATE crossref_harvest_passes SET state='failed',"
+            "error_code='timeout',finished_at=? WHERE id=?",
+            ((started + timedelta(minutes=1)).isoformat(), repair.pass_id),
+        )
+        connection.commit()
+        connection.close()
+        store.reconcile_repair(
+            repair.repair_id,
+            started + timedelta(minutes=1),
+        )
+
+    with pytest.raises(
+        CrossrefRepairError,
+        match="crossref_repair_retry_exhausted",
+    ):
+        store.list_candidates(
+            plan,
+            now=NOW + timedelta(days=2),
+            policy=policy(
+                repair_retry_after_seconds=60,
+                max_consecutive_failures=2,
+            ),
+        )
