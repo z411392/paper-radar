@@ -2,6 +2,7 @@ import http.client
 import math
 import ssl
 import time
+import zlib
 from collections.abc import Callable
 from datetime import datetime, timezone
 
@@ -63,7 +64,7 @@ class HttpClientNcbiTransportAdapter:
                 headers={
                     "User-Agent": self._user_agent,
                     "Accept": "application/json, application/xml, text/xml",
-                    "Accept-Encoding": "identity",
+                    "Accept-Encoding": "gzip, deflate",
                     "Connection": "close",
                 },
             )
@@ -99,7 +100,7 @@ class HttpClientNcbiTransportAdapter:
                 for key, value in headers
                 if key == "content-encoding"
             ]
-            if encodings and encodings != ["identity"]:
+            if len(encodings) > 1:
                 return SourceHttpResponse(
                     response.status,
                     b"",
@@ -107,27 +108,85 @@ class HttpClientNcbiTransportAdapter:
                     received,
                     "unsupported_content_encoding",
                 )
-            while True:
-                if self._monotonic() > deadline:
-                    return SourceHttpResponse(
-                        response.status,
-                        bytes(body),
-                        headers,
-                        received,
-                        "source_timeout",
-                    )
-                chunk = response.read1(min(65536, self._limit + 1 - len(body)))
-                if not chunk:
-                    break
-                body.extend(chunk)
-                if len(body) > self._limit:
-                    return SourceHttpResponse(
-                        response.status,
-                        bytes(body[: self._limit]),
-                        headers,
-                        received,
-                        "response_too_large",
-                    )
+            encoding = encodings[0] if encodings else "identity"
+            if encoding not in {"identity", "gzip", "deflate"}:
+                return SourceHttpResponse(
+                    response.status,
+                    b"",
+                    headers,
+                    received,
+                    "unsupported_content_encoding",
+                )
+            decoder = None
+            if encoding == "gzip":
+                decoder = zlib.decompressobj(16 + zlib.MAX_WBITS)
+            elif encoding == "deflate":
+                decoder = zlib.decompressobj(zlib.MAX_WBITS)
+            wire_size = 0
+            try:
+                while True:
+                    if self._monotonic() > deadline:
+                        return SourceHttpResponse(
+                            response.status,
+                            bytes(body),
+                            headers,
+                            received,
+                            "source_timeout",
+                        )
+                    chunk = response.read1(65536)
+                    if not chunk:
+                        break
+                    wire_size += len(chunk)
+                    if wire_size > self._limit:
+                        return SourceHttpResponse(
+                            response.status,
+                            bytes(body),
+                            headers,
+                            received,
+                            "response_too_large",
+                        )
+                    if decoder is None:
+                        decoded = chunk
+                    else:
+                        decoded = decoder.decompress(
+                            chunk,
+                            self._limit + 1 - len(body),
+                        )
+                        if decoder.unconsumed_tail:
+                            return SourceHttpResponse(
+                                response.status,
+                                bytes(body),
+                                headers,
+                                received,
+                                "response_too_large",
+                            )
+                    body.extend(decoded)
+                    if len(body) > self._limit:
+                        return SourceHttpResponse(
+                            response.status,
+                            bytes(body[: self._limit]),
+                            headers,
+                            received,
+                            "response_too_large",
+                        )
+                if decoder is not None:
+                    body.extend(decoder.flush())
+                    if len(body) > self._limit:
+                        return SourceHttpResponse(
+                            response.status,
+                            bytes(body[: self._limit]),
+                            headers,
+                            received,
+                            "response_too_large",
+                        )
+            except zlib.error:
+                return SourceHttpResponse(
+                    response.status,
+                    bytes(body),
+                    headers,
+                    received,
+                    "invalid_content_encoding",
+                )
             return SourceHttpResponse(
                 response.status,
                 bytes(body),
