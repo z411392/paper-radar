@@ -40,7 +40,10 @@ def reserve(f, at=NOW, owner='worker:retry'):
         now=at, lease_seconds=60)
 
 
-@pytest.mark.parametrize('status,action', [(200,'accept'),(403,'stop'),(429,'retry'),(503,'retry'),(302,'stop')])
+@pytest.mark.parametrize(
+    'status,action',
+    [(200,'accept'),(403,'stop'),(429,'retry'),(503,'retry'),(302,'stop')],
+)
 def test_resolution_preserves_claim_and_evidence(f, status, action):
     f.stage(status=status)
     attached = f.attach()
@@ -95,7 +98,10 @@ def test_retry_wait_and_second_attachment_use_new_token_and_attempt(f):
     decision = CrossrefRatePolicy().evaluate(200, (), now=result.retry_not_before)
     second = f.store.attach(next_claim, f.stored, decision, attached_at=result.retry_not_before)
     assert second.attempt_id != first.attempt_id
-    assert [row[0] for row in f.sql('SELECT attempt_no FROM crossref_harvest_page_attempts ORDER BY attempt_no')] == [1,2]
+    attempts = f.sql(
+        'SELECT attempt_no FROM crossref_harvest_page_attempts ORDER BY attempt_no'
+    )
+    assert [row[0] for row in attempts] == [1,2]
     final = resolve(f, result.retry_not_before)
     assert final.action == 'accept'
     assert len(f.sql('SELECT * FROM crossref_capture_inbox')) == 2
@@ -186,7 +192,11 @@ def test_early_direct_sql_claim_is_blocked(f):
     row.update(id='forged:next', fencing_token=2, owner_id='other', state='reserved',
                dispatched_us=None, ended_us=None)
     with pytest.raises(sqlite3.IntegrityError):
-        f.sql('INSERT INTO crossref_capture_claims VALUES('+','.join('?' for _ in row)+')', tuple(row.values()))
+        placeholders = ','.join('?' for _ in row)
+        f.sql(
+            'INSERT INTO crossref_capture_claims VALUES(' + placeholders + ')',
+            tuple(row.values()),
+        )
 
 
 def test_claim_replace_cannot_remove_prior_dispatch(f):

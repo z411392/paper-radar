@@ -68,7 +68,12 @@ class SqliteCrossrefCaptureClaimStoreAdapter:
 
     @staticmethod
     def _hash(*parts: object) -> str:
-        return hashlib.sha256(json.dumps(parts, ensure_ascii=True, separators=(",", ":")).encode()).hexdigest()
+        payload = json.dumps(
+            parts,
+            ensure_ascii=True,
+            separators=(",", ":"),
+        ).encode()
+        return hashlib.sha256(payload).hexdigest()
 
     @contextmanager
     def _transaction(self, *, write: bool = True) -> Iterator[sqlite3.Connection]:
@@ -422,11 +427,16 @@ class SqliteCrossrefCaptureClaimStoreAdapter:
                 "SELECT * FROM crossref_harvest_pages WHERE pass_id=? AND page_no=?",
                 (pass_id, state["next_page_no"]),
             ).fetchone()
-            page_id = "crossref-page:" + self._hash(pass_id, state["next_page_no"], request.request_fingerprint)
+            page_id = "crossref-page:" + self._hash(
+                pass_id,
+                state["next_page_no"],
+                request.request_fingerprint,
+            )
             latest = None
             if page is not None:
                 latest = connection.execute(
-                    "SELECT * FROM crossref_capture_claims WHERE page_id=? ORDER BY fencing_token DESC LIMIT 1",
+                    "SELECT * FROM crossref_capture_claims "
+                    "WHERE page_id=? ORDER BY fencing_token DESC LIMIT 1",
                     (page["id"],),
                 ).fetchone()
                 if latest is None:
@@ -472,7 +482,12 @@ class SqliteCrossrefCaptureClaimStoreAdapter:
             token = 1 if latest is None else latest["fencing_token"] + 1
             if token >= 2**63:
                 raise Error("crossref_claim_token_exhausted")
-            claim_id = "crossref-capture-claim:" + self._hash(page_id, token, expected_workspace_id, expected_epoch)
+            claim_id = "crossref-capture-claim:" + self._hash(
+                page_id,
+                token,
+                expected_workspace_id,
+                expected_epoch,
+            )
             connection.execute(
                 "INSERT INTO crossref_capture_claims "
                 "(id,page_id,pass_id,fencing_token,owner_id,workspace_id,workspace_epoch,request_json,"
@@ -496,7 +511,10 @@ class SqliteCrossrefCaptureClaimStoreAdapter:
                 or type(claim.fencing_token) is not int or claim.fencing_token < 1
                 or type(claim.workspace_epoch) is not int or claim.workspace_epoch < 1):
             raise Error("invalid_crossref_claim_identity")
-        row = connection.execute("SELECT * FROM crossref_capture_claims WHERE id=?", (claim.claim_id,)).fetchone()
+        row = connection.execute(
+            "SELECT * FROM crossref_capture_claims WHERE id=?",
+            (claim.claim_id,),
+        ).fetchone()
         if row is None or replace(self._decode(row), state=claim.state) != claim:
             raise Error("crossref_claim_fenced")
         latest = connection.execute(
@@ -579,7 +597,10 @@ class SqliteCrossrefCaptureClaimStoreAdapter:
     def read(self, claim_id: str) -> CrossrefCaptureClaim:
         self._text(claim_id)
         with self._transaction(write=False) as connection:
-            row = connection.execute("SELECT * FROM crossref_capture_claims WHERE id=?", (claim_id,)).fetchone()
+            row = connection.execute(
+                "SELECT * FROM crossref_capture_claims WHERE id=?",
+                (claim_id,),
+            ).fetchone()
             if row is None:
                 raise Error("crossref_claim_missing")
             return self._decode(row)
