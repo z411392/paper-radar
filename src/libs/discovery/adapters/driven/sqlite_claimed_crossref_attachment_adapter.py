@@ -3,6 +3,7 @@
 A successful attachment does not release an unresolved dispatch claim. Terminal/retry
 claim resolution is a separate protocol. Object bytes must be read outside this adapter.
 """
+import math
 import sqlite3
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -16,6 +17,7 @@ from libs.discovery.domain.services.crossref_rate_policy import CrossrefRatePoli
 from libs.discovery.dtos.crossref_attachment import CrossrefAttachment
 from libs.discovery.dtos.crossref_capture import CrossrefStoredCapture
 from libs.discovery.dtos.crossref_capture_claim import CrossrefCaptureClaim
+from libs.discovery.dtos.crossref_capture_resolution import CrossrefCaptureResolution
 from libs.discovery.dtos.crossref_rate_decision import CrossrefRateDecision
 from libs.discovery.exceptions.crossref_attachment_error import CrossrefAttachmentError as Error
 from libs.discovery.exceptions.crossref_capture_error import CrossrefCaptureError
@@ -82,14 +84,18 @@ class SqliteClaimedCrossrefAttachmentAdapter:
         return identity, content, envelope, expected
 
     @staticmethod
-    def _proof(connection, claim, stored, proof):
+    def _proof(connection, claim, stored, proof, *, require_latest: bool = True):
         identity, content, envelope, _ = proof
         row = connection.execute('SELECT * FROM crossref_capture_claims WHERE id=?',
                                  (claim.claim_id,)).fetchone()
         latest = connection.execute('SELECT MAX(fencing_token) FROM crossref_capture_claims WHERE page_id=?',
                                     (claim.page_id,)).fetchone()[0]
-        if (row is None or any(row[k] != v for k, v in identity.items())
-                or row['state'] != 'dispatching' or latest != claim.fencing_token):
+        if (
+            row is None
+            or any(row[k] != v for k, v in identity.items())
+            or row['state'] != 'dispatching'
+            or (require_latest and latest != claim.fencing_token)
+        ):
             raise Error('crossref_attachment_claim_fenced')
         workspace = connection.execute('SELECT workspace_id,epoch FROM workspace_metadata WHERE singleton=1')
         if tuple(workspace.fetchone() or ()) != (claim.workspace_id, claim.workspace_epoch):
@@ -116,6 +122,18 @@ class SqliteClaimedCrossrefAttachmentAdapter:
         return row, inbox['staged_us']
 
     @staticmethod
+    def _prior_resolution_count(connection, claim) -> int:
+        value = connection.execute(
+            'SELECT count(*) FROM crossref_capture_resolutions r '
+            'JOIN crossref_capture_claims c ON c.id=r.claim_id '
+            'WHERE c.page_id=? AND c.fencing_token<?',
+            (claim.page_id, claim.fencing_token),
+        ).fetchone()[0]
+        if type(value) is not int or value < 0:
+            raise Error('crossref_attachment_outcome_conflict')
+        return value
+
+    @staticmethod
     def _existing(
         connection, claim, stored, expected, claim_row, staged_us, *, attached_us: int | None = None,
     ):
@@ -135,17 +153,20 @@ class SqliteClaimedCrossrefAttachmentAdapter:
                 <= recorded_us < claim_row['lease_until_us']
                 or (attached_us is not None and recorded_us != attached_us)):
             raise Error('crossref_attachment_outcome_conflict')
-        # This first-attempt protocol cannot legitimate an additional unexplained row.
+        attempt_no = SqliteClaimedCrossrefAttachmentAdapter._prior_resolution_count(
+            connection,
+            claim,
+        ) + 1
         count = connection.execute(
             'SELECT count(*) FROM crossref_harvest_page_attempts WHERE page_id=?',
             (claim.page_id,),
         ).fetchone()[0]
-        if count != 1:
+        if count != attempt_no:
             raise Error('crossref_attachment_outcome_conflict')
         expected_id = 'crossref-attempt:' + Rules.sha(Rules.canonical(
-            (claim.page_id, 1, stored.receipt_id),
+            (claim.page_id, attempt_no, stored.receipt_id),
         ))
-        if (row['id'] != expected_id or row['attempt_no'] != 1
+        if (row['id'] != expected_id or row['attempt_no'] != attempt_no
                 or row['page_id'] != claim.page_id or row['action'] != expected.action
                 or row['failure_code'] != expected.failure_code):
             raise Error('crossref_attachment_outcome_conflict')
@@ -205,13 +226,22 @@ class SqliteClaimedCrossrefAttachmentAdapter:
                 raise Error('crossref_attachment_page_not_active')
         elif state['window_state'] != 'running':
             raise Error('crossref_attachment_page_not_active')
+        prior_resolutions = SqliteClaimedCrossrefAttachmentAdapter._prior_resolution_count(
+            connection,
+            claim,
+        )
+        attempt_count = connection.execute(
+            'SELECT count(*) FROM crossref_harvest_page_attempts WHERE page_id=?',
+            (claim.page_id,),
+        ).fetchone()[0]
         if attached is None:
             if page['state'] != 'requested' or page['successful_receipt_id'] is not None:
                 raise Error('crossref_attachment_page_not_active')
-            if connection.execute('SELECT 1 FROM crossref_harvest_page_attempts WHERE page_id=? LIMIT 1',
-                                  (claim.page_id,)).fetchone() is not None:
+            if attempt_count != prior_resolutions:
                 raise Error('crossref_attachment_outcome_conflict')
         else:
+            if attempt_count != prior_resolutions + 1:
+                raise Error('crossref_attachment_outcome_conflict')
             if expected is None:
                 raise Error('crossref_attachment_decision_mismatch')
             success = expected.action == 'accept'
@@ -245,7 +275,7 @@ class SqliteClaimedCrossrefAttachmentAdapter:
             if prior is not None:
                 return prior
             self._active(connection, claim, row, staged_us, now_us)
-            attempt_no = 1  # S3a cannot release a previous dispatched claim for an automatic retry.
+            attempt_no = self._prior_resolution_count(connection, claim) + 1
             attempt_id = 'crossref-attempt:' + Rules.sha(Rules.canonical(
                 (claim.page_id, attempt_no, stored.receipt_id),
             ))
@@ -276,3 +306,148 @@ class SqliteClaimedCrossrefAttachmentAdapter:
                 raise Error('crossref_attachment_outcome_conflict')
             return CrossrefAttachment(claim.claim_id, claim.page_id, stored.receipt_id,
                                       attempt_id, decision.action, decision.failure_code, False)
+
+
+    def resolve(
+        self,
+        claim: CrossrefCaptureClaim,
+        stored: CrossrefStoredCapture,
+        *,
+        resolved_at: datetime,
+    ) -> CrossrefCaptureResolution:
+        proof = self._evidence(claim, stored)
+        try:
+            resolved_us = InboxRules.instant_us(resolved_at)
+        except CrossrefCaptureInboxError as exc:
+            raise Error('invalid_crossref_resolution_time') from exc
+        with self._transaction(write=True) as connection:
+            claim_row, staged_us = self._proof(
+                connection,
+                claim,
+                stored,
+                proof,
+                require_latest=False,
+            )
+            attempt_no = self._prior_resolution_count(connection, claim) + 1
+            attempt = connection.execute(
+                'SELECT * FROM crossref_harvest_page_attempts WHERE receipt_id=?',
+                (stored.receipt_id,),
+            ).fetchone()
+            expected_attempt_id = 'crossref-attempt:' + Rules.sha(Rules.canonical(
+                (claim.page_id, attempt_no, stored.receipt_id),
+            ))
+            if (
+                attempt is None
+                or attempt['id'] != expected_attempt_id
+                or attempt['attempt_no'] != attempt_no
+                or attempt['page_id'] != claim.page_id
+                or attempt['action'] != proof[3].action
+                or attempt['failure_code'] != proof[3].failure_code
+            ):
+                raise Error('crossref_attachment_not_attached')
+            try:
+                recorded_us = InboxRules.instant_us(
+                    datetime.fromisoformat(attempt['recorded_at'])
+                )
+            except (
+                ValueError,
+                TypeError,
+                OverflowError,
+                CrossrefCaptureInboxError,
+            ) as exc:
+                raise Error('crossref_attachment_resolution_conflict') from exc
+            dispatched_us = claim_row['dispatched_us']
+            if (
+                type(dispatched_us) is not int
+                or type(staged_us) is not int
+                or resolved_us < max(dispatched_us, staged_us, recorded_us)
+            ):
+                raise Error('crossref_attachment_resolution_time')
+
+            decision = CrossrefRatePolicy().evaluate(
+                stored.capture.status,
+                stored.capture.headers,
+                now=resolved_at,
+                capture_error=stored.capture.capture_error,
+            )
+            if (
+                decision.action != proof[3].action
+                or decision.failure_code != proof[3].failure_code
+            ):
+                raise Error('crossref_attachment_resolution_conflict')
+            retry_us = None
+            retry_at = None
+            if decision.action == 'retry':
+                retry_us = resolved_us + math.ceil(
+                    decision.delay_seconds * 1_000_000
+                )
+                if retry_us <= resolved_us:
+                    raise Error('crossref_attachment_resolution_conflict')
+                retry_at = datetime.fromtimestamp(
+                    retry_us / 1_000_000,
+                    tz=resolved_at.astimezone().tzinfo,
+                ).astimezone(resolved_at.tzinfo)
+                # Preserve the exact UTC instant while returning a timezone-aware DTO.
+                retry_at = resolved_at + (
+                    datetime.fromtimestamp(retry_us / 1_000_000, tz=resolved_at.tzinfo)
+                    - datetime.fromtimestamp(resolved_us / 1_000_000, tz=resolved_at.tzinfo)
+                )
+
+            existing = connection.execute(
+                'SELECT * FROM crossref_capture_resolutions WHERE claim_id=?',
+                (claim.claim_id,),
+            ).fetchone()
+            expected = (
+                claim.claim_id,
+                attempt['id'],
+                stored.receipt_id,
+                decision.action,
+                decision.failure_code,
+                resolved_us,
+                retry_us,
+                'crossref-resolution-v1',
+            )
+            if existing is not None:
+                if tuple(existing) != expected:
+                    raise Error('crossref_attachment_resolution_conflict')
+                return CrossrefCaptureResolution(
+                    claim.claim_id,
+                    attempt['id'],
+                    stored.receipt_id,
+                    decision.action,
+                    decision.failure_code,
+                    resolved_at,
+                    retry_at,
+                    'crossref-resolution-v1',
+                    True,
+                )
+
+            latest = connection.execute(
+                'SELECT MAX(fencing_token) FROM crossref_capture_claims WHERE page_id=?',
+                (claim.page_id,),
+            ).fetchone()[0]
+            if latest != claim.fencing_token:
+                raise Error('crossref_attachment_claim_fenced')
+            inserted = connection.execute(
+                'INSERT INTO crossref_capture_resolutions VALUES(?,?,?,?,?,?,?,?)',
+                expected,
+            ).rowcount
+            if inserted != 1:
+                raise Error('crossref_attachment_resolution_conflict')
+            written = connection.execute(
+                'SELECT * FROM crossref_capture_resolutions WHERE claim_id=?',
+                (claim.claim_id,),
+            ).fetchone()
+            if written is None or tuple(written) != expected:
+                raise Error('crossref_attachment_resolution_conflict')
+            return CrossrefCaptureResolution(
+                claim.claim_id,
+                attempt['id'],
+                stored.receipt_id,
+                decision.action,
+                decision.failure_code,
+                resolved_at,
+                retry_at,
+                'crossref-resolution-v1',
+                False,
+            )
