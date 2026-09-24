@@ -7,7 +7,7 @@ import math
 import sqlite3
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 
 from libs.discovery.domain.services.crossref_capture_inbox_rules import (
     CrossrefCaptureInboxRules as InboxRules,
@@ -385,12 +385,7 @@ class SqliteClaimedCrossrefAttachmentAdapter:
                     raise Error('crossref_attachment_resolution_conflict')
                 retry_at = datetime.fromtimestamp(
                     retry_us / 1_000_000,
-                    tz=resolved_at.astimezone().tzinfo,
-                ).astimezone(resolved_at.tzinfo)
-                # Preserve the exact UTC instant while returning a timezone-aware DTO.
-                retry_at = resolved_at + (
-                    datetime.fromtimestamp(retry_us / 1_000_000, tz=resolved_at.tzinfo)
-                    - datetime.fromtimestamp(resolved_us / 1_000_000, tz=resolved_at.tzinfo)
+                    tz=timezone.utc,
                 )
 
             existing = connection.execute(
