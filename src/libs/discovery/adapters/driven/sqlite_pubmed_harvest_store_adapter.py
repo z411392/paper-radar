@@ -5,12 +5,16 @@ import sqlite3
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import datetime
+from typing import Any
 
+from libs.discovery.adapters.driven.pubmed_harvest_receipt_validator import PubmedHarvestReceiptValidator
 from libs.discovery.domain.services.prepare_harvest_capture import PrepareHarvestCapture
 from libs.discovery.dtos.compiled_source_query import CompiledSourceQuery
 from libs.discovery.dtos.pubmed_bibliography_batch import PubmedBibliographyBatch
+from libs.discovery.dtos.pubmed_bibliography_record import PubmedBibliographyRecord
 from libs.discovery.dtos.pubmed_harvest_state import PendingPubmedBatch, PubmedHarvestState
 from libs.discovery.dtos.pubmed_search_page import PubmedSearchPage
+from libs.discovery.dtos.source_page_observation import SourcePageObservation
 from libs.discovery.exceptions.harvest_error import HarvestError
 
 
@@ -92,17 +96,36 @@ class SqlitePubmedHarvestStoreAdapter:
     def _definition(
         cls,
         plan: CompiledSourceQuery,
-    ) -> tuple[dict[str, object], str, str]:
+    ) -> tuple[dict[str, Any], str, str]:
         if (
             not isinstance(plan, CompiledSourceQuery)
             or plan.source_id != "pubmed"
             or not isinstance(plan.provenance_json, str)
+            or type(plan.page_size) is not int
+            or not 1 <= plan.page_size <= 200
+            or type(plan.maximum_window_results) is not int
+            or not plan.page_size <= plan.maximum_window_results <= 10000
         ):
             raise HarvestError("invalid_harvest_definition")
         cls._fingerprint(plan.query_fingerprint, "invalid_harvest_definition")
         try:
             envelope = json.loads(plan.provenance_json)
+            if (
+                cls._json(envelope) != plan.provenance_json
+                or hashlib.sha256(plan.provenance_json.encode("utf-8")).hexdigest()
+                != plan.query_fingerprint
+            ):
+                raise HarvestError("invalid_harvest_definition")
             data = envelope["input"]
+            if (
+                not isinstance(data, dict)
+                or envelope.get("compiler_version") != plan.compiler_version
+                or envelope.get("capability_version") != plan.capability_version
+                or data.get("source_id") != plan.source_id
+                or data.get("search_query") != plan.search_query
+                or data.get("page_size") != plan.page_size
+            ):
+                raise HarvestError("invalid_harvest_definition")
             domain = data["domain"]
             profile_id = data["profile_id"]
             profile_revision = data["profile_revision"]
@@ -160,6 +183,7 @@ class SqlitePubmedHarvestStoreAdapter:
                 not isinstance(value, str)
                 or re.fullmatch(r"[0-9]{1,10}", value) is None
                 or int(value) <= 0
+                or str(int(value)) != value
                 for value in decoded
             )
             or len(decoded) != len(set(decoded))
@@ -172,6 +196,8 @@ class SqlitePubmedHarvestStoreAdapter:
         cls,
         connection: sqlite3.Connection,
         plan: CompiledSourceQuery,
+        *,
+        verify_receipts: bool = True,
     ) -> PubmedHarvestState:
         binding_id, unit_id = cls._ids(plan)
         data, window_start, window_end = cls._definition(plan)
@@ -202,6 +228,8 @@ class SqlitePubmedHarvestStoreAdapter:
             or unit["window_end"] != window_end
         ):
             raise HarvestError("unit_conflict")
+        if verify_receipts:
+            PubmedHarvestReceiptValidator.verify(connection, plan, unit)
         checkpoint = unit["checkpoint_version"]
         if type(checkpoint) is not int or checkpoint < 0:
             raise HarvestError("invalid_pubmed_harvest_state")
@@ -351,7 +379,8 @@ class SqlitePubmedHarvestStoreAdapter:
         pmids = cls._pmids(page_row["pmids_json"])
         if page_row["next_batch_offset"] != len(pmids):
             raise HarvestError("pubmed_page_not_complete")
-        current = cls._unit_state(connection, plan)
+        # The final batch/page is written, but its cursor update is still in this transaction.
+        current = cls._unit_state(connection, plan, verify_receipts=False)
         if current.next_start != page_row["start_index"]:
             raise HarvestError("checkpoint_conflict")
         total = page_row["total_results"]
@@ -400,8 +429,18 @@ class SqlitePubmedHarvestStoreAdapter:
         observed_at: datetime,
     ) -> PubmedHarvestState:
         observed = self._time(observed_at)
+        self._definition(plan)
         if (
             not isinstance(page, PubmedSearchPage)
+            or not isinstance(page.observation, SourcePageObservation)
+            or type(page.observation.start_index) is not int
+            or type(page.observation.total_results) is not int
+            or not 0 <= page.observation.start_index <= page.observation.total_results
+            or not isinstance(page.pmids, tuple)
+            or not isinstance(page.raw_body, bytes)
+            or not 0 < len(page.raw_body) <= 2_000_000
+            or page.parser_version != "pubmed-eutils-parser-v1"
+            or page.observation.status != "ok"
             or page.observation.source_id != "pubmed"
             or page.observation.query_fingerprint != plan.query_fingerprint
             or page.observation.record_ids != page.pmids
@@ -412,6 +451,13 @@ class SqlitePubmedHarvestStoreAdapter:
         ):
             raise HarvestError("invalid_pubmed_search_page")
         self._fingerprint(page.response_sha256)
+        self._fingerprint(page.request_fingerprint, "invalid_pubmed_search_page")
+        self._pmids(self._json(list(page.pmids)))
+        expected_count = min(plan.page_size, page.observation.total_results - page.observation.start_index)
+        if len(page.pmids) != expected_count or (
+            not page.pmids and (page.observation.total_results != 0 or page.observation.start_index != 0)
+        ):
+            raise HarvestError("invalid_pubmed_search_page")
         fingerprint = self._page_fingerprint(plan, page)
         pmids_json = self._json(list(page.pmids))
 
@@ -422,8 +468,6 @@ class SqlitePubmedHarvestStoreAdapter:
                 page.response_sha256,
             )
             current = self._unit_state(connection, plan)
-            if current.next_start != page.observation.start_index:
-                raise HarvestError("checkpoint_offset_conflict")
             if (
                 current.total_results is not None
                 and current.total_results != page.observation.total_results
@@ -440,7 +484,7 @@ class SqlitePubmedHarvestStoreAdapter:
             existing = connection.execute(
                 "SELECT * FROM pubmed_harvest_pages "
                 "WHERE unit_id=? AND start_index=?",
-                (current.unit_id, current.next_start),
+                (current.unit_id, page.observation.start_index),
             ).fetchone()
             if existing is not None:
                 if (
@@ -451,6 +495,10 @@ class SqlitePubmedHarvestStoreAdapter:
                     raise HarvestError("pubmed_result_set_changed")
                 return self._unit_state(connection, plan)
 
+            if current.next_start != page.observation.start_index:
+                raise HarvestError("checkpoint_offset_conflict")
+            if current.state in {"succeeded", "verified_empty", "unavailable"}:
+                raise HarvestError("unit_not_open")
             state = "complete" if page.observation.total_results == 0 else "searched"
             connection.execute(
                 "INSERT INTO pubmed_harvest_pages("
@@ -532,14 +580,29 @@ class SqlitePubmedHarvestStoreAdapter:
         observed_at: datetime,
     ) -> PubmedHarvestState:
         observed = self._time(observed_at)
+        self._definition(plan)
         if (
             not isinstance(pending, PendingPubmedBatch)
+            or type(pending.page_start) is not int
+            or type(pending.batch_offset) is not int
+            or pending.page_start < 0
+            or pending.batch_offset < 0
+            or not isinstance(pending.pmids, tuple)
+            or len(pending.pmids) > 200
             or not isinstance(batch, PubmedBibliographyBatch)
+            or not isinstance(batch.records, tuple)
+            or not isinstance(batch.raw_body, bytes)
+            or not 0 < len(batch.raw_body) <= 8_000_000
+            or any(not isinstance(record, PubmedBibliographyRecord) for record in batch.records)
             or not pending.pmids
             or batch.parser_version != "pubmed-eutils-parser-v1"
             or hashlib.sha256(batch.raw_body).hexdigest() != batch.response_sha256
         ):
             raise HarvestError("invalid_pubmed_bibliography")
+        if pending.unit_id != self._ids(plan)[1]:
+            raise HarvestError("checkpoint_conflict")
+        self._pmids(self._json(list(pending.pmids)))
+        self._fingerprint(batch.request_fingerprint, "invalid_pubmed_bibliography")
         actual_pmids = tuple(record.pmid for record in batch.records)
         if (
             len(actual_pmids) != len(set(actual_pmids))
@@ -556,6 +619,7 @@ class SqlitePubmedHarvestStoreAdapter:
                 payload_object_id,
                 batch.response_sha256,
             )
+            state = self._unit_state(connection, plan)
             existing_batch = connection.execute(
                 "SELECT * FROM pubmed_bibliography_batches "
                 "WHERE unit_id=? AND start_index=? AND batch_offset=?",
@@ -582,7 +646,6 @@ class SqlitePubmedHarvestStoreAdapter:
                     raise HarvestError("pubmed_batch_conflict")
                 return self._unit_state(connection, plan)
 
-            state = self._unit_state(connection, plan)
             if (
                 pending.unit_id != state.unit_id
                 or pending.page_start != state.next_start
@@ -633,9 +696,7 @@ class SqlitePubmedHarvestStoreAdapter:
                     observed,
                 ),
             )
-            records = {record.pmid: record for record in batch.records}
             for pmid in pending.pmids:
-                record = records[pmid]
                 identity = "observation:" + hashlib.sha256(
                     self._json(
                         [
