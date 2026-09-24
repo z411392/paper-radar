@@ -12,6 +12,27 @@ from libs.discovery.exceptions.source_fetch_error import SourceFetchError
 from libs.discovery.ports.source_rate_limit_port import SourceRateLimitLeasePort
 
 
+def _number(value: object) -> float:
+    if type(value) not in {int, float}:
+        raise SourceFetchError("invalid_rate_limit_state")
+    try:
+        result = float(value)
+    except (ValueError, OverflowError):
+        raise SourceFetchError("invalid_rate_limit_state") from None
+    if not math.isfinite(result) or result < 0:
+        raise SourceFetchError("invalid_rate_limit_state")
+    return result
+
+
+def _unique(rows: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in rows:
+        if key in result:
+            raise SourceFetchError("invalid_rate_limit_state")
+        result[key] = value
+    return result
+
+
 class _NcbiLease:
     def __init__(
         self,
@@ -29,14 +50,7 @@ class _NcbiLease:
     def defer(self, seconds: float) -> None:
         if not self.active:
             raise SourceFetchError("rate_limit_lease_closed")
-        if (
-            isinstance(seconds, bool)
-            or not isinstance(seconds, (int, float))
-            or not math.isfinite(seconds)
-            or seconds < 0
-        ):
-            raise SourceFetchError("invalid_rate_limit_state")
-        proposed = float(self.clock()) + max(float(seconds), self.interval)
+        proposed = _number(_number(self.clock()) + max(_number(seconds), self.interval))
         self.not_before = max(self.not_before, proposed)
         content = json.dumps(
             {
@@ -59,6 +73,12 @@ class _NcbiLease:
 
 
 class PosixNcbiRateLimitAdapter:
+    """One stable inode shared by cooperating local NCBI consumers; never unlink it.
+
+    Torn/invalid state is evidence requiring repair, not permission to reset the budget.
+    This local lock is not a distributed rate limiter.
+    """
+
     def __init__(
         self,
         path: Path,
@@ -66,15 +86,14 @@ class PosixNcbiRateLimitAdapter:
         minimum_interval_seconds: float = 0.35,
         clock: Callable[[], float] = time.time,
     ) -> None:
-        if (
-            isinstance(minimum_interval_seconds, bool)
-            or not isinstance(minimum_interval_seconds, (int, float))
-            or not math.isfinite(minimum_interval_seconds)
-            or not 0.34 <= minimum_interval_seconds <= 60
-        ):
+        try:
+            interval = _number(minimum_interval_seconds)
+        except SourceFetchError:
+            raise SourceFetchError("invalid_transport_configuration") from None
+        if not 0.34 <= interval <= 60:
             raise SourceFetchError("invalid_transport_configuration")
         self._path = path
-        self._interval = float(minimum_interval_seconds)
+        self._interval = interval
         self._clock = clock
 
     @contextmanager
@@ -83,6 +102,8 @@ class PosixNcbiRateLimitAdapter:
         locked = False
         lease = None
         try:
+            # Reject an invalid clock before creating or touching a provider state file.
+            _number(self._clock())
             path = self._path.parent.resolve(strict=True) / self._path.name
             flags = os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK
             created = False
@@ -107,26 +128,28 @@ class PosixNcbiRateLimitAdapter:
                     retry_after_seconds=self._interval,
                 ) from exc
             locked = True
+            current = path.stat(follow_symlinks=False)
+            if (current.st_dev, current.st_ino) != (metadata.st_dev, metadata.st_ino):
+                raise SourceFetchError("unsafe_rate_limit_path")
             raw = os.read(fd, 1025)
             if created and not raw:
                 not_before = 0.0
             else:
                 try:
-                    data = json.loads(raw)
+                    data = json.loads(raw, object_pairs_hook=_unique)
                     if (
                         not isinstance(data, dict)
                         or set(data) != {"version", "provider", "not_before"}
+                        or type(data["version"]) is not int
                         or data["version"] != 1
                         or data["provider"] != "ncbi"
                         or len(raw) > 1024
                     ):
                         raise ValueError
-                    not_before = float(data["not_before"])
-                    if not math.isfinite(not_before) or not_before < 0:
-                        raise ValueError
+                    not_before = _number(data["not_before"])
                 except (ValueError, TypeError, UnicodeError):
                     raise SourceFetchError("invalid_rate_limit_state") from None
-            now = float(self._clock())
+            now = _number(self._clock())
             if not_before > now:
                 raise SourceFetchError(
                     "provider_deferred",
