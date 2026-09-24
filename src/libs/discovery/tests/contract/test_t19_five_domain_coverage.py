@@ -9,6 +9,7 @@ from libs.discovery.adapters.driven.pubmed_source_adapter import PubmedSourceAda
 from libs.discovery.dtos.domain_query_snapshot import DomainQuerySnapshot
 from libs.discovery.dtos.source_query_input import SourceQueryInput
 from libs.discovery.exceptions.source_parse_error import SourceParseError
+from libs.discovery.exceptions.source_query_error import SourceQueryError
 from libs.scholarly_catalog.adapters.driven.pmc_full_text_adapter import PmcFullTextAdapter
 
 
@@ -63,7 +64,7 @@ def test_pubmed_compile_uses_create_date_window_and_defers_access_policy() -> No
     assert params["db"] == ["pubmed"]
     assert params["datetype"] == ["crdt"]
     assert params["mindate"] == ["2026/09/23"]
-    assert params["maxdate"] == ["2026/09/24"]
+    assert params["maxdate"] == ["2026/09/23"]
     assert params["tool"] == ["paper-radar"]
     assert params["email"] == ["reader@example.com"]
     assert {item.name for item in plan.deferred_filters} >= {
@@ -75,7 +76,7 @@ def test_pubmed_compile_uses_create_date_window_and_defers_access_policy() -> No
 def test_pubmed_rejects_publication_date_as_incremental_cursor() -> None:
     adapter = PubmedSourceAdapter(tool="paper-radar", email="reader@example.com")
 
-    with pytest.raises(Exception, match="unsupported_time_basis"):
+    with pytest.raises(SourceQueryError, match="unsupported_time_basis"):
         adapter.compile(replace(query(), time_basis="publicationDate"))
 
 
@@ -209,7 +210,7 @@ def test_pmc_oai_full_text_requires_exact_identity_and_keeps_license_evidence() 
     assert result.full_text_xml == body
 
     mismatch = body.replace(b"PMC9999999", b"PMC8888888")
-    with pytest.raises(Exception, match="pmc_identity_mismatch"):
+    with pytest.raises(SourceParseError, match="pmc_identity_mismatch"):
         adapter.parse(request, mismatch, http_status=200)
 
 
@@ -235,3 +236,26 @@ def test_pmc_unknown_license_is_not_promoted_to_unrestricted_reuse() -> None:
     assert result.automated_retrieval == "permitted"
     assert result.usage_class == "unknown"
     assert result.license_url is None
+
+
+def test_pubmed_v1_rejects_non_midnight_crdt_windows() -> None:
+    adapter = PubmedSourceAdapter(tool="paper-radar", email="reader@example.com")
+    shifted = replace(query(), window_end=END.replace(hour=1))
+
+    with pytest.raises(SourceQueryError, match="unsupported_time_precision"):
+        adapter.compile(shifted)
+
+
+@pytest.mark.parametrize("kind", ["pubmed", "pmc"])
+def test_external_xml_doctype_is_rejected(kind: str) -> None:
+    payload = b'<?xml version="1.0"?><!DOCTYPE x [<!ENTITY boom "x">]><x>&boom;</x>'
+    if kind == "pubmed":
+        adapter = PubmedSourceAdapter(tool="paper-radar", email="reader@example.com")
+        request = adapter.bibliography_request(("12345678",))
+        with pytest.raises(SourceParseError, match="xml_doctype_forbidden"):
+            adapter.parse_bibliography(request, payload, http_status=200)
+    else:
+        adapter = PmcFullTextAdapter()
+        request = adapter.request("PMC9999999")
+        with pytest.raises(SourceParseError, match="xml_doctype_forbidden"):
+            adapter.parse(request, payload, http_status=200)

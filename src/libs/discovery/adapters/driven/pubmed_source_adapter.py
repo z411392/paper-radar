@@ -3,7 +3,8 @@ import json
 import re
 import unicodedata
 from dataclasses import asdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from typing import NoReturn
 from urllib.parse import parse_qs, urlencode, urlsplit
 from xml.etree import ElementTree as ET
 
@@ -18,6 +19,31 @@ from libs.discovery.dtos.source_page_request import SourcePageRequest
 from libs.discovery.dtos.source_query_input import SourceQueryInput
 from libs.discovery.exceptions.source_parse_error import SourceParseError
 from libs.discovery.exceptions.source_query_error import SourceQueryError
+
+
+class _BoundedTreeBuilder(ET.TreeBuilder):
+    def __init__(self, digest: str) -> None:
+        super().__init__()
+        self._digest = digest
+        self._depth = 0
+        self._nodes = 0
+
+    def start(self, tag: str, attrs: dict[str, str]) -> ET.Element:
+        self._depth += 1
+        self._nodes += 1
+        if self._depth > 40:
+            raise SourceParseError("xml_depth_limit", self._digest)
+        if self._nodes > 120000:
+            raise SourceParseError("xml_node_limit", self._digest)
+        return super().start(tag, attrs)
+
+    def end(self, tag: str) -> ET.Element:
+        value = super().end(tag)
+        self._depth -= 1
+        return value
+
+    def doctype(self, name: str, pubid: str | None, system: str | None) -> NoReturn:
+        raise SourceParseError("xml_doctype_forbidden", self._digest)
 
 
 class PubmedSourceAdapter:
@@ -37,7 +63,7 @@ class PubmedSourceAdapter:
         False,
     )
     WARNINGS = (
-        "create_date_day_precision_overlap_required",
+        "create_date_utc_day_window",
         "offset_pagination_not_snapshot",
         "bibliography_requires_efetch",
     )
@@ -132,7 +158,7 @@ class PubmedSourceAdapter:
             result = value.astimezone(timezone.utc)
         except (ValueError, OverflowError):
             raise SourceQueryError("invalid_window") from None
-        if result.second or result.microsecond:
+        if result.hour or result.minute or result.second or result.microsecond:
             raise SourceQueryError("unsupported_time_precision")
         return result
 
@@ -169,6 +195,8 @@ class PubmedSourceAdapter:
         start, end = self._time(query.window_start), self._time(query.window_end)
         if start >= end:
             raise SourceQueryError("invalid_window")
+        if (end - start).total_seconds() % 86400 != 0:
+            raise SourceQueryError("unsupported_time_precision")
 
         domain_terms = tuple(
             sorted(
@@ -235,7 +263,7 @@ class PubmedSourceAdapter:
             "window_start": start.isoformat(),
             "window_end": end.isoformat(),
             "provider_mindate": self._date(start),
-            "provider_maxdate": self._date(end),
+            "provider_maxdate": self._date(end - timedelta(days=1)),
             "search_query": search,
             "page_size": query.page_size,
             "deferred_filters": [asdict(item) for item in deferred],
@@ -516,8 +544,11 @@ class PubmedSourceAdapter:
         if not isinstance(body, bytes) or len(body) > 8_000_000:
             raise SourceParseError("response_too_large", digest)
         try:
-            root = ET.fromstring(body)
-        except ET.ParseError:
+            root = ET.fromstring(
+                body,
+                parser=ET.XMLParser(target=_BoundedTreeBuilder(digest)),
+            )
+        except (ET.ParseError, ValueError):
             raise SourceParseError("malformed_xml", digest) from None
         if root.tag != "PubmedArticleSet":
             raise SourceParseError("invalid_pubmed_bibliography", digest)

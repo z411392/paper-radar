@@ -1,5 +1,6 @@
 import hashlib
 import re
+from typing import NoReturn
 from urllib.parse import parse_qs, urlencode, urlsplit
 from xml.etree import ElementTree as ET
 
@@ -10,6 +11,31 @@ from libs.scholarly_catalog.domain.services.normalize_paper_identifier import (
 )
 from libs.scholarly_catalog.dtos.pmc_full_text_capability import PmcFullTextCapability
 from libs.scholarly_catalog.exceptions.paper_identity_error import PaperIdentityError
+
+
+class _BoundedTreeBuilder(ET.TreeBuilder):
+    def __init__(self, digest: str) -> None:
+        super().__init__()
+        self._digest = digest
+        self._depth = 0
+        self._nodes = 0
+
+    def start(self, tag: str, attrs: dict[str, str]) -> ET.Element:
+        self._depth += 1
+        self._nodes += 1
+        if self._depth > 64:
+            raise SourceParseError("xml_depth_limit", self._digest)
+        if self._nodes > 250000:
+            raise SourceParseError("xml_node_limit", self._digest)
+        return super().start(tag, attrs)
+
+    def end(self, tag: str) -> ET.Element:
+        value = super().end(tag)
+        self._depth -= 1
+        return value
+
+    def doctype(self, name: str, pubid: str | None, system: str | None) -> NoReturn:
+        raise SourceParseError("xml_doctype_forbidden", self._digest)
 
 
 class PmcFullTextAdapter:
@@ -143,8 +169,11 @@ class PmcFullTextAdapter:
         if not isinstance(body, bytes) or len(body) > 8_000_000:
             raise SourceParseError("response_too_large", digest)
         try:
-            root = ET.fromstring(body)
-        except ET.ParseError:
+            root = ET.fromstring(
+                body,
+                parser=ET.XMLParser(target=_BoundedTreeBuilder(digest)),
+            )
+        except (ET.ParseError, ValueError):
             raise SourceParseError("malformed_xml", digest) from None
         if root.tag != self.OAI + "OAI-PMH":
             raise SourceParseError("invalid_pmc_oai", digest)
