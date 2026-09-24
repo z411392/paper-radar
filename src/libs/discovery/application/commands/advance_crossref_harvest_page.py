@@ -6,6 +6,9 @@ from libs.discovery.exceptions.crossref_capture_error import CrossrefCaptureErro
 from libs.discovery.exceptions.crossref_protocol_error import CrossrefProtocolError
 from libs.discovery.ports.crossref_capture_page_port import CrossrefCapturePagePort
 from libs.discovery.ports.crossref_harvest_journal_port import CrossrefHarvestJournalPort
+from libs.discovery.ports.crossref_orphan_receipt_recovery_port import (
+    CrossrefOrphanReceiptRecoveryPort,
+)
 from libs.discovery.ports.crossref_page_source_port import CrossrefPageSourcePort
 from libs.discovery.ports.crossref_replay_capture_port import CrossrefReplayCapturePort
 
@@ -19,11 +22,13 @@ class AdvanceCrossrefHarvestPage:
         capture: CrossrefCapturePagePort,
         replay: CrossrefReplayCapturePort,
         journal: CrossrefHarvestJournalPort,
+        recovery: CrossrefOrphanReceiptRecoveryPort | None = None,
     ) -> None:
         self._source = source
         self._capture = capture
         self._replay = replay
         self._journal = journal
+        self._recovery = recovery
 
     def __call__(
         self,
@@ -47,6 +52,31 @@ class AdvanceCrossrefHarvestPage:
             raise CrossrefProtocolError("crossref_cursor_missing")
         request = self._source.page(plan, current.current_cursor)
         page = self._journal.begin_page(current.pass_id, request, now)
+
+        if page.state == "requested" and self._recovery is not None:
+            recovered = self._recovery.find(
+                plan,
+                page.page_id,
+                request,
+            )
+            if recovered is not None:
+                page = self._journal.record_attempt(
+                    page.page_id,
+                    recovered.receipt_id,
+                    action=recovered.action,
+                    failure_code=recovered.failure_code,
+                    recorded_at=now,
+                )
+                if recovered.action != "accept":
+                    return CrossrefHarvestStepResult(
+                        recovered.action,
+                        window.window_id,
+                        current.pass_id,
+                        page.page_id,
+                        recovered.receipt_id,
+                        0,
+                        recovered.failure_code,
+                    )
 
         if page.state == "requested":
             try:
