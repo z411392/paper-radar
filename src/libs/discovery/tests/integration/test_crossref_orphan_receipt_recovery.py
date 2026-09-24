@@ -140,7 +140,7 @@ def _workspace(tmp_path: Path):
     root = tmp_path / "workspace"
     migrations = load_workspace_migrations(with_runtime=True)
     info = SqliteWorkspaceBootstrapAdapter(root, migrations).initialize()
-    assert info.schema_version == 13
+    assert info.schema_version == len(migrations)
 
     schema = SqliteSchemaConnectionFactory(root, migrations, minimum_version=11)
     raw = SqliteConnectionFactory(root)
