@@ -13,21 +13,21 @@ from libs.delivery.ports.prepare_scheduled_digest_port import PrepareScheduledDi
 from libs.discovery.adapters.driven.arxiv_atom_parser_adapter import PARSER_VERSION, ArxivAtomParserAdapter
 from libs.discovery.adapters.driven.arxiv_query_compiler_adapter import ArxivQueryCompilerAdapter
 from libs.discovery.adapters.driven.arxiv_source_adapter import ArxivSourceAdapter
+from libs.discovery.adapters.driven.crossref_source_adapter import CrossrefSourceAdapter
 from libs.discovery.adapters.driven.http_client_arxiv_transport_adapter import HttpClientArxivTransportAdapter
 from libs.discovery.adapters.driven.http_client_crossref_transport_adapter import (
     HttpClientCrossrefTransportAdapter,
 )
 from libs.discovery.adapters.driven.http_client_ncbi_transport_adapter import HttpClientNcbiTransportAdapter
+from libs.discovery.adapters.driven.kernel_crossref_capture_store_adapter import (
+    KernelCrossrefCaptureStoreAdapter,
+)
 from libs.discovery.adapters.driven.posix_arxiv_rate_limit_adapter import PosixArxivRateLimitAdapter
 from libs.discovery.adapters.driven.posix_crossref_rate_gate_adapter import (
     PosixCrossrefRateGateAdapter,
 )
 from libs.discovery.adapters.driven.posix_ncbi_rate_limit_adapter import PosixNcbiRateLimitAdapter
 from libs.discovery.adapters.driven.pubmed_source_adapter import PubmedSourceAdapter
-from libs.discovery.adapters.driven.crossref_source_adapter import CrossrefSourceAdapter
-from libs.discovery.adapters.driven.kernel_crossref_capture_store_adapter import (
-    KernelCrossrefCaptureStoreAdapter,
-)
 from libs.discovery.adapters.driven.rate_limited_source_http_transport_adapter import (
     RateLimitedSourceHttpTransportAdapter,
 )
@@ -68,9 +68,9 @@ from libs.discovery.application.commands.start_harvest_attempt import StartHarve
 from libs.discovery.application.queries.compile_source_query import CompileSourceQuery
 from libs.discovery.application.queries.fetch_source_page import FetchSourcePage
 from libs.discovery.application.queries.parse_source_page import ParseSourcePage
-from libs.discovery.application.queries.replay_crossref_capture import ReplayCrossrefCapture
 from libs.discovery.application.queries.read_harvest_attempt import ReadHarvestAttempt
 from libs.discovery.application.queries.read_harvest_resume import ReadHarvestResume
+from libs.discovery.application.queries.replay_crossref_capture import ReplayCrossrefCapture
 from libs.discovery.ports.compile_source_query_port import CompileSourceQueryPort
 from libs.discovery.ports.crossref_http_transport_port import CrossrefHttpTransportPort
 from libs.discovery.ports.run_pubmed_harvest_window_port import RunPubmedHarvestWindowPort
