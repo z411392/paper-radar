@@ -294,3 +294,29 @@ def test_bibliography_missing_requested_pmid_is_rejected(tmp_path: Path) -> None
         )
 
     assert store.read(plan).next_start == 0
+
+
+def test_last_batch_exact_replay_after_checkpoint_advance_is_idempotent(tmp_path: Path) -> None:
+    path, store = _setup(tmp_path)
+    compiler = PubmedSourceAdapter(tool="paper-radar", email="reader@example.com")
+    plan = compiler.compile(query())
+    store.ensure(plan, NOW)
+    page = search_page(plan, "100")
+    store.save_search(plan, page, _object(path, "raw", page.raw_body), NOW)
+    pending = store.next_batch(plan, maximum_batch_size=10)
+    assert pending is not None
+    request = compiler.bibliography_request(pending.pmids)
+    batch = bibliography(request.request_fingerprint, *pending.pmids)
+    object_id = _object(path, "raw", batch.raw_body)
+
+    first = store.save_bibliography(plan, pending, batch, object_id, NOW)
+    replay = store.save_bibliography(plan, pending, batch, object_id, NOW)
+
+    assert first.state == replay.state == "succeeded"
+    assert first.checkpoint_version == replay.checkpoint_version == 1
+    connection = sqlite3.connect(path)
+    assert connection.execute("SELECT count(*) FROM source_observations").fetchone()[0] == 1
+    assert connection.execute(
+        "SELECT count(*) FROM pubmed_bibliography_batches"
+    ).fetchone()[0] == 1
+    connection.close()

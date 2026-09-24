@@ -556,12 +556,6 @@ class SqlitePubmedHarvestStoreAdapter:
                 payload_object_id,
                 batch.response_sha256,
             )
-            state = self._unit_state(connection, plan)
-            if (
-                pending.unit_id != state.unit_id
-                or pending.page_start != state.next_start
-            ):
-                raise HarvestError("checkpoint_conflict")
             existing_batch = connection.execute(
                 "SELECT * FROM pubmed_bibliography_batches "
                 "WHERE unit_id=? AND start_index=? AND batch_offset=?",
@@ -587,6 +581,13 @@ class SqlitePubmedHarvestStoreAdapter:
                 if actual != expected:
                     raise HarvestError("pubmed_batch_conflict")
                 return self._unit_state(connection, plan)
+
+            state = self._unit_state(connection, plan)
+            if (
+                pending.unit_id != state.unit_id
+                or pending.page_start != state.next_start
+            ):
+                raise HarvestError("checkpoint_conflict")
 
             page = connection.execute(
                 "SELECT * FROM pubmed_harvest_pages "
