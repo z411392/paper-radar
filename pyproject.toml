@@ -19,7 +19,7 @@ dev = [
 
 [tool.uv]
 package = true
-cache-keys = [{ file = "pyproject.toml" }, { file = "migrations/0001-object-registry.sql" }, { file = "migrations/0002-watch-profiles.sql" }, { file = "migrations/0003-scholarly-catalog.sql" }, { file = "migrations/0004-discovery.sql" }, { file = "migrations/0005-paper-explanations.sql" }, { file = "migrations/0006-retrieval.sql" }, { file = "migrations/0007-delivery.sql" }, { file = "migrations/0008-workflow-jobs.sql" }, { file = "migrations/0009-relevance-assessment-domains.sql" }, { file = "migrations/0010-pubmed-harvest.sql" }, { file = "migrations/0011-crossref-harvest.sql" }, { file = "migrations/0012-crossref-repair.sql" }]
+cache-keys = [{ file = "pyproject.toml" }, { file = "migrations/0001-object-registry.sql" }, { file = "migrations/0002-watch-profiles.sql" }, { file = "migrations/0003-scholarly-catalog.sql" }, { file = "migrations/0004-discovery.sql" }, { file = "migrations/0005-paper-explanations.sql" }, { file = "migrations/0006-retrieval.sql" }, { file = "migrations/0007-delivery.sql" }, { file = "migrations/0008-workflow-jobs.sql" }, { file = "migrations/0009-relevance-assessment-domains.sql" }, { file = "migrations/0010-pubmed-harvest.sql" }, { file = "migrations/0011-crossref-harvest.sql" }, { file = "migrations/0012-crossref-repair.sql" }, { file = "migrations/0013-crossref-window-splits.sql" }]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/apps", "src/libs"]
@@ -38,9 +38,10 @@ exclude = ["**/tests/**", "**/__pycache__/**"]
 "migrations/0010-pubmed-harvest.sql" = "libs/kernel/resources/migrations/0010-pubmed-harvest.sql"
 "migrations/0011-crossref-harvest.sql" = "libs/kernel/resources/migrations/0011-crossref-harvest.sql"
 "migrations/0012-crossref-repair.sql" = "libs/kernel/resources/migrations/0012-crossref-repair.sql"
+"migrations/0013-crossref-window-splits.sql" = "libs/kernel/resources/migrations/0013-crossref-window-splits.sql"
 
 [tool.hatch.build.targets.sdist]
-include = ["/src", "/migrations/0001-object-registry.sql", "/migrations/0002-watch-profiles.sql", "/migrations/0003-scholarly-catalog.sql", "/migrations/0004-discovery.sql", "/migrations/0005-paper-explanations.sql", "/migrations/0006-retrieval.sql", "/migrations/0007-delivery.sql", "/migrations/0008-workflow-jobs.sql", "/migrations/0009-relevance-assessment-domains.sql", "/migrations/0010-pubmed-harvest.sql", "/migrations/0011-crossref-harvest.sql", "/migrations/0012-crossref-repair.sql", "/pyproject.toml", "/uv.lock", "/.python-version", "/README.md", "/Makefile"]
+include = ["/src", "/migrations/0001-object-registry.sql", "/migrations/0002-watch-profiles.sql", "/migrations/0003-scholarly-catalog.sql", "/migrations/0004-discovery.sql", "/migrations/0005-paper-explanations.sql", "/migrations/0006-retrieval.sql", "/migrations/0007-delivery.sql", "/migrations/0008-workflow-jobs.sql", "/migrations/0009-relevance-assessment-domains.sql", "/migrations/0010-pubmed-harvest.sql", "/migrations/0011-crossref-harvest.sql", "/migrations/0012-crossref-repair.sql", "/migrations/0013-crossref-window-splits.sql", "/pyproject.toml", "/uv.lock", "/.python-version", "/README.md", "/Makefile"]
 
 [tool.pytest.ini_options]
 testpaths = ["src"]
