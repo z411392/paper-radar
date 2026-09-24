@@ -105,9 +105,28 @@ class NormalizePaperIdentifier:
             raise PaperIdentityError("invalid_identifier")
         return NormalizedIdentifier("arxiv", f"{archive}/{serial}", version)
 
+    @classmethod
+    def _pmid(cls, value: str) -> NormalizedIdentifier:
+        raw = value.strip()
+        if re.fullmatch(r"[0-9]{1,10}", raw) is None or int(raw) <= 0:
+            raise PaperIdentityError("invalid_identifier")
+        return NormalizedIdentifier("pmid", str(int(raw)), None)
+
+    @classmethod
+    def _pmc(cls, value: str) -> NormalizedIdentifier:
+        raw = value.strip().upper()
+        match = re.fullmatch(r"PMC([0-9]{1,10})", raw)
+        if match is None or int(match[1]) <= 0:
+            raise PaperIdentityError("invalid_identifier")
+        return NormalizedIdentifier("pmc", "PMC" + str(int(match[1])), None)
+
     def __call__(self, namespace: str, value: str) -> NormalizedIdentifier:
         if namespace == "doi":
             return self._doi(self._text(value, maximum_bytes=2048))
         if namespace == "arxiv":
             return self._arxiv(self._text(value, maximum_bytes=512))
+        if namespace == "pmid":
+            return self._pmid(self._text(value, maximum_bytes=32))
+        if namespace == "pmc":
+            return self._pmc(self._text(value, maximum_bytes=32))
         raise PaperIdentityError("unsupported_identifier_namespace")
