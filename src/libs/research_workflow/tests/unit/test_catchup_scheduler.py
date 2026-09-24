@@ -1,3 +1,5 @@
+import pytest
+
 from datetime import datetime, timedelta, timezone
 
 from libs.research_workflow.application.commands.run_scheduler_tick import RunSchedulerTick
@@ -10,6 +12,7 @@ from libs.research_workflow.dtos.scheduler import (
     SchedulerSnapshot,
 )
 from libs.research_workflow.dtos.workflow_job import EnqueuedWorkflowJob
+from libs.research_workflow.exceptions.workflow_job_error import WorkflowJobError
 
 
 NOW = datetime(2026, 9, 24, 0, 0, tzinfo=timezone.utc)
@@ -97,7 +100,6 @@ def test_failed_window_is_left_for_job_store_retry_and_never_rebuilt() -> None:
 def test_unsupported_source_is_a_coverage_gap_not_a_fake_success_job() -> None:
     snapshot = SchedulerSnapshot(
         harvest_bindings=(
-            binding("badminton:pubmed", source="pubmed"),
             binding("badminton:crossref", source="crossref"),
         ),
         delivery_schedules=(),
@@ -110,7 +112,6 @@ def test_unsupported_source_is_a_coverage_gap_not_a_fake_success_job() -> None:
     assert plan.jobs == ()
     assert {(gap.identity, gap.reason) for gap in plan.coverage_gaps} == {
         ("badminton:crossref", "source_scheduler_not_supported"),
-        ("badminton:pubmed", "source_scheduler_not_supported"),
     }
 
 
@@ -255,3 +256,38 @@ def test_awaiting_first_window_is_not_rebuilt_when_clock_advances() -> None:
             "harvest_window_awaiting_external",
         ),
     )
+
+
+def test_pubmed_first_window_uses_last_completed_utc_day_not_moving_24_hours() -> None:
+    midday = NOW + timedelta(hours=12)
+    snapshot = SchedulerSnapshot(
+        harvest_bindings=(binding("badminton", source="pubmed"),),
+        delivery_schedules=(),
+        known_jobs=(),
+        input_gaps=(),
+    )
+
+    plan = PlanCatchupJobs()(snapshot, now=midday)
+
+    assert len(plan.jobs) == 1
+    payload = PlanCatchupJobs.decode(plan.jobs[0].input_json)
+    assert payload["source_id"] == "pubmed"
+    assert payload["window_start"] == (NOW - timedelta(days=1)).isoformat()
+    assert payload["window_end"] == NOW.isoformat()
+
+
+def test_pubmed_cursor_must_remain_on_utc_day_boundaries() -> None:
+    schedule = binding(
+        "badminton",
+        source="pubmed",
+        last=NOW - timedelta(hours=12),
+    )
+    snapshot = SchedulerSnapshot(
+        harvest_bindings=(schedule,),
+        delivery_schedules=(),
+        known_jobs=(),
+        input_gaps=(),
+    )
+
+    with pytest.raises(WorkflowJobError, match="invalid_pubmed_harvest_window"):
+        PlanCatchupJobs()(snapshot, now=NOW + timedelta(days=1))

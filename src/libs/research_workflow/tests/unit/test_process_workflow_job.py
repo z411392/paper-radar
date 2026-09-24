@@ -232,3 +232,65 @@ def test_connected_prepare_digest_job_completes_without_smtp_dispatch() -> None:
     assert request.cutoff_at == NOW
     assert request.coverage_gaps[0].identity == "badminton:pubmed"
     assert store.completed[0].state == "succeeded"
+
+
+def test_pubmed_job_uses_dedicated_runner_and_create_date_basis() -> None:
+    payload = (
+        '{"binding_key":"personal:3:badminton:1:pubmed",'
+        '"domain_id":"badminton","domain_revision":1,'
+        '"profile_id":"personal","profile_revision":3,"source_id":"pubmed",'
+        '"window_end":"2026-09-24T00:00:00+00:00",'
+        '"window_start":"2026-09-23T00:00:00+00:00"}'
+    )
+    store = Store(lease("harvest_window", payload))
+    query = object()
+    builder = Mock(return_value=query)
+    pubmed = Mock(return_value=Mock(stop_reason="complete"))
+    arxiv = Mock()
+    command = ProcessWorkflowJob(
+        store=store,
+        builder=builder,
+        harvest=arxiv,
+        clock=Clock(),
+        live_source_enabled=True,
+        pubmed=pubmed,
+    )
+
+    result = command("worker:test", lease_seconds=60)
+
+    request = builder.call_args.args[0]
+    assert request.source_id == "pubmed"
+    assert request.time_basis == "createDate"
+    assert request.expected_profile_revision == 3
+    assert request.expected_domain_revision == 1
+    pubmed.assert_called_once()
+    assert pubmed.call_args.args == (query,)
+    assert pubmed.call_args.kwargs["max_batches"] == 10
+    arxiv.assert_not_called()
+    assert result.state == "succeeded"
+
+
+def test_pubmed_job_without_pubmed_runtime_is_awaiting_not_arxiv_fallback() -> None:
+    payload = (
+        '{"binding_key":"personal:3:badminton:1:pubmed",'
+        '"domain_id":"badminton","domain_revision":1,'
+        '"profile_id":"personal","profile_revision":3,"source_id":"pubmed",'
+        '"window_end":"2026-09-24T00:00:00+00:00",'
+        '"window_start":"2026-09-23T00:00:00+00:00"}'
+    )
+    store = Store(lease("harvest_window", payload))
+    arxiv = Mock()
+    command = ProcessWorkflowJob(
+        store=store,
+        builder=Mock(return_value=object()),
+        harvest=arxiv,
+        clock=Clock(),
+        live_source_enabled=True,
+        pubmed=None,
+    )
+
+    result = command("worker:test", lease_seconds=60)
+
+    assert result.state == "awaiting_external"
+    assert store.completed[0].error_code == "pubmed_runtime_not_connected"
+    arxiv.assert_not_called()

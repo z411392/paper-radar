@@ -121,12 +121,30 @@ def test_source_must_be_selected_by_both_profile_and_domain():
         build(request())
 
 
-def test_non_arxiv_source_is_outside_this_task():
+def test_crossref_source_is_still_outside_this_task():
     build, profiles, domains = builder()
     with pytest.raises(HarvestWorkflowError, match="unsupported_source"):
         build(request(source_id="crossref"))
     profiles.assert_not_called()
     domains.assert_not_called()
+
+
+def test_pubmed_source_maps_exact_published_profile_and_domain():
+    profile_value = profile(
+        filters_json='{"allow_preprints":true,"exclude":[],"free_only":false,'
+        '"include":[],"languages":[],"sources":["pubmed"]}'
+    )
+    domain_value = domain(sources=("pubmed",), source_categories=())
+    build, _, domains = builder(profile_value=profile_value, domain_value=domain_value)
+
+    query = build(request(source_id="pubmed", time_basis="createDate"))
+
+    assert query.source_id == "pubmed"
+    assert query.profile_revision == 3
+    assert query.domain.domain_id == "statistics"
+    assert query.domain.revision == 7
+    assert query.time_basis == "createDate"
+    domains.assert_called_once_with("statistics", 7)
 
 
 def test_scheduled_job_must_not_silently_switch_to_a_newer_profile_revision():

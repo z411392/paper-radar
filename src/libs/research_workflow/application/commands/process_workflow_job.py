@@ -135,8 +135,7 @@ class ProcessWorkflowJob:
         )
 
     def _harvest_job(self, lease) -> WorkflowJobProcessResult:
-        harvest = self._harvest
-        if not self._live_source_enabled or harvest is None:
+        if not self._live_source_enabled:
             return self._defer(
                 lease,
                 error_code="live_source_not_authorized",
@@ -194,6 +193,14 @@ class ProcessWorkflowJob:
                     max_batches=10,
                 )
             else:
+                harvest = self._harvest
+                if harvest is None:
+                    return self._defer(
+                        lease,
+                        error_code="arxiv_runtime_not_connected",
+                        delay=timedelta(hours=1),
+                        state="awaiting_external",
+                    )
                 result = harvest(query, max_pages=10, retry_failed=True)
         except HarvestWorkflowError as exc:
             if exc.code in self._STALE_CODES:
