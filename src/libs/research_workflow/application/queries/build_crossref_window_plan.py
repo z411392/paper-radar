@@ -25,10 +25,14 @@ class BuildCrossrefWindowPlan:
             not isinstance(value, str)
             or not value
             or value != value.strip()
-            or len(value.encode("utf-8")) > 512
             or any(ord(char) < 32 or ord(char) == 127 for char in value)
         ):
             raise HarvestWorkflowError("invalid_crossref_scope")
+        try:
+            if len(value.encode("utf-8")) > 512:
+                raise HarvestWorkflowError("invalid_crossref_scope")
+        except UnicodeEncodeError:
+            raise HarvestWorkflowError("invalid_crossref_scope") from None
         return value
 
     def __call__(

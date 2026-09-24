@@ -4,6 +4,13 @@ from datetime import datetime, timedelta, timezone
 from libs.delivery.dtos.scheduled_digest import DigestCoverageGap, ScheduledDigestRequest
 from libs.delivery.exceptions.scheduled_digest_error import ScheduledDigestError
 from libs.delivery.ports.prepare_scheduled_digest_port import PrepareScheduledDigestPort
+from libs.discovery.exceptions.crossref_attachment_error import CrossrefAttachmentError
+from libs.discovery.exceptions.crossref_capture_claim_error import CrossrefCaptureClaimError
+from libs.discovery.exceptions.crossref_capture_error import CrossrefCaptureError
+from libs.discovery.exceptions.crossref_capture_inbox_error import CrossrefCaptureInboxError
+from libs.discovery.exceptions.crossref_harvest_journal_error import CrossrefHarvestJournalError
+from libs.discovery.exceptions.crossref_protocol_error import CrossrefProtocolError
+from libs.discovery.exceptions.crossref_rate_error import CrossrefRateError
 from libs.discovery.exceptions.harvest_error import HarvestError
 from libs.discovery.exceptions.source_fetch_error import SourceFetchError
 from libs.discovery.exceptions.source_query_error import SourceQueryError
@@ -294,6 +301,43 @@ class ProcessWorkflowJob:
                 else timedelta(minutes=5)
             )
             return self._defer(lease, error_code=exc.code, delay=delay)
+        except (
+            CrossrefAttachmentError,
+            CrossrefCaptureClaimError,
+            CrossrefCaptureError,
+            CrossrefCaptureInboxError,
+            CrossrefHarvestJournalError,
+            CrossrefProtocolError,
+            CrossrefRateError,
+        ) as exc:
+            retry_after = getattr(exc, "retry_after_seconds", None)
+            delay = (
+                timedelta(seconds=max(1.0, retry_after))
+                if retry_after is not None
+                else timedelta(minutes=5)
+            )
+            state = (
+                "awaiting_external"
+                if any(
+                    token in exc.code
+                    for token in (
+                        "corrupt",
+                        "mismatch",
+                        "unknown",
+                        "disabled",
+                        "missing",
+                        "unavailable",
+                        "circuit",
+                    )
+                )
+                else "failed"
+            )
+            return self._defer(
+                lease,
+                error_code=exc.code,
+                delay=delay,
+                state=state,
+            )
         except (HarvestError, SourceQueryError) as exc:
             return self._defer(
                 lease,
