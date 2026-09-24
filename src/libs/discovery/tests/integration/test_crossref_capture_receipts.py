@@ -3,6 +3,7 @@ import gzip
 import hashlib
 import json
 from contextlib import contextmanager
+from dataclasses import replace
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import Mock
