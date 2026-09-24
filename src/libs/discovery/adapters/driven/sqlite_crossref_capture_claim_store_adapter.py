@@ -354,7 +354,29 @@ class SqliteCrossrefCaptureClaimStoreAdapter:
             )
             return
         if latest["state"] in {"released", "expired"} and latest["dispatched_us"] is None:
-            self._unreceived(connection, latest["page_id"])
+            previous = connection.execute(
+                "SELECT * FROM crossref_capture_claims "
+                "WHERE page_id=? AND fencing_token<? AND dispatched_us IS NOT NULL "
+                "ORDER BY fencing_token DESC LIMIT 1",
+                (latest["page_id"], latest["fencing_token"]),
+            ).fetchone()
+            if previous is None:
+                self._unreceived(connection, latest["page_id"])
+                return
+            dispatched = connection.execute(
+                "SELECT count(*) FROM crossref_capture_claims "
+                "WHERE page_id=? AND dispatched_us IS NOT NULL",
+                (latest["page_id"],),
+            ).fetchone()[0]
+            if dispatched >= self._max_dispatch_attempts:
+                raise Error("crossref_claim_retry_exhausted")
+            self._retry_history(
+                connection,
+                previous,
+                request,
+                current_us=current_us,
+                require_due=True,
+            )
             return
         if latest["state"] == "reserved":
             return
