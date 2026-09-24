@@ -59,7 +59,7 @@ def test_metadata_conflict_is_not_silently_overwritten(tmp_path):
         assert registry.all() == (original,)
 
 
-def test_file_publish_precedes_sql_and_retry_adopts_complete_orphan(tmp_path):
+def test_file_publish_precedes_registry_write_and_retry_adopts_complete_orphan(tmp_path):
     _, _, uow, files = components(tmp_path / "workspace")
 
     class FailingUow:
@@ -67,7 +67,9 @@ def test_file_publish_precedes_sql_and_retry_adopts_complete_orphan(tmp_path):
         def transaction(self, *, write=True):
             with uow.transaction(write=write) as registry:
                 yield registry
-                raise RuntimeError("simulated rollback")
+                # Inject the write/commit failure, not the new read-only preflight.
+                if write:
+                    raise RuntimeError("simulated rollback")
 
     with pytest.raises(RuntimeError, match="simulated rollback"):
         PublishObject(files, FailingUow())(b"hello", "raw", "text/plain", "retain")
