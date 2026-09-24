@@ -5,7 +5,6 @@ This adapter does not make filesystem and a future page checkpoint atomic.
 """
 from __future__ import annotations
 
-from dataclasses import asdict
 from datetime import datetime
 from typing import TYPE_CHECKING
 
@@ -36,20 +35,8 @@ class KernelCrossrefCaptureStoreAdapter:
         Rules.request_shape(request)
         Rules.validate(capture)
         Rules.text(attempt_key, "invalid_crossref_capture_attempt")
-        body_id = self._put(capture.body)
-        payload = {
-            "schema_version": 1, "attempt_key": attempt_key, "request": asdict(request),
-            "status": capture.status, "headers": capture.headers,
-            "headers_scope": Rules.HEADERS_SCOPE,
-            "received_at": Rules.instant(capture.received_at).isoformat(),
-            "complete": capture.complete, "capture_error": capture.capture_error,
-            "body_object_id": body_id, "body_sha256": Rules.sha(capture.body), "body_size": len(capture.body),
-            "hash_scope": "http_content_coded_body" if capture.complete else "http_content_coded_prefix",
-        }
-        content = Rules.canonical(payload)
-        if len(content) > Rules.MAX_RECEIPT:
-            raise CrossrefCaptureError("crossref_capture_receipt_too_large")
-        return self._put(content)
+        self._put(capture.body)
+        return self._put(Rules.receipt_content(request, capture, attempt_key=attempt_key))
 
     def read(self, receipt_id: str) -> CrossrefStoredCapture:
         Rules.object_id(receipt_id)

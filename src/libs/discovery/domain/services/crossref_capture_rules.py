@@ -3,6 +3,7 @@ import hashlib
 import json
 import re
 import zlib
+from dataclasses import asdict
 from datetime import datetime, timezone
 from urllib.parse import urlsplit
 
@@ -175,3 +176,26 @@ class CrossrefCaptureRules:
     @staticmethod
     def sha(content: bytes) -> str:
         return hashlib.sha256(content).hexdigest()
+
+    @classmethod
+    def receipt_content(
+        cls, request: CrossrefPageRequest, capture: CrossrefHttpCapture, *, attempt_key: str,
+    ) -> bytes:
+        """Canonical v1 receipt bytes shared by publication and attachment verification."""
+        cls.request_shape(request)
+        cls.validate(capture)
+        cls.text(attempt_key, "invalid_crossref_capture_attempt")
+        payload = {
+            "schema_version": 1, "attempt_key": attempt_key, "request": asdict(request),
+            "status": capture.status, "headers": capture.headers,
+            "headers_scope": cls.HEADERS_SCOPE,
+            "received_at": cls.instant(capture.received_at).isoformat(),
+            "complete": capture.complete, "capture_error": capture.capture_error,
+            "body_object_id": "raw:" + cls.sha(capture.body),
+            "body_sha256": cls.sha(capture.body), "body_size": len(capture.body),
+            "hash_scope": "http_content_coded_body" if capture.complete else "http_content_coded_prefix",
+        }
+        content = cls.canonical(payload)
+        if len(content) > cls.MAX_RECEIPT:
+            raise CrossrefCaptureError("crossref_capture_receipt_too_large")
+        return content
