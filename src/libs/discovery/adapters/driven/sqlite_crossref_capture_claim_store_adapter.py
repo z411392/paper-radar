@@ -594,6 +594,16 @@ class SqliteCrossrefCaptureClaimStoreAdapter:
             connection.execute("UPDATE crossref_capture_claims SET state='released',ended_us=? WHERE id=?",
                                (current, claim.claim_id))
 
+    def latest(self, page_id: str) -> CrossrefCaptureClaim | None:
+        self._text(page_id)
+        with self._transaction(write=False) as connection:
+            row = connection.execute(
+                "SELECT * FROM crossref_capture_claims "
+                "WHERE page_id=? ORDER BY fencing_token DESC LIMIT 1",
+                (page_id,),
+            ).fetchone()
+            return None if row is None else self._decode(row)
+
     def read(self, claim_id: str) -> CrossrefCaptureClaim:
         self._text(claim_id)
         with self._transaction(write=False) as connection:
