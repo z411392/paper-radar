@@ -11,7 +11,7 @@ from datetime import datetime
 from libs.discovery.domain.services.crossref_capture_inbox_rules import (
     CrossrefCaptureInboxRules as InboxRules,
 )
-from libs.discovery.domain/services.crossref_capture_rules import CrossrefCaptureRules as Rules
+from libs.discovery.domain.services.crossref_capture_rules import CrossrefCaptureRules as Rules
 from libs.discovery.domain.services.crossref_rate_policy import CrossrefRatePolicy
 from libs.discovery.dtos.crossref_attachment import CrossrefAttachment
 from libs.discovery.dtos.crossref_capture import CrossrefStoredCapture
