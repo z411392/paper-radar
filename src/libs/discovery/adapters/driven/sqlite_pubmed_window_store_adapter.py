@@ -1,3 +1,4 @@
+import hashlib
 import json
 import re
 import sqlite3
@@ -254,7 +255,15 @@ class SqlitePubmedWindowStoreAdapter:
             ensure_ascii=False,
             separators=(",", ":"),
         )
-        page_id = "pubmed-search:" + page.response_sha256
+        page_id = "pubmed-search:" + hashlib.sha256(
+            (
+                business_key
+                + "\0"
+                + str(page.observation.start_index)
+                + "\0"
+                + page.response_sha256
+            ).encode("utf-8")
+        ).hexdigest()
         with self._transaction(write=True) as connection:
             current = self._progress(connection, business_key)
             if current.state != "pending":
