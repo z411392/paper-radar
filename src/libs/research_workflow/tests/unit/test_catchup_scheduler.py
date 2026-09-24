@@ -100,7 +100,7 @@ def test_failed_window_is_left_for_job_store_retry_and_never_rebuilt() -> None:
 def test_unsupported_source_is_a_coverage_gap_not_a_fake_success_job() -> None:
     snapshot = SchedulerSnapshot(
         harvest_bindings=(
-            binding("badminton:crossref", source="crossref"),
+            binding("statistics:semantic_scholar", source="semantic_scholar"),
         ),
         delivery_schedules=(),
         known_jobs=(),
@@ -111,7 +111,7 @@ def test_unsupported_source_is_a_coverage_gap_not_a_fake_success_job() -> None:
 
     assert plan.jobs == ()
     assert {(gap.identity, gap.reason) for gap in plan.coverage_gaps} == {
-        ("badminton:crossref", "source_scheduler_not_supported"),
+        ("statistics:semantic_scholar", "source_scheduler_not_supported"),
     }
 
 

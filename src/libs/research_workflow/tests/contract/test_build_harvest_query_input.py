@@ -121,12 +121,26 @@ def test_source_must_be_selected_by_both_profile_and_domain():
         build(request())
 
 
-def test_crossref_source_is_still_outside_this_task():
+def test_crossref_source_maps_exact_published_profile_and_domain():
     build, profiles, domains = builder()
-    with pytest.raises(HarvestWorkflowError, match="unsupported_source"):
-        build(request(source_id="crossref"))
-    profiles.assert_not_called()
-    domains.assert_not_called()
+
+    query = build(
+        request(
+            source_id="crossref",
+            time_basis="indexDate",
+            page_size=1000,
+        )
+    )
+
+    assert query.source_id == "crossref"
+    assert query.profile_revision == 3
+    assert query.profile_fingerprint == "a" * 64
+    assert query.domain.domain_id == "statistics"
+    assert query.domain.revision == 7
+    assert query.time_basis == "indexDate"
+    assert query.page_size == 1000
+    profiles.assert_called_once_with("personal")
+    domains.assert_called_once_with("statistics", 7)
 
 
 def test_pubmed_source_maps_exact_published_profile_and_domain():
