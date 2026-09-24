@@ -113,6 +113,9 @@ def test_pubmed_search_page_is_bounded_and_deduplicated() -> None:
 def test_pubmed_efetch_parses_bibliography_but_pmc_remains_separate() -> None:
     adapter = PubmedSourceAdapter(tool="paper-radar", email="reader@example.com")
     request = adapter.bibliography_request(("12345678",))
+    params = parse_qs(urlsplit(request.url).query)
+    assert "rettype" not in params
+    assert params["retmode"] == ["xml"]
     body = b"""<?xml version="1.0" encoding="UTF-8"?>
 <PubmedArticleSet>
   <PubmedArticle>
@@ -179,11 +182,11 @@ def test_pmc_oai_full_text_requires_exact_identity_and_keeps_license_evidence() 
          xmlns:xlink="http://www.w3.org/1999/xlink">
   <responseDate>2026-09-24T00:00:00Z</responseDate>
   <request verb="GetRecord"
-           identifier="oai:pubmedcentral.nih.gov:PMC9999999"
+           identifier="oai:pubmedcentral.nih.gov:9999999"
            metadataPrefix="pmc">https://pmc.ncbi.nlm.nih.gov/api/oai/v1/mh/</request>
   <GetRecord><record>
     <header>
-      <identifier>oai:pubmedcentral.nih.gov:PMC9999999</identifier>
+      <identifier>oai:pubmedcentral.nih.gov:9999999</identifier>
       <datestamp>2026-09-23</datestamp>
       <setSpec>pmc-open</setSpec>
     </header>
@@ -225,7 +228,7 @@ def test_pmc_unknown_license_is_not_promoted_to_unrestricted_reuse() -> None:
 <OAI-PMH xmlns="http://www.openarchives.org/OAI/2.0/">
   <GetRecord><record>
     <header>
-      <identifier>oai:pubmedcentral.nih.gov:PMC9999999</identifier>
+      <identifier>oai:pubmedcentral.nih.gov:9999999</identifier>
       <setSpec>pmc-open</setSpec>
     </header>
     <metadata><article><front><article-meta><permissions>

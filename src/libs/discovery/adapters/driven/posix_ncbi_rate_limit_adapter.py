@@ -13,17 +13,20 @@ from libs.discovery.ports.source_rate_limit_port import SourceRateLimitLeasePort
 
 
 def _number(value: object) -> float:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
+    if type(value) not in {int, float}:
         raise SourceFetchError("invalid_rate_limit_state")
-    number = float(value)
-    if not math.isfinite(number) or number < 0:
+    try:
+        result = float(value)
+    except (ValueError, OverflowError):
+        raise SourceFetchError("invalid_rate_limit_state") from None
+    if not math.isfinite(result) or result < 0:
         raise SourceFetchError("invalid_rate_limit_state")
-    return number
+    return result
 
 
-def _unique(pairs: list[tuple[str, object]]) -> dict[str, object]:
+def _unique(rows: list[tuple[str, object]]) -> dict[str, object]:
     result: dict[str, object] = {}
-    for key, value in pairs:
+    for key, value in rows:
         if key in result:
             raise SourceFetchError("invalid_rate_limit_state")
         result[key] = value
@@ -35,17 +38,19 @@ class _NcbiLease:
         self,
         fd: int,
         clock: Callable[[], float],
+        interval: float,
         not_before: float,
     ) -> None:
         self.fd = fd
         self.clock = clock
+        self.interval = interval
         self.not_before = not_before
         self.active = True
 
     def defer(self, seconds: float) -> None:
         if not self.active:
             raise SourceFetchError("rate_limit_lease_closed")
-        proposed = _number(self.clock()) + _number(seconds)
+        proposed = _number(_number(self.clock()) + max(_number(seconds), self.interval))
         self.not_before = max(self.not_before, proposed)
         content = json.dumps(
             {
@@ -59,38 +64,51 @@ class _NcbiLease:
         os.lseek(self.fd, 0, os.SEEK_SET)
         remaining = memoryview(content)
         while remaining:
-            count = os.write(self.fd, remaining)
-            if count <= 0:
+            written = os.write(self.fd, remaining)
+            if written <= 0:
                 raise OSError("incomplete rate state write")
-            remaining = remaining[count:]
+            remaining = remaining[written:]
         os.ftruncate(self.fd, len(content))
         os.fsync(self.fd)
 
 
 class PosixNcbiRateLimitAdapter:
-    """One local NCBI limiter shared across workspaces.
+    """One stable inode shared by cooperating local NCBI consumers; never unlink it.
 
-    0.34s is deliberately below the no-key 3 requests/s ceiling;
-    0.11s is deliberately below the default API-key 10 requests/s ceiling.
+    Torn/invalid state is evidence requiring repair, not permission to reset the budget.
+    This local lock is not a distributed rate limiter.
     """
 
     def __init__(
         self,
         path: Path,
         *,
-        api_key_present: bool,
+        minimum_interval_seconds: float = 0.34,
+        api_key_present: bool = False,
         clock: Callable[[], float] = time.time,
     ) -> None:
+        # This shared gate also protects PMC OAI, whose limit is not raised by an EUtils key.
+        # Keep the existing keyword for callers; credential presence never raises this budget.
         if type(api_key_present) is not bool:
             raise SourceFetchError("invalid_transport_configuration")
+        try:
+            interval = _number(minimum_interval_seconds)
+        except SourceFetchError:
+            raise SourceFetchError("invalid_transport_configuration") from None
+        if not 0.34 <= interval <= 60:
+            raise SourceFetchError("invalid_transport_configuration")
         self._path = path
+        self._interval = interval
         self._clock = clock
-        self._interval = 0.11 if api_key_present else 0.34
 
     @contextmanager
     def slot(self) -> Iterator[SourceRateLimitLeasePort]:
-        fd, locked, lease = -1, False, None
+        fd = -1
+        locked = False
+        lease = None
         try:
+            # Reject an invalid clock before creating or touching a provider state file.
+            _number(self._clock())
             path = self._path.parent.resolve(strict=True) / self._path.name
             flags = os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK
             created = False
@@ -127,14 +145,15 @@ class PosixNcbiRateLimitAdapter:
                     if (
                         not isinstance(data, dict)
                         or set(data) != {"version", "provider", "not_before"}
+                        or type(data["version"]) is not int
                         or data["version"] != 1
                         or data["provider"] != "ncbi"
                         or len(raw) > 1024
                     ):
                         raise ValueError
                     not_before = _number(data["not_before"])
-                except (ValueError, TypeError, UnicodeError) as exc:
-                    raise SourceFetchError("invalid_rate_limit_state") from exc
+                except (ValueError, TypeError, UnicodeError):
+                    raise SourceFetchError("invalid_rate_limit_state") from None
             now = _number(self._clock())
             if not_before > now:
                 raise SourceFetchError(
@@ -142,7 +161,7 @@ class PosixNcbiRateLimitAdapter:
                     retryable=True,
                     retry_after_seconds=not_before - now,
                 )
-            lease = _NcbiLease(fd, self._clock, not_before)
+            lease = _NcbiLease(fd, self._clock, self._interval, not_before)
             lease.defer(self._interval)
             if created:
                 parent_fd = os.open(path.parent, os.O_RDONLY)

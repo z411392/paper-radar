@@ -1,34 +1,27 @@
 import http.client
 import math
+import re
 import ssl
 import time
+import zlib
 from collections.abc import Callable
 from datetime import datetime, timezone
-from urllib.parse import urlsplit
 
+from libs.discovery.adapters.driven.validate_ncbi_page_request import (
+    validate_ncbi_page_request,
+)
 from libs.discovery.dtos.source_http_response import SourceHttpResponse
 from libs.discovery.dtos.source_page_request import SourcePageRequest
 from libs.discovery.exceptions.source_fetch_error import SourceFetchError
 
 
 class HttpClientNcbiTransportAdapter:
-    """One fixed NCBI HTTPS GET. No redirects, cookies, proxies or retries."""
+    """One bounded request, returning decoded entity bytes rather than compressed wire bytes.
 
-    _TARGETS = {
-        "pubmed": (
-            "eutils.ncbi.nlm.nih.gov",
-            frozenset(
-                {
-                    "/entrez/eutils/esearch.fcgi",
-                    "/entrez/eutils/efetch.fcgi",
-                }
-            ),
-        ),
-        "pmc-oai": (
-            "pmc.ncbi.nlm.nih.gov",
-            frozenset({"/api/oai/v1/mh/"}),
-        ),
-    }
+    Wire length and encoding validate the transfer but are not attached to the decoded body.
+    No redirects, retries, credential lookup or parser execution occur here. Socket timeouts
+    and between-read checks are not a hard deadline for operating-system DNS resolution.
+    """
 
     def __init__(
         self,
@@ -58,175 +51,131 @@ class HttpClientNcbiTransportAdapter:
         self._user_agent = user_agent
         self._monotonic = monotonic
 
-    @classmethod
-    def _target(cls, request: SourcePageRequest) -> tuple[str, str]:
-        if not isinstance(request, SourcePageRequest) or request.method != "GET":
-            raise SourceFetchError("invalid_page_request")
-        config = cls._TARGETS.get(request.source_id)
-        if config is None:
-            raise SourceFetchError("unsupported_source")
-        host, allowed_paths = config
-        try:
-            parsed = urlsplit(request.url)
-            port = parsed.port
-        except ValueError:
-            raise SourceFetchError("invalid_page_request") from None
-        if (
-            parsed.scheme != "https"
-            or parsed.hostname != host
-            or parsed.username is not None
-            or parsed.password is not None
-            or port not in {None, 443}
-            or parsed.path not in allowed_paths
-            or not parsed.query
-            or parsed.fragment
+    @staticmethod
+    def _metadata(
+        raw: list[tuple[str, str]],
+    ) -> tuple[tuple[tuple[str, str], ...], int | None, str]:
+        if len(raw) > 64 or any(
+            len(value) > 4096 or any(ord(char) < 32 or ord(char) == 127 for char in value)
+            for _, value in raw
         ):
-            raise SourceFetchError("invalid_page_request")
-        target = parsed.path + "?" + parsed.query
-        return host, target
+            raise SourceFetchError("invalid_response_headers")
+        headers = tuple((key.lower(), value) for key, value in raw)
+        lengths = [value for key, value in headers if key == "content-length"]
+        if len(lengths) > 1 or (lengths and re.fullmatch(r"[0-9]{1,20}", lengths[0]) is None):
+            raise SourceFetchError("invalid_response_headers")
+        transfers = [value.strip().lower() for key, value in headers if key == "transfer-encoding"]
+        if transfers and (transfers != ["chunked"] or lengths):
+            raise SourceFetchError("invalid_response_headers")
+        encodings = [value.strip().lower() for key, value in headers if key == "content-encoding"]
+        if len(encodings) > 1:
+            raise SourceFetchError("unsupported_content_encoding")
+        encoding = encodings[0] if encodings else "identity"
+        if encoding not in {"identity", "gzip", "deflate"}:
+            raise SourceFetchError("unsupported_content_encoding")
+        retained = {"retry-after", "date", "content-type", "etag", "last-modified"}
+        return (
+            tuple((key, value) for key, value in headers if key in retained),
+            int(lengths[0]) if lengths else None,
+            encoding,
+        )
+
+    @staticmethod
+    def _target(request: SourcePageRequest) -> tuple[str, str]:
+        """Compatibility entry point for the existing durable-harvest composition."""
+        try:
+            host, target = validate_ncbi_page_request(request)
+            if "?" not in target:
+                raise SourceFetchError("invalid_source_request")
+            return host, target
+        except SourceFetchError as exc:
+            raise SourceFetchError("invalid_page_request") from exc
 
     def get(self, request: SourcePageRequest) -> SourceHttpResponse:
         if not self._enabled:
             raise SourceFetchError("source_fetch_disabled")
         host, target = self._target(request)
-        connection, response = None, None
+        connection = response = None
         body = bytearray()
-        captured: tuple[tuple[str, str], ...] = ()
+        headers: tuple[tuple[str, str], ...] = ()
         received = datetime.now(timezone.utc)
+
+        def captured(code: str | None) -> SourceHttpResponse:
+            assert response is not None
+            return SourceHttpResponse(response.status, bytes(body), headers, received, code)
+
         try:
             deadline = self._monotonic() + self._timeout
             connection = http.client.HTTPSConnection(
-                host,
-                timeout=self._timeout,
-                context=ssl.create_default_context(),
+                host, timeout=self._timeout, context=ssl.create_default_context(),
             )
             connection.request(
-                "GET",
-                target,
+                "GET", target,
                 headers={
                     "User-Agent": self._user_agent,
-                    "Accept": "application/json, application/xml;q=0.9, text/xml;q=0.8",
-                    "Accept-Encoding": "identity",
+                    "Accept": "application/json, application/xml, text/xml",
+                    "Accept-Encoding": "gzip, deflate",
                     "Connection": "close",
                 },
             )
             response = connection.getresponse()
             received = datetime.now(timezone.utc)
-            wanted = {
-                "retry-after",
-                "date",
-                "content-type",
-                "content-length",
-                "content-encoding",
-                "etag",
-                "last-modified",
-            }
-            captured = tuple(
-                (key.lower(), value)
-                for key, value in response.getheaders()
-                if key.lower() in wanted
-            )
-            if any(
-                len(value) > 4096 or "" in value or "
-" in value
-                for _, value in captured
-            ):
-                return SourceHttpResponse(
-                    response.status,
-                    b"",
-                    (),
-                    received,
-                    "invalid_response_headers",
-                )
-            encodings = [
-                value.strip().lower()
-                for key, value in captured
-                if key == "content-encoding"
-            ]
-            if encodings and encodings != ["identity"]:
-                return SourceHttpResponse(
-                    response.status,
-                    b"",
-                    captured,
-                    received,
-                    "unsupported_content_encoding",
-                )
-            lengths = [value for key, value in captured if key == "content-length"]
-            expected = None
-            if lengths:
-                if (
-                    len(lengths) != 1
-                    or not lengths[0].isascii()
-                    or not lengths[0].isdigit()
-                    or len(lengths[0]) > 20
-                ):
-                    return SourceHttpResponse(
-                        response.status,
-                        b"",
-                        captured,
-                        received,
-                        "invalid_response_headers",
-                    )
-                expected = int(lengths[0])
+            headers, expected_length, encoding = self._metadata(response.getheaders())
+            if expected_length is not None and expected_length > self._limit:
+                return captured("response_too_large")
+            decoder = None
+            if encoding != "identity":
+                bits = 16 + zlib.MAX_WBITS if encoding == "gzip" else zlib.MAX_WBITS
+                decoder = zlib.decompressobj(bits)
+            wire_size = 0
             while True:
                 if self._monotonic() > deadline:
-                    return SourceHttpResponse(
-                        response.status,
-                        bytes(body),
-                        captured,
-                        received,
-                        "source_timeout",
-                    )
-                chunk = response.read1(min(65536, self._limit + 1 - len(body)))
+                    return captured("source_timeout")
+                chunk = response.read1(min(65536, self._limit + 1 - wire_size))
                 if not chunk:
                     break
-                body.extend(chunk)
-                if len(body) > self._limit:
-                    return SourceHttpResponse(
-                        response.status,
-                        bytes(body[: self._limit]),
-                        captured,
-                        received,
-                        "response_too_large",
-                    )
-            error = (
-                "response_incomplete"
-                if expected is not None and expected != len(body)
-                else None
-            )
-            return SourceHttpResponse(
-                response.status,
-                bytes(body),
-                captured,
-                received,
-                error,
-            )
+                wire_size += len(chunk)
+                if wire_size > self._limit:
+                    return captured("response_too_large")
+                decoded = chunk if decoder is None else decoder.decompress(
+                    chunk, self._limit + 1 - len(body),
+                )
+                too_large = len(body) + len(decoded) > self._limit
+                body.extend(decoded[: self._limit - len(body)])
+                if too_large or (decoder is not None and decoder.unconsumed_tail):
+                    return captured("response_too_large")
+                if decoder is not None and decoder.unused_data:
+                    return captured("invalid_content_encoding")
+            if expected_length is not None and wire_size != expected_length:
+                return captured("response_incomplete")
+            # flush() alone does not prove an end marker/checksum was received.
+            if decoder is not None and not decoder.eof:
+                return captured("response_incomplete")
+            return captured(None)
+        except SourceFetchError as exc:
+            if response is not None:
+                return captured(exc.code)
+            raise
+        except zlib.error:
+            return captured("invalid_content_encoding")
         except TimeoutError as exc:
             if response is not None:
-                return SourceHttpResponse(
-                    response.status,
-                    bytes(body),
-                    captured,
-                    received,
-                    "source_timeout",
-                )
+                return captured("source_timeout")
             raise SourceFetchError("source_timeout", retryable=True) from exc
         except ssl.SSLError as exc:
             raise SourceFetchError("source_tls_error") from exc
         except http.client.IncompleteRead as exc:
+            # exc.partial is wire data: never append it to an already decoded prefix.
             if response is not None:
-                body.extend(exc.partial[: max(0, self._limit - len(body))])
-                return SourceHttpResponse(
-                    response.status,
-                    bytes(body),
-                    captured,
-                    received,
-                    "response_incomplete",
-                )
+                return captured("response_incomplete")
             raise SourceFetchError("source_protocol_error", retryable=True) from exc
         except http.client.HTTPException as exc:
+            if response is not None:
+                return captured("response_incomplete")
             raise SourceFetchError("source_protocol_error", retryable=True) from exc
         except OSError as exc:
+            if response is not None:
+                return captured("response_incomplete")
             raise SourceFetchError("source_connection_error", retryable=True) from exc
         finally:
             try:

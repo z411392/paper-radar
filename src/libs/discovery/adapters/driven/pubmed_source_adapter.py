@@ -458,7 +458,6 @@ class PubmedSourceAdapter:
         parameters = [
             ("db", "pubmed"),
             ("id", ",".join(normalized)),
-            ("rettype", "medline"),
             ("retmode", "xml"),
             *self._common_parameters(),
         ]
