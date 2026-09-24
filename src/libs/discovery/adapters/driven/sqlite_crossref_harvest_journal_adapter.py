@@ -212,6 +212,7 @@ class SqliteCrossrefHarvestJournalAdapter:
             row["cursor_in"],
             row["request_fingerprint"],
             row["state"],
+            row["last_error_code"],
             row["successful_receipt_id"],
             attempt_count,
             row["cursor_out"],
@@ -588,6 +589,34 @@ class SqliteCrossrefHarvestJournalAdapter:
                 (pass_id, state["next_page_no"]),
             ).fetchone()
             return None if row is None else self._page_state(connection, row)
+
+
+    def note_page_error(
+        self,
+        page_id: str,
+        error_code: str,
+    ) -> CrossrefJournalPage:
+        self._text(page_id, "invalid_crossref_page_id", 256)
+        error = self._text(error_code, "invalid_crossref_page_error", 128)
+        with self._transaction(write=True) as connection:
+            row = connection.execute(
+                "SELECT * FROM crossref_harvest_pages WHERE id=?",
+                (page_id,),
+            ).fetchone()
+            if row is None:
+                raise CrossrefHarvestJournalError("crossref_page_missing")
+            if row["state"] == "accounted":
+                raise CrossrefHarvestJournalError("crossref_page_conflict")
+            connection.execute(
+                "UPDATE crossref_harvest_pages SET last_error_code=? WHERE id=?",
+                (error, page_id),
+            )
+            updated = connection.execute(
+                "SELECT * FROM crossref_harvest_pages WHERE id=?",
+                (page_id,),
+            ).fetchone()
+            assert updated is not None
+            return self._page_state(connection, updated)
 
     @staticmethod
     def _validate_item(

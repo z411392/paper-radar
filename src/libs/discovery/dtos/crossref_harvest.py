@@ -41,6 +41,7 @@ class CrossrefJournalPage:
     cursor_in: str
     request_fingerprint: str
     state: str
+    last_error_code: str | None
     successful_receipt_id: str | None
     attempt_count: int
     cursor_out: str | None
@@ -53,3 +54,14 @@ class CrossrefPendingItem:
     raw_doi: str | None
     canonical_json: str
     canonical_sha256: str
+
+
+@dataclass(frozen=True)
+class CrossrefHarvestStepResult:
+    state: str
+    window_id: str
+    pass_id: str
+    page_id: str | None
+    receipt_id: str | None
+    pending_item_count: int
+    error_code: str | None

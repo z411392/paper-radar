@@ -47,6 +47,12 @@ class CrossrefHarvestJournalPort(Protocol):
 
     def resume_page(self, pass_id: str) -> CrossrefJournalPage | None: ...
 
+    def note_page_error(
+        self,
+        page_id: str,
+        error_code: str,
+    ) -> CrossrefJournalPage: ...
+
     def save_decoded(
         self,
         page_id: str,
