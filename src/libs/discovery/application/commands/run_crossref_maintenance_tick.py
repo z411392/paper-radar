@@ -1,6 +1,7 @@
 from dataclasses import replace
 from datetime import datetime
 
+from libs.discovery.domain.services.crossref_repair_rules import CrossrefRepairRules
 from libs.discovery.dtos.crossref_page import CrossrefWindowPlan
 from libs.discovery.dtos.crossref_repair import (
     CrossrefMaintenanceResult,
@@ -41,12 +42,13 @@ class RunCrossrefMaintenanceTick:
         now: datetime,
         policy: CrossrefRepairPolicy,
     ) -> CrossrefMaintenanceResult:
+        policy = CrossrefRepairRules.policy(policy)
         finalized = []
         for candidate in self._store.list_finalizable(
             plan,
             now=now,
             policy=policy,
-        ):
+        )[: policy.max_windows]:
             window_plan = self._plan_for(plan, candidate)
             self._store.finalize_window(
                 window_plan,
@@ -56,12 +58,16 @@ class RunCrossrefMaintenanceTick:
             )
             finalized.append(candidate.window_id)
 
+        remaining = policy.max_windows - len(finalized)
+        if remaining == 0:
+            return CrossrefMaintenanceResult(tuple(finalized), ())
+        repair_policy = replace(policy, max_windows=remaining)
         repairs = []
         for candidate in self._store.list_candidates(
             plan,
             now=now,
-            policy=policy,
-        ):
+            policy=repair_policy,
+        )[: remaining]:
             window_plan = self._plan_for(plan, candidate)
             repair = self._store.start_repair(
                 window_plan,

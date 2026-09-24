@@ -6,6 +6,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta
 from typing import Any
 
+from libs.discovery.adapters.driven.crossref_window_topology import CrossrefWindowTopology
 from libs.discovery.domain.services.crossref_repair_rules import CrossrefRepairRules as Rules
 from libs.discovery.dtos.crossref_page import CrossrefWindowPlan
 from libs.discovery.dtos.crossref_repair import (
@@ -230,6 +231,7 @@ class SqliteCrossrefRepairStoreAdapter:
                     cutoff.isoformat(),
                 ),
             ).fetchall()
+            windows = CrossrefWindowTopology.leaves(connection, windows)
             result = []
             for window in windows:
                 if connection.execute(
@@ -269,7 +271,7 @@ class SqliteCrossrefRepairStoreAdapter:
                         Rules.parse_instant(window["until_index"]),
                     )
                 )
-            return tuple(result)
+            return tuple(result[: checked.max_windows])
 
 
     @staticmethod
@@ -339,6 +341,7 @@ class SqliteCrossrefRepairStoreAdapter:
                     safety_cutoff.isoformat(),
                 ),
             ).fetchall()
+            rows = CrossrefWindowTopology.leaves(connection, rows)
             finalized_recent = [
                 row["id"]
                 for row in rows
@@ -397,6 +400,7 @@ class SqliteCrossrefRepairStoreAdapter:
         values = self._plan(plan)
         with self._transaction(write=True) as connection:
             window = self._require_window(connection, plan, window_id)
+            CrossrefWindowTopology.require_leaf(connection, window_id)
             active = connection.execute(
                 "SELECT r.*,p.pass_no FROM crossref_repair_runs r "
                 "JOIN crossref_harvest_passes p ON p.id=r.pass_id "
@@ -561,6 +565,7 @@ class SqliteCrossrefRepairStoreAdapter:
                 values["rows"],
             ),
         ).fetchall()
+        windows = CrossrefWindowTopology.leaves(connection, windows)
         current_until = None
         latest_window_id = latest_finalization_id = None
         for window in windows:
@@ -648,6 +653,7 @@ class SqliteCrossrefRepairStoreAdapter:
             )
         with self._transaction(write=True) as connection:
             window = self._require_window(connection, plan, window_id)
+            CrossrefWindowTopology.require_leaf(connection, window_id)
             if window["state"] != "traversed":
                 raise CrossrefRepairError("crossref_window_not_finalizable")
             running = connection.execute(
