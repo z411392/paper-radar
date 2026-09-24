@@ -6,6 +6,7 @@ recovery; absence of an attempt row does not prove absence of an orphan receipt.
 
 import hashlib
 import json
+import math
 import sqlite3
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -13,19 +14,36 @@ from dataclasses import asdict, replace
 from datetime import datetime, timedelta, timezone
 
 from libs.discovery.adapters.driven.crossref_source_adapter import CrossrefSourceAdapter
+from libs.discovery.domain.services.crossref_capture_inbox_rules import (
+    CrossrefCaptureInboxRules as InboxRules,
+)
 from libs.discovery.domain.services.crossref_capture_rules import CrossrefCaptureRules
+from libs.discovery.domain.services.crossref_rate_policy import CrossrefRatePolicy
 from libs.discovery.dtos.crossref_capture_claim import CrossrefCaptureClaim
 from libs.discovery.dtos.crossref_page import CrossrefPageRequest, CrossrefWindowPlan
 from libs.discovery.exceptions.crossref_capture_claim_error import CrossrefCaptureClaimError as Error
 from libs.discovery.exceptions.crossref_capture_error import CrossrefCaptureError
+from libs.discovery.exceptions.crossref_capture_inbox_error import CrossrefCaptureInboxError
 from libs.discovery.exceptions.crossref_protocol_error import CrossrefProtocolError
+from libs.discovery.exceptions.crossref_rate_error import CrossrefRateError
 
 EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 
 class SqliteCrossrefCaptureClaimStoreAdapter:
-    def __init__(self, connect: Callable[[], sqlite3.Connection]) -> None:
+    def __init__(
+        self,
+        connect: Callable[[], sqlite3.Connection],
+        *,
+        max_dispatch_attempts: int = 5,
+    ) -> None:
+        if (
+            type(max_dispatch_attempts) is not int
+            or not 1 <= max_dispatch_attempts <= 100
+        ):
+            raise Error("invalid_crossref_retry_limit")
         self._connect = connect
+        self._max_dispatch_attempts = max_dispatch_attempts
 
     @staticmethod
     def _text(value: object) -> str:
@@ -141,6 +159,207 @@ class SqliteCrossrefCaptureClaimStoreAdapter:
         except (ValueError, TypeError, OverflowError, CrossrefCaptureError) as exc:
             raise Error("crossref_claim_state_corrupt") from exc
 
+    @classmethod
+    def _retry_history(
+        cls,
+        connection: sqlite3.Connection,
+        claim_row: sqlite3.Row,
+        request: CrossrefPageRequest,
+        *,
+        current_us: int,
+        require_due: bool,
+    ) -> int:
+        if claim_row["state"] != "dispatching":
+            raise Error("crossref_claim_retry_history_corrupt")
+        try:
+            claim = cls._decode(claim_row)
+            if claim.request != request:
+                raise Error("crossref_claim_request_mismatch")
+            resolution = connection.execute(
+                "SELECT * FROM crossref_capture_resolutions WHERE claim_id=?",
+                (claim.claim_id,),
+            ).fetchone()
+            if resolution is None:
+                raise Error("crossref_claim_outcome_unknown")
+
+            sizes = connection.execute(
+                "SELECT length(envelope),envelope_sha256,length(body),body_sha256,staged_us "
+                "FROM crossref_capture_inbox WHERE claim_id=?",
+                (claim.claim_id,),
+            ).fetchone()
+            if sizes is None:
+                raise Error("crossref_claim_retry_history_corrupt")
+            if (
+                type(sizes[0]) is not int
+                or not 1 <= sizes[0] <= CrossrefCaptureRules.MAX_RECEIPT
+                or type(sizes[2]) is not int
+                or not 0 <= sizes[2] <= CrossrefCaptureRules.MAX_BODY
+                or type(sizes[4]) is not int
+            ):
+                raise Error("crossref_claim_retry_history_corrupt")
+            inbox = connection.execute(
+                "SELECT envelope,envelope_sha256,body,body_sha256,staged_us "
+                "FROM crossref_capture_inbox WHERE claim_id=?",
+                (claim.claim_id,),
+            ).fetchone()
+            decoded = InboxRules.decode(
+                claim,
+                inbox["envelope"],
+                inbox["envelope_sha256"],
+                inbox["body"],
+                inbox["body_sha256"],
+            )
+            capture = decoded.capture
+            receipt_content = CrossrefCaptureRules.receipt_content(
+                request,
+                capture,
+                attempt_key=claim.claim_id,
+            )
+            receipt_id = "raw:" + CrossrefCaptureRules.sha(receipt_content)
+            body_id = "raw:" + CrossrefCaptureRules.sha(capture.body)
+            if resolution["receipt_id"] != receipt_id:
+                raise Error("crossref_claim_retry_history_corrupt")
+            for object_id, content in (
+                (receipt_id, receipt_content),
+                (body_id, capture.body),
+            ):
+                obj = connection.execute(
+                    "SELECT kind,state,content_sha256,byte_size FROM object_registry "
+                    "WHERE object_id=?",
+                    (object_id,),
+                ).fetchone()
+                if obj is None or tuple(obj) != (
+                    "raw",
+                    "available",
+                    CrossrefCaptureRules.sha(content),
+                    len(content),
+                ):
+                    raise Error("crossref_claim_retry_history_corrupt")
+
+            attempt = connection.execute(
+                "SELECT * FROM crossref_harvest_page_attempts WHERE id=?",
+                (resolution["attempt_id"],),
+            ).fetchone()
+            if attempt is None:
+                raise Error("crossref_claim_retry_history_corrupt")
+            resolved_count = connection.execute(
+                "SELECT count(*) FROM crossref_capture_resolutions r "
+                "JOIN crossref_capture_claims c ON c.id=r.claim_id "
+                "WHERE c.page_id=? AND c.fencing_token<=?",
+                (claim.page_id, claim.fencing_token),
+            ).fetchone()[0]
+            attempt_count = connection.execute(
+                "SELECT count(*) FROM crossref_harvest_page_attempts WHERE page_id=?",
+                (claim.page_id,),
+            ).fetchone()[0]
+            expected_attempt_id = "crossref-attempt:" + cls._hash(
+                claim.page_id,
+                resolved_count,
+                receipt_id,
+            )
+            if (
+                resolved_count < 1
+                or attempt_count != resolved_count
+                or attempt["id"] != expected_attempt_id
+                or attempt["attempt_no"] != resolved_count
+                or attempt["page_id"] != claim.page_id
+                or attempt["receipt_id"] != receipt_id
+            ):
+                raise Error("crossref_claim_retry_history_corrupt")
+
+            attached_decision = CrossrefRatePolicy().evaluate(
+                capture.status,
+                capture.headers,
+                now=capture.received_at,
+                capture_error=capture.capture_error,
+            )
+            if (
+                attempt["action"] != attached_decision.action
+                or attempt["failure_code"] != attached_decision.failure_code
+            ):
+                raise Error("crossref_claim_retry_history_corrupt")
+            try:
+                recorded_at = datetime.fromisoformat(attempt["recorded_at"])
+                recorded_us = cls._us(recorded_at)
+            except (ValueError, TypeError, OverflowError):
+                raise Error("crossref_claim_retry_history_corrupt") from None
+            resolved_us = resolution["resolved_us"]
+            if (
+                type(resolved_us) is not int
+                or type(claim_row["dispatched_us"]) is not int
+                or resolved_us
+                < max(claim_row["dispatched_us"], inbox["staged_us"], recorded_us)
+                or resolution["policy_version"] != "crossref-resolution-v1"
+            ):
+                raise Error("crossref_claim_retry_history_corrupt")
+
+            resolved_at = EPOCH + timedelta(microseconds=resolved_us)
+            decision = CrossrefRatePolicy().evaluate(
+                capture.status,
+                capture.headers,
+                now=resolved_at,
+                capture_error=capture.capture_error,
+            )
+            retry_us = None
+            if decision.action == "retry":
+                retry_us = resolved_us + math.ceil(decision.delay_seconds * 1_000_000)
+                if retry_us <= resolved_us:
+                    raise Error("crossref_claim_retry_history_corrupt")
+            if (
+                resolution["action"] != decision.action
+                or resolution["failure_code"] != decision.failure_code
+                or resolution["retry_not_before_us"] != retry_us
+            ):
+                raise Error("crossref_claim_retry_history_corrupt")
+            if decision.action != "retry":
+                raise Error("crossref_claim_terminal")
+            assert retry_us is not None
+            if require_due and current_us < retry_us:
+                raise Error("crossref_claim_retry_not_due")
+            return retry_us
+        except Error:
+            raise
+        except (
+            CrossrefCaptureError,
+            CrossrefCaptureInboxError,
+            CrossrefRateError,
+            OverflowError,
+            TypeError,
+            ValueError,
+        ) as exc:
+            raise Error("crossref_claim_retry_history_corrupt") from exc
+
+    def _check_retry_authority(
+        self,
+        connection: sqlite3.Connection,
+        latest: sqlite3.Row,
+        request: CrossrefPageRequest,
+        *,
+        current_us: int,
+    ) -> None:
+        if latest["state"] == "dispatching":
+            dispatched = connection.execute(
+                "SELECT count(*) FROM crossref_capture_claims "
+                "WHERE page_id=? AND dispatched_us IS NOT NULL",
+                (latest["page_id"],),
+            ).fetchone()[0]
+            if dispatched >= self._max_dispatch_attempts:
+                raise Error("crossref_claim_retry_exhausted")
+            self._retry_history(
+                connection,
+                latest,
+                request,
+                current_us=current_us,
+                require_due=True,
+            )
+            return
+        if latest["state"] in {"released", "expired"} and latest["dispatched_us"] is None:
+            self._unreceived(connection, latest["page_id"])
+            return
+        if latest["state"] == "reserved":
+            return
+        raise Error("crossref_claim_recovery_required")
+
     def reserve(
         self, plan: CrossrefWindowPlan, pass_id: str, request: CrossrefPageRequest, *,
         owner_id: str, expected_workspace_id: str, expected_epoch: int,
@@ -195,17 +414,14 @@ class SqliteCrossrefCaptureClaimStoreAdapter:
                         or page["cursor_in"] != request.cursor
                         or page["request_fingerprint"] != request.request_fingerprint):
                     raise Error("crossref_claim_page_not_active")
-            if page is not None:
-                self._unreceived(connection, page_id)
             if latest is not None:
-                if latest["state"] == "dispatching":
-                    raise Error("crossref_claim_outcome_unknown")
                 old = self._decode(latest)
                 if old.workspace_id != expected_workspace_id or old.workspace_epoch != expected_epoch:
                     raise Error("crossref_claim_recovery_required")
                 if old.request != request:
                     raise Error("crossref_claim_request_mismatch")
-                if current < max(latest["reserved_us"], latest["ended_us"] or latest["reserved_us"]):
+                prior_end = latest["ended_us"]
+                if current < max(latest["reserved_us"], prior_end or latest["reserved_us"]):
                     raise Error("crossref_claim_clock_regressed")
                 if latest["state"] == "reserved":
                     if current < latest["lease_until_us"]:
@@ -215,6 +431,13 @@ class SqliteCrossrefCaptureClaimStoreAdapter:
                     connection.execute(
                         "UPDATE crossref_capture_claims SET state='expired',ended_us=? WHERE id=?",
                         (current, old.claim_id),
+                    )
+                else:
+                    self._check_retry_authority(
+                        connection,
+                        latest,
+                        request,
+                        current_us=current,
                     )
             else:
                 connection.execute(
@@ -275,13 +498,42 @@ class SqliteCrossrefCaptureClaimStoreAdapter:
                 raise Error("crossref_claim_expired")
             self._workspace(connection, claim.workspace_id, claim.workspace_epoch)
             state = self._active(connection, claim.pass_id, claim.request)
-            page = connection.execute("SELECT * FROM crossref_harvest_pages WHERE id=?", (claim.page_id,)).fetchone()
-            if (page is None or page["state"] != "requested" or page["pass_id"] != claim.pass_id
-                    or page["page_no"] != state["next_page_no"] or page["successful_receipt_id"] is not None
-                    or page["cursor_in"] != claim.request.cursor
-                    or page["request_fingerprint"] != claim.request.request_fingerprint):
+            page = connection.execute(
+                "SELECT * FROM crossref_harvest_pages WHERE id=?",
+                (claim.page_id,),
+            ).fetchone()
+            if (
+                page is None
+                or page["state"] != "requested"
+                or page["pass_id"] != claim.pass_id
+                or page["page_no"] != state["next_page_no"]
+                or page["successful_receipt_id"] is not None
+                or page["cursor_in"] != claim.request.cursor
+                or page["request_fingerprint"] != claim.request.request_fingerprint
+            ):
                 raise Error("crossref_claim_page_not_active")
-            self._unreceived(connection, claim.page_id)
+            prior = connection.execute(
+                "SELECT * FROM crossref_capture_claims "
+                "WHERE page_id=? AND fencing_token<? "
+                "ORDER BY fencing_token DESC LIMIT 1",
+                (claim.page_id, claim.fencing_token),
+            ).fetchone()
+            if prior is None:
+                self._unreceived(connection, claim.page_id)
+            else:
+                self._check_retry_authority(
+                    connection,
+                    prior,
+                    claim.request,
+                    current_us=current,
+                )
+            dispatched = connection.execute(
+                "SELECT count(*) FROM crossref_capture_claims "
+                "WHERE page_id=? AND dispatched_us IS NOT NULL",
+                (claim.page_id,),
+            ).fetchone()[0]
+            if dispatched >= self._max_dispatch_attempts:
+                raise Error("crossref_claim_retry_exhausted")
             connection.execute(
                 "UPDATE crossref_capture_claims SET state='dispatching',dispatched_us=? "
                 "WHERE id=? AND state='reserved'", (current, claim.claim_id),
