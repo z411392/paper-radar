@@ -419,6 +419,20 @@ def test_unexplained_later_attempt_still_blocks_historical_replay(f):
     first = f.attach()
     resolve(f)
     f.sql(
+        'INSERT INTO object_registry VALUES(?,?,?,?,?,?,?,?,?)',
+        (
+            'raw:' + 'f' * 64,
+            'f' * 64,
+            'fixture/unexplained',
+            'raw',
+            'application/json',
+            1,
+            'available',
+            NOW.isoformat(),
+            'source-response',
+        ),
+    )
+    f.sql(
         'INSERT INTO crossref_harvest_page_attempts VALUES(?,?,?,?,?,?,?)',
         (
             'unexplained',
