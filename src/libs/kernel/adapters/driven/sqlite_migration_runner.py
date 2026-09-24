@@ -19,6 +19,15 @@ class SqliteMigrationRunner:
     def _authorize(
         action: int, arg1: str | None, arg2: str | None, db: str | None, source: str | None
     ) -> int:
+        # FTS5 reads main.data_version while constructing its virtual table.
+        # This narrow read-only exception does not permit configuration changes.
+        if (
+            action == sqlite3.SQLITE_PRAGMA
+            and arg1 == "data_version"
+            and arg2 is None
+            and db == "main"
+        ):
+            return sqlite3.SQLITE_OK
         prohibited = {
             sqlite3.SQLITE_TRANSACTION,
             sqlite3.SQLITE_SAVEPOINT,
