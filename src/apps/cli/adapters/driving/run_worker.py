@@ -56,6 +56,14 @@ def _parser() -> argparse.ArgumentParser:
         "--rate-limit-state",
         help="Absolute path to the shared local arXiv rate-limit state file.",
     )
+    parser.add_argument(
+        "--ncbi-email",
+        help="Contact email sent to NCBI E-utilities when PubMed is commissioned.",
+    )
+    parser.add_argument(
+        "--ncbi-rate-limit-state",
+        help="Absolute path to the shared local NCBI rate-limit state file.",
+    )
     return parser
 
 
@@ -108,8 +116,26 @@ def run_worker_cli(argv: list[str]) -> None:
             parser.error("--rate-limit-state is required with --allow-live-source")
         if "\0" in arguments.rate_limit_state or not Path(arguments.rate_limit_state).is_absolute():
             parser.error("--rate-limit-state must be an absolute path without NUL characters")
-    elif arguments.rate_limit_state is not None:
-        parser.error("--rate-limit-state requires --allow-live-source")
+    elif (
+        arguments.rate_limit_state is not None
+        or arguments.ncbi_email is not None
+        or arguments.ncbi_rate_limit_state is not None
+    ):
+        parser.error("live-source options require --allow-live-source")
+    if (arguments.ncbi_email is None) != (arguments.ncbi_rate_limit_state is None):
+        parser.error("--ncbi-email and --ncbi-rate-limit-state must be supplied together")
+    if arguments.ncbi_email is not None:
+        if (
+            arguments.ncbi_email.count("@") != 1
+            or any(char.isspace() for char in arguments.ncbi_email)
+        ):
+            parser.error("--ncbi-email must be a valid contact email")
+        assert arguments.ncbi_rate_limit_state is not None
+        if (
+            "\0" in arguments.ncbi_rate_limit_state
+            or not Path(arguments.ncbi_rate_limit_state).is_absolute()
+        ):
+            parser.error("--ncbi-rate-limit-state must be an absolute path without NUL characters")
 
     owner_id = "worker:" + uuid4().hex
     try:
@@ -119,6 +145,8 @@ def run_worker_cli(argv: list[str]) -> None:
                     arguments.workspace,
                     allow_live_source=arguments.allow_live_source,
                     rate_limit_state=arguments.rate_limit_state,
+                    ncbi_email=arguments.ncbi_email,
+                    ncbi_rate_limit_state=arguments.ncbi_rate_limit_state,
                 )
             ],
             auto_bind=False,

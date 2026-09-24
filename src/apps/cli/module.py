@@ -14,10 +14,17 @@ from libs.discovery.adapters.driven.arxiv_atom_parser_adapter import PARSER_VERS
 from libs.discovery.adapters.driven.arxiv_query_compiler_adapter import ArxivQueryCompilerAdapter
 from libs.discovery.adapters.driven.arxiv_source_adapter import ArxivSourceAdapter
 from libs.discovery.adapters.driven.http_client_arxiv_transport_adapter import HttpClientArxivTransportAdapter
+from libs.discovery.adapters.driven.http_client_ncbi_transport_adapter import HttpClientNcbiTransportAdapter
+from libs.discovery.adapters.driven.ncbi_source_fetcher_adapter import NcbiSourceFetcherAdapter
 from libs.discovery.adapters.driven.posix_arxiv_rate_limit_adapter import PosixArxivRateLimitAdapter
+from libs.discovery.adapters.driven.posix_ncbi_rate_limit_adapter import PosixNcbiRateLimitAdapter
+from libs.discovery.adapters.driven.pubmed_source_adapter import PubmedSourceAdapter
 from libs.discovery.adapters.driven.sqlite_harvest_processing_adapter import SqliteHarvestProcessingAdapter
 from libs.discovery.adapters.driven.sqlite_harvest_resume_adapter import SqliteHarvestResumeAdapter
 from libs.discovery.adapters.driven.sqlite_harvest_store_adapter import SqliteHarvestStoreAdapter
+from libs.discovery.adapters.driven.sqlite_pubmed_window_store_adapter import (
+    SqlitePubmedWindowStoreAdapter,
+)
 from libs.discovery.application.commands.process_harvest_page import ProcessHarvestPage
 from libs.discovery.application.commands.record_harvest_capture import RecordHarvestCapture
 from libs.discovery.application.commands.start_harvest_attempt import StartHarvestAttempt
@@ -51,6 +58,7 @@ from libs.research_workflow.adapters.driven.system_harvest_runtime_adapter impor
 from libs.research_workflow.adapters.driven.system_workflow_clock_adapter import SystemWorkflowClockAdapter
 from libs.research_workflow.application.commands.process_workflow_job import ProcessWorkflowJob
 from libs.research_workflow.application.commands.run_harvest_slice import RunHarvestSlice
+from libs.research_workflow.application.commands.run_pubmed_window import RunPubmedWindow
 from libs.research_workflow.application.commands.run_scheduler_tick import RunSchedulerTick
 from libs.research_workflow.application.commands.run_worker_cycle import RunWorkerCycle
 from libs.research_workflow.application.queries.build_harvest_query_input import BuildHarvestQueryInput
@@ -59,6 +67,7 @@ from libs.research_workflow.ports.build_harvest_query_input_port import BuildHar
 from libs.research_workflow.ports.process_workflow_job_port import ProcessWorkflowJobPort
 from libs.research_workflow.ports.read_runtime_version_port import ReadRuntimeVersionPort
 from libs.research_workflow.ports.run_harvest_slice_port import RunHarvestSlicePort
+from libs.research_workflow.ports.run_pubmed_window_port import RunPubmedWindowPort
 from libs.research_workflow.ports.run_scheduler_tick_port import RunSchedulerTickPort
 from libs.research_workflow.ports.run_worker_cycle_port import RunWorkerCyclePort
 from libs.research_workflow.ports.runtime_version_provider_port import RuntimeVersionProviderPort
@@ -66,6 +75,13 @@ from libs.research_workflow.ports.workflow_clock_port import WorkflowClockPort
 from libs.research_workflow.ports.workflow_job_store_port import WorkflowJobStorePort
 from libs.scholarly_catalog.adapters.driven.sqlite_digest_research_event_adapter import (
     SqliteDigestResearchEventAdapter,
+)
+from libs.scholarly_catalog.adapters.driven.sqlite_paper_identity_store_adapter import (
+    SqlitePaperIdentityStoreAdapter,
+)
+from libs.scholarly_catalog.application.commands.resolve_paper_identity import ResolvePaperIdentity
+from libs.scholarly_catalog.domain.services.normalize_paper_identifier import (
+    NormalizePaperIdentifier,
 )
 from libs.watch_profiles.adapters.driven.sqlite_digest_relevance_adapter import (
     SqliteDigestRelevanceAdapter,
@@ -237,6 +253,9 @@ class HarvestRunCliModule(Module):
         self._workspace = workspace
         self._rate_limit_state = rate_limit_state
         self._transport = transport
+        self._ncbi_email = ncbi_email
+        self._ncbi_rate_limit_state = ncbi_rate_limit_state
+        self._ncbi_transport = ncbi_transport
 
     def configure(self, binder: Binder) -> None:
         root, connection, store, compiler = _harvest_configuration(binder, self._workspace)
@@ -261,6 +280,9 @@ class WorkerCliModule(Module):
         allow_live_source: bool = False,
         rate_limit_state: str | None = None,
         transport: SourceHttpTransportPort | None = None,
+        ncbi_email: str | None = None,
+        ncbi_rate_limit_state: str | None = None,
+        ncbi_transport: SourceHttpTransportPort | None = None,
     ) -> None:
         self._workspace = workspace
         self._allow_live_source = allow_live_source
@@ -272,7 +294,7 @@ class WorkerCliModule(Module):
         connection = SqliteSchemaConnectionFactory(
             root,
             load_workspace_migrations(with_runtime=True),
-            minimum_version=9,
+            minimum_version=10,
         )
         profile_store = SqliteWatchProfileStoreAdapter(connection.connect)
         builder = BuildHarvestQueryInput(
@@ -299,6 +321,33 @@ class WorkerCliModule(Module):
         objects = SqliteObjectUnitOfWorkAdapter(object_connection)
         read_object = ReadObject(files, objects)
         publish_object = PublishObject(files, objects)
+        clock = SystemWorkflowClockAdapter()
+        pubmed = None
+        if (self._ncbi_email is None) != (self._ncbi_rate_limit_state is None):
+            raise ValueError("ncbi_configuration_incomplete")
+        if self._allow_live_source and self._ncbi_email is not None:
+            assert self._ncbi_rate_limit_state is not None
+            pubmed_source = PubmedSourceAdapter(
+                tool="paper-radar",
+                email=self._ncbi_email,
+            )
+            pubmed_fetcher = NcbiSourceFetcherAdapter(
+                self._ncbi_transport or HttpClientNcbiTransportAdapter(enabled=True),
+                PosixNcbiRateLimitAdapter(Path(self._ncbi_rate_limit_state)),
+                enabled=True,
+            )
+            pubmed = RunPubmedWindow(
+                source=pubmed_source,
+                fetcher=pubmed_fetcher,
+                objects=publish_object,
+                store=SqlitePubmedWindowStoreAdapter(connection.connect),
+                catalog=ResolvePaperIdentity(
+                    NormalizePaperIdentifier(),
+                    SqlitePaperIdentityStoreAdapter(connection.connect),
+                ),
+                clock=clock,
+            )
+
         delivery_store = SqliteDeliveryStoreAdapter(connection.connect)
         digest_artifacts = KernelDigestArtifactAdapter(publish_object, read_object)
         scheduled_digest = PrepareScheduledDigest(
@@ -310,7 +359,6 @@ class WorkerCliModule(Module):
         )
 
         jobs = SqliteWorkflowJobStoreAdapter(connection.connect)
-        clock = SystemWorkflowClockAdapter()
         scheduler = RunSchedulerTick(
             SqliteSchedulerInputAdapter(connection.connect),
             jobs,
@@ -322,6 +370,7 @@ class WorkerCliModule(Module):
             clock=clock,
             live_source_enabled=self._allow_live_source,
             digest=scheduled_digest,
+            pubmed=pubmed,
         )
         cycle = RunWorkerCycle(scheduler, processor, clock)
 
@@ -329,5 +378,7 @@ class WorkerCliModule(Module):
         binder.bind(WorkflowClockPort, to=InstanceProvider(clock))
         binder.bind(RunSchedulerTickPort, to=InstanceProvider(scheduler))
         binder.bind(PrepareScheduledDigestPort, to=InstanceProvider(scheduled_digest))
+        if pubmed is not None:
+            binder.bind(RunPubmedWindowPort, to=InstanceProvider(pubmed))
         binder.bind(ProcessWorkflowJobPort, to=InstanceProvider(processor))
         binder.bind(RunWorkerCyclePort, to=InstanceProvider(cycle))
