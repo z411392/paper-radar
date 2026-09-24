@@ -60,7 +60,7 @@ class Runtime:
         bundle = load_workspace_migrations(with_runtime=True)
         if initialize:
             info = SqliteWorkspaceBootstrapAdapter(root, bundle).initialize()
-            assert info.schema_version == 15 and not info.external_effects_enabled
+            assert info.schema_version == 16 and not info.external_effects_enabled
         self.raw = SqliteConnectionFactory(root)
         self.schema = SqliteSchemaConnectionFactory(root, bundle, minimum_version=15)
         self.files = FilesystemObjectBytesAdapter(root)
