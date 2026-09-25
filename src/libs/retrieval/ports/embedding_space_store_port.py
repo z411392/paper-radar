@@ -8,6 +8,8 @@ from libs.retrieval.dtos.embedding_space import (
 
 
 class EmbeddingSpaceStorePort(Protocol):
+    def get(self, space_id: str) -> RegisteredEmbeddingSpace: ...
+
     def save(
         self,
         space: PreparedEmbeddingSpace,
