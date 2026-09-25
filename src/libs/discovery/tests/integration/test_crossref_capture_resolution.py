@@ -25,7 +25,7 @@ from libs.discovery.tests.integration.test_crossref_claimed_attachment import Fi
 @pytest.fixture
 def f(tmp_path):
     fixture = Fixture(tmp_path / 'runtime')
-    assert fixture.info.schema_version == 17
+    assert fixture.info.schema_version == 18
     assert fixture.sql('SELECT MAX(version) FROM schema_migrations')[0][0] == 16
     return fixture
 
