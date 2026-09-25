@@ -38,6 +38,7 @@ def load_workspace_migrations(
             "0022-crossref-integrity-work-bindings.sql",
             "0023-delivery-digest-rebuilds.sql",
             "0024-source-catalog-projection.sql",
+            "0025-search-documents-fts-trigram.sql",
         )
     elif with_discovery:
         names = (
