@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from libs.delivery.application.commands.prepare_scheduled_digest import PrepareScheduledDigest
 from libs.delivery.dtos.delivery_queue import QueuedDigest
 from libs.delivery.dtos.scheduled_digest import (
@@ -8,6 +10,7 @@ from libs.delivery.dtos.scheduled_digest import (
     DigestSubscriptionContext,
     ScheduledDigestRequest,
 )
+from libs.delivery.exceptions.scheduled_digest_error import ScheduledDigestError
 from libs.paper_explanations.dtos.digest_current_summary import DigestCurrentSummary
 from libs.scholarly_catalog.dtos.digest_research_event import DigestResearchEvent
 from libs.watch_profiles.dtos.digest_relevance import DigestRelevance
@@ -408,9 +411,6 @@ def test_status_notice_without_prior_recipient_port_fails_closed():
         summaries={},
         relevance={},
     )
-
-    import pytest
-    from libs.delivery.exceptions.scheduled_digest_error import ScheduledDigestError
 
     with pytest.raises(ScheduledDigestError, match="prior_recipient_check_unavailable"):
         usecase(request(), created_at=NOW)

@@ -1,8 +1,11 @@
 import json
 from datetime import datetime, timezone
 
+import pytest
+
 from libs.delivery.application.commands.prepare_digest import PrepareDigest
 from libs.delivery.domain.services.digest_artifact_rules import DigestArtifactRules
+from libs.delivery.domain.services.digest_selection_rules import DigestSelectionError
 from libs.delivery.dtos.digest_preview import DigestCandidate, PrepareDigestRequest
 
 
@@ -146,9 +149,6 @@ def test_status_notice_is_prioritized_over_regular_paper() -> None:
 
 def test_status_candidate_shape_cannot_be_forged_as_regular_event() -> None:
     forged = status_item("event:status", "new_work")
-
-    import pytest
-    from libs.delivery.domain.services.digest_selection_rules import DigestSelectionError
 
     with pytest.raises(DigestSelectionError, match="invalid_event_kind"):
         PrepareDigest()(request((forged,)))
