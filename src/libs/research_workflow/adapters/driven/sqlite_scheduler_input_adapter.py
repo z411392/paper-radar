@@ -239,6 +239,28 @@ class SqliteSchedulerInputAdapter:
             )
         return schedules
 
+    @staticmethod
+    def _pending_delivery_outboxes(
+        connection: sqlite3.Connection,
+    ) -> tuple[str, ...]:
+        rows = connection.execute(
+            "SELECT o.id AS outbox_id,d.state AS digest_state "
+            "FROM delivery_outbox o "
+            "LEFT JOIN digests d ON d.id=o.digest_id "
+            "WHERE o.state='pending' ORDER BY o.id"
+        ).fetchall()
+        result = []
+        for row in rows:
+            outbox_id = row["outbox_id"]
+            if (
+                not isinstance(outbox_id, str)
+                or not outbox_id
+                or row["digest_state"] != "queued"
+            ):
+                raise WorkflowJobError("delivery_outbox_state_corrupt")
+            result.append(outbox_id)
+        return tuple(result)
+
     def read(self, now: datetime) -> SchedulerSnapshot:
         if not isinstance(now, datetime) or now.tzinfo is None or now.utcoffset() is None:
             raise WorkflowJobError("invalid_scheduler_time")
@@ -254,6 +276,7 @@ class SqliteSchedulerInputAdapter:
             bindings = self._active_bindings(connection, gaps)
             last_harvest, known, last_digest = self._workflow_history(connection)
             schedules = self._delivery_schedules(connection, last_digest, gaps)
+            pending_outboxes = self._pending_delivery_outboxes(connection)
             bindings = [
                 HarvestBindingSchedule(
                     item.binding_key,
@@ -274,6 +297,7 @@ class SqliteSchedulerInputAdapter:
                 input_gaps=tuple(
                     sorted(gaps, key=lambda gap: (gap.kind, gap.identity, gap.reason))
                 ),
+                pending_delivery_outboxes=pending_outboxes,
             )
         except WorkflowJobError:
             if connection is not None and connection.in_transaction:

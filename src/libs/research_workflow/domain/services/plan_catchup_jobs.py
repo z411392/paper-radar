@@ -167,6 +167,29 @@ class PlanCatchupJobs:
         )
 
     @classmethod
+    def _dispatch_job(
+        cls,
+        outbox_id: str,
+        *,
+        now: datetime,
+    ) -> EnqueueWorkflowJob:
+        if (
+            not isinstance(outbox_id, str)
+            or not outbox_id.strip()
+            or len(outbox_id) > 256
+            or "\0" in outbox_id
+        ):
+            raise WorkflowJobError("invalid_delivery_outbox")
+        current = cls._instant(now, "invalid_scheduler_time")
+        return cls._job(
+            job_kind="dispatch_digest",
+            business_key="dispatch:" + outbox_id,
+            payload={"outbox_id": outbox_id},
+            due_at=current,
+            created_at=current,
+        )
+
+    @classmethod
     def _harvest_window_end(
         cls,
         schedule: HarvestBindingSchedule,
@@ -210,7 +233,10 @@ class PlanCatchupJobs:
                 raise WorkflowJobError("invalid_scheduler_job_state")
             active_by_binding[item.binding_key] = item
         gaps = list(snapshot.input_gaps)
-        jobs: list[EnqueueWorkflowJob] = []
+        jobs: list[EnqueueWorkflowJob] = [
+            self._dispatch_job(outbox_id, now=current)
+            for outbox_id in sorted(snapshot.pending_delivery_outboxes)
+        ]
         blocks_digest = False
 
         for schedule in sorted(snapshot.harvest_bindings, key=self._binding_order):

@@ -43,6 +43,7 @@ class SchedulerSnapshot:
     delivery_schedules: tuple[DeliverySchedule, ...]
     known_jobs: tuple[KnownWorkflowJob, ...]
     input_gaps: tuple[CoverageGap, ...]
+    pending_delivery_outboxes: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

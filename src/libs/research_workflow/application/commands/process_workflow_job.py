@@ -27,6 +27,9 @@ from libs.research_workflow.ports.build_harvest_query_input_port import BuildHar
 from libs.research_workflow.ports.run_crossref_harvest_window_port import (
     RunCrossrefHarvestWindowPort,
 )
+from libs.research_workflow.ports.process_revision_notice_port import (
+    ProcessRevisionNoticePort,
+)
 from libs.research_workflow.ports.run_harvest_slice_port import RunHarvestSlicePort
 from libs.research_workflow.ports.workflow_clock_port import WorkflowClockPort
 from libs.research_workflow.ports.workflow_job_store_port import WorkflowJobStorePort
@@ -56,6 +59,7 @@ class ProcessWorkflowJob:
         pubmed: RunPubmedHarvestWindowPort | None = None,
         crossref_plan: BuildCrossrefWindowPlanPort | None = None,
         crossref: RunCrossrefHarvestWindowPort | None = None,
+        revision_notice: ProcessRevisionNoticePort | None = None,
     ) -> None:
         self._store = store
         self._builder = builder
@@ -66,6 +70,7 @@ class ProcessWorkflowJob:
         self._pubmed = pubmed
         self._crossref_plan = crossref_plan
         self._crossref = crossref
+        self._revision_notice = revision_notice
 
     @staticmethod
     def _instant(value: object) -> datetime:
@@ -458,6 +463,48 @@ class ProcessWorkflowJob:
             next_due_at=None,
         )
 
+    def _dispatch_digest_job(self, lease) -> WorkflowJobProcessResult:
+        notice = self._revision_notice
+        if notice is None:
+            return self._defer(
+                lease,
+                error_code="revision_notice_runtime_not_connected",
+                delay=timedelta(hours=1),
+                state="awaiting_external",
+            )
+        data = self._payload(lease.input_json)
+        if set(data) != {"outbox_id"} or not isinstance(data["outbox_id"], str):
+            raise WorkflowJobError("invalid_job_payload")
+        outcome = notice(data["outbox_id"])
+        if outcome.state == "succeeded":
+            return self._complete(
+                lease,
+                state="succeeded",
+                error_code=None,
+                next_due_at=None,
+            )
+        if outcome.state == "cancelled":
+            return self._complete(
+                lease,
+                state="cancelled",
+                error_code=outcome.error_code,
+                next_due_at=None,
+            )
+        if outcome.state == "awaiting_external":
+            return self._defer(
+                lease,
+                error_code=outcome.error_code or "revision_notice_awaiting_external",
+                delay=timedelta(hours=1),
+                state="awaiting_external",
+            )
+        if outcome.state == "failed":
+            return self._defer(
+                lease,
+                error_code=outcome.error_code or "revision_notice_failed",
+                delay=timedelta(minutes=5),
+            )
+        raise WorkflowJobError("invalid_revision_notice_outcome")
+
     def __call__(
         self,
         owner_id: str,
@@ -478,6 +525,8 @@ class ProcessWorkflowJob:
             )
         if lease.job_kind == "prepare_digest":
             return self._digest_job(lease)
+        if lease.job_kind == "dispatch_digest":
+            return self._dispatch_digest_job(lease)
         return self._complete(
             lease,
             state="cancelled",
