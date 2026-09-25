@@ -134,6 +134,14 @@ class ProjectPubmedObservation:
                 evidence.revision_id != resolution.revision_id
                 or evidence.work_id != resolution.work_id
                 or evidence.state not in {"available", "unavailable"}
+                or (
+                    evidence.state == "available"
+                    and evidence.snapshot_id is None
+                )
+                or (
+                    evidence.state == "unavailable"
+                    and evidence.snapshot_id is not None
+                )
             ):
                 raise PaperIdentityError("pubmed_evidence_projection_mismatch")
             evidence_state = evidence.state
