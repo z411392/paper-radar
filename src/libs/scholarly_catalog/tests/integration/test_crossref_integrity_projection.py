@@ -90,7 +90,7 @@ def _rows(path: Path, query: str):
 
 def _update(
     *,
-    target="10.1000/TARGET",
+    counterparty="10.1000/TARGET",
     kind="retraction",
     source="publisher",
     record_id=None,
@@ -98,7 +98,7 @@ def _update(
     label="Retraction",
 ):
     value = {
-        "DOI": target,
+        "DOI": counterparty,
         "type": kind,
         "source": source,
         "label": label,
@@ -118,7 +118,7 @@ def test_publisher_and_retraction_watch_assertions_both_remain(tmp_path: Path) -
                 "DOI": "10.1000/NOTICE",
                 "update-to": [
                     _update(source="publisher"),
-                    _update(source="retraction-watch", record_id="rw:123"),
+                    _update(source="retraction-watch", record_id=44124),
                 ],
             }
         ),
@@ -126,12 +126,12 @@ def test_publisher_and_retraction_watch_assertions_both_remain(tmp_path: Path) -
     )
     rows = _rows(
         path,
-        "SELECT source_raw,record_id_raw,event_class "
+        "SELECT source_raw,record_id_raw_json,event_class "
         "FROM crossref_integrity_assertions ORDER BY source_raw",
     )
     assert [tuple(row) for row in rows] == [
         ("publisher", None, "retraction"),
-        ("retraction-watch", "rw:123", "retraction"),
+        ("retraction-watch", "44124", "retraction"),
     ]
 
 
@@ -144,12 +144,12 @@ def test_same_rw_record_id_conflicting_types_are_append_only(tmp_path: Path) -> 
                 "update-to": [
                     _update(
                         source="retraction-watch",
-                        record_id="rw:123",
+                        record_id=44124,
                         kind="retraction",
                     ),
                     _update(
                         source="retraction-watch",
-                        record_id="rw:123",
+                        record_id=44124,
                         kind="expression of concern",
                     ),
                 ],
@@ -159,38 +159,82 @@ def test_same_rw_record_id_conflicting_types_are_append_only(tmp_path: Path) -> 
     )
     rows = _rows(
         path,
-        "SELECT type_raw,event_class FROM crossref_integrity_assertions "
-        "ORDER BY type_raw",
+        "SELECT type_raw,event_class,record_id_raw_json "
+        "FROM crossref_integrity_assertions ORDER BY type_raw",
     )
     assert [tuple(row) for row in rows] == [
-        ("expression of concern", "expression_of_concern"),
-        ("retraction", "retraction"),
+        ("expression of concern", "expression_of_concern", "44124"),
+        ("retraction", "retraction", "44124"),
     ]
 
 
-def test_notice_record_is_source_and_update_to_doi_is_target(tmp_path: Path) -> None:
+def test_update_to_maps_current_record_to_notice_and_counterparty_to_target(
+    tmp_path: Path,
+) -> None:
     path, project = _setup(tmp_path)
     project(
         _item(
             {
                 "DOI": "10.1000/NOTICE",
-                "update-to": [_update(target="10.1000/ORIGINAL", kind="correction")],
+                "update-to": [
+                    _update(
+                        counterparty="10.1000/ORIGINAL",
+                        kind="correction",
+                    )
+                ],
             }
         ),
         observed_at=NOW,
     )
     row = _rows(
         path,
-        "SELECT source_notice_doi,target_doi_raw,target_canonical_doi,"
-        "target_normalization_state,event_class "
-        "FROM crossref_integrity_assertions",
+        "SELECT record_canonical_doi,wire_direction,counterparty_doi_raw,"
+        "counterparty_canonical_doi,notice_canonical_doi,target_canonical_doi,"
+        "event_class FROM crossref_integrity_assertions",
     )[0]
     assert tuple(row) == (
         "10.1000/notice",
+        "update_to",
         "10.1000/ORIGINAL",
         "10.1000/original",
-        "normalized",
+        "10.1000/notice",
+        "10.1000/original",
         "correction",
+    )
+
+
+def test_updated_by_maps_current_record_to_target_and_counterparty_to_notice(
+    tmp_path: Path,
+) -> None:
+    path, project = _setup(tmp_path)
+    project(
+        _item(
+            {
+                "DOI": "10.1000/ORIGINAL",
+                "updated-by": [
+                    _update(
+                        counterparty="10.1000/NOTICE",
+                        kind="retraction",
+                        source="retraction-watch",
+                        record_id="20946",
+                    )
+                ],
+            }
+        ),
+        observed_at=NOW,
+    )
+    row = _rows(
+        path,
+        "SELECT record_canonical_doi,wire_direction,notice_canonical_doi,"
+        "target_canonical_doi,record_id_raw_json "
+        "FROM crossref_integrity_assertions",
+    )[0]
+    assert tuple(row) == (
+        "10.1000/original",
+        "updated_by",
+        "10.1000/notice",
+        "10.1000/original",
+        '"20946"',
     )
 
 
@@ -223,7 +267,7 @@ def test_unknown_type_and_source_are_preserved_without_reclassification(
     )
 
 
-def test_invalid_and_missing_target_doi_are_durable(tmp_path: Path) -> None:
+def test_invalid_and_missing_counterparty_doi_are_durable(tmp_path: Path) -> None:
     path, project = _setup(tmp_path)
     missing = _update()
     del missing["DOI"]
@@ -232,7 +276,7 @@ def test_invalid_and_missing_target_doi_are_durable(tmp_path: Path) -> None:
             {
                 "DOI": "10.1000/NOTICE",
                 "update-to": [
-                    _update(target="not-a-doi", kind="retraction"),
+                    _update(counterparty="not-a-doi", kind="retraction"),
                     missing,
                 ],
             }
@@ -241,12 +285,13 @@ def test_invalid_and_missing_target_doi_are_durable(tmp_path: Path) -> None:
     )
     rows = _rows(
         path,
-        "SELECT target_doi_raw,target_canonical_doi,target_normalization_state "
-        "FROM crossref_integrity_assertions ORDER BY update_ordinal",
+        "SELECT counterparty_doi_raw,counterparty_canonical_doi,"
+        "counterparty_normalization_state,target_canonical_doi "
+        "FROM crossref_integrity_assertions ORDER BY rowid",
     )
     assert [tuple(row) for row in rows] == [
-        ("not-a-doi", None, "invalid"),
-        (None, None, "missing"),
+        ("not-a-doi", None, "invalid", None),
+        (None, None, "missing", None),
     ]
 
 
@@ -276,7 +321,7 @@ def test_partial_updated_date_is_parsed_and_invalid_date_keeps_raw_gap(
     rows = _rows(
         path,
         "SELECT updated_value,updated_precision,updated_raw_json "
-        "FROM crossref_integrity_assertions ORDER BY update_ordinal",
+        "FROM crossref_integrity_assertions ORDER BY rowid",
     )
     gaps = _rows(
         path,
@@ -295,7 +340,7 @@ def test_partial_updated_date_is_parsed_and_invalid_date_keeps_raw_gap(
 
 def test_same_assertion_across_provider_revisions_reuses_assertion(tmp_path: Path) -> None:
     path, project = _setup(tmp_path)
-    update = [_update(source="publisher", record_id="notice:1")]
+    update = [_update(source="publisher", record_id=44124)]
     one = project(
         _item(
             {
@@ -337,7 +382,7 @@ def test_same_day_multiple_notices_do_not_collide(tmp_path: Path) -> None:
                     "DOI": notice,
                     "update-to": [
                         _update(
-                            target="10.1000/TARGET",
+                            counterparty="10.1000/TARGET",
                             updated=updated,
                             record_id=record,
                         )
@@ -349,8 +394,8 @@ def test_same_day_multiple_notices_do_not_collide(tmp_path: Path) -> None:
         )
     rows = _rows(
         path,
-        "SELECT source_notice_doi,record_id_raw,id "
-        "FROM crossref_integrity_assertions ORDER BY source_notice_doi",
+        "SELECT record_canonical_doi,record_id_raw_json,id "
+        "FROM crossref_integrity_assertions ORDER BY record_canonical_doi",
     )
     assert len(rows) == 2
     assert rows[0]["id"] != rows[1]["id"]

@@ -131,31 +131,40 @@ class ProjectCrossrefPendingItem:
             integrity_entries, integrity_gaps = CrossrefIntegrityRules.extract(item)
             integrity_assertions = []
             for entry in integrity_entries:
-                target_raw = entry.target_doi_raw
-                if target_raw is None:
-                    target_canonical = None
-                    target_state = "missing"
+                counterparty_raw = entry.counterparty_doi_raw
+                if counterparty_raw is None:
+                    counterparty_canonical = None
+                    counterparty_state = "missing"
                 else:
                     try:
-                        target = self._normalize("doi", target_raw)
+                        counterparty = self._normalize("doi", counterparty_raw)
                     except PaperIdentityError:
-                        target_canonical = None
-                        target_state = "invalid"
+                        counterparty_canonical = None
+                        counterparty_state = "invalid"
                     else:
-                        target_canonical = target.normalized_value
-                        target_state = "normalized"
+                        counterparty_canonical = counterparty.normalized_value
+                        counterparty_state = "normalized"
+                if entry.wire_direction == "update_to":
+                    notice_doi = result.canonical_doi
+                    target_doi = counterparty_canonical
+                else:
+                    notice_doi = counterparty_canonical
+                    target_doi = result.canonical_doi
                 integrity_assertions.append(
                     CrossrefIntegrityAssertionDraft(
                         result.canonical_doi,
                         result.provider_revision_id,
+                        entry.wire_direction,
                         entry.ordinal,
-                        target_raw,
-                        target_canonical,
-                        target_state,
+                        counterparty_raw,
+                        counterparty_canonical,
+                        counterparty_state,
+                        notice_doi,
+                        target_doi,
                         entry.type_raw,
                         entry.source_raw,
                         entry.label_raw,
-                        entry.record_id_raw,
+                        entry.record_id_raw_json,
                         entry.event_class,
                         entry.updated_value,
                         entry.updated_precision,
