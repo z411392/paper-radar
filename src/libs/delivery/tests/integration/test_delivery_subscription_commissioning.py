@@ -182,3 +182,31 @@ def test_read_is_a_query_not_a_configure_replay(tmp_path: Path) -> None:
     assert read is not None
     assert read.subscription_id == configured.subscription_id
     assert read.replayed is False
+
+
+def test_read_rejects_invalid_reader_without_fake_configuration(tmp_path: Path) -> None:
+    _, _, store = _setup(tmp_path)
+
+    with pytest.raises(
+        DeliverySubscriptionError,
+        match="invalid_delivery_reader",
+    ):
+        store.read("reader:\ud800")
+
+
+def test_configure_invalid_unicode_has_zero_mutation(tmp_path: Path) -> None:
+    schema, _, store = _setup(tmp_path)
+
+    with pytest.raises(
+        DeliverySubscriptionError,
+        match="invalid_delivery_recipient_ref",
+    ):
+        store.configure(_request(recipient_ref="recipient:\ud800"), now=NOW)
+
+    connection = schema.connect()
+    try:
+        assert connection.execute(
+            "SELECT count(*) FROM delivery_subscriptions"
+        ).fetchone()[0] == 0
+    finally:
+        connection.close()

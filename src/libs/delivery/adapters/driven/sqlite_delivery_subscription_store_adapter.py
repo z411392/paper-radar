@@ -195,16 +195,7 @@ class SqliteDeliverySubscriptionStoreAdapter:
             return self._decode(updated, replayed=False)
 
     def read(self, reader_id: str) -> DeliverySubscription | None:
-        normalized = Rules.normalize(
-            ConfigureDeliverySubscriptionRequest(
-                reader_id=reader_id,
-                timezone="UTC",
-                local_time="00:00",
-                max_items=1,
-                recipient_ref="placeholder",
-                enabled=False,
-            )
-        )[0]
+        normalized = Rules.reader_id(reader_id)
         with self._transaction(write=False) as connection:
             row = connection.execute(
                 "SELECT * FROM delivery_subscriptions "

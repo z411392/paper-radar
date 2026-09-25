@@ -15,16 +15,29 @@ from libs.delivery.exceptions.delivery_subscription_error import (
 class DeliverySubscriptionRules:
     @staticmethod
     def _text(value: object, code: str, maximum: int) -> str:
+        if not isinstance(value, str):
+            raise DeliverySubscriptionError(code)
+        try:
+            size = len(value.encode("utf-8"))
+        except UnicodeEncodeError:
+            raise DeliverySubscriptionError(code) from None
         if (
-            not isinstance(value, str)
-            or not value
+            not value
             or value != value.strip()
-            or len(value.encode("utf-8")) > maximum
+            or size > maximum
             or "\0" in value
             or any(ord(char) < 32 or ord(char) == 127 for char in value)
         ):
             raise DeliverySubscriptionError(code)
         return value
+
+    @classmethod
+    def reader_id(cls, value: object) -> str:
+        return cls._text(
+            value,
+            "invalid_delivery_reader",
+            256,
+        )
 
     @classmethod
     def normalize(
@@ -33,11 +46,7 @@ class DeliverySubscriptionRules:
     ) -> tuple[str, str, str, int, str, bool]:
         if not isinstance(request, ConfigureDeliverySubscriptionRequest):
             raise DeliverySubscriptionError("invalid_delivery_subscription")
-        reader_id = cls._text(
-            request.reader_id,
-            "invalid_delivery_reader",
-            256,
-        )
+        reader_id = cls.reader_id(request.reader_id)
         timezone_name = cls._text(
             request.timezone,
             "invalid_delivery_timezone",

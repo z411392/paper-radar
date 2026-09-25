@@ -2,7 +2,18 @@ import json
 import sqlite3
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
+
+from libs.kernel.adapters.driven.bundled_workspace_migrations import (
+    load_workspace_migrations,
+)
+from libs.kernel.adapters.driven.sqlite_schema_connection_factory import (
+    SqliteSchemaConnectionFactory,
+)
+from libs.research_workflow.adapters.driven.sqlite_scheduler_input_adapter import (
+    SqliteSchedulerInputAdapter,
+)
 
 
 ROOT = Path(__file__).resolve().parents[5]
@@ -93,6 +104,20 @@ def test_delivery_configure_show_and_replay_on_clean_runtime(
     assert effects == 0
     assert count == 1
 
+    schema = SqliteSchemaConnectionFactory(
+        workspace,
+        load_workspace_migrations(with_runtime=True),
+        minimum_version=7,
+    )
+    snapshot = SqliteSchedulerInputAdapter(schema.connect).read(
+        datetime(2026, 9, 25, 12, 0, tzinfo=timezone.utc)
+    )
+    assert len(snapshot.delivery_schedules) == 1
+    schedule = snapshot.delivery_schedules[0]
+    assert schedule.reader_id == "reader:local"
+    assert schedule.channel == "email"
+    assert schedule.local_time == "08:00"
+
 
 def test_delivery_show_missing_is_normal_null_result(tmp_path: Path) -> None:
     workspace = tmp_path / "runtime"
@@ -140,6 +165,16 @@ def test_delivery_disable_and_reenable_only_change_subscription_policy(
     assert disabled.returncode == enabled.returncode == 0
     assert json.loads(disabled.stdout)["subscription"]["policy_version"] == 2
     assert json.loads(enabled.stdout)["subscription"]["policy_version"] == 3
+
+    schema = SqliteSchemaConnectionFactory(
+        workspace,
+        load_workspace_migrations(with_runtime=True),
+        minimum_version=7,
+    )
+    snapshot = SqliteSchedulerInputAdapter(schema.connect).read(
+        datetime(2026, 9, 25, 12, 0, tzinfo=timezone.utc)
+    )
+    assert len(snapshot.delivery_schedules) == 1
 
     connection = sqlite3.connect(workspace / "state" / "app.sqlite3")
     try:
