@@ -124,6 +124,32 @@ class SqliteEmbeddingSpaceStoreAdapter:
             raise EmbeddingSpaceError("embedding_space_conflict")
         return row
 
+
+    def get(self, space_id: str) -> RegisteredEmbeddingSpace:
+        if not isinstance(space_id, str):
+            raise EmbeddingSpaceError("invalid_embedding_space")
+        with self._transaction(write=False) as connection:
+            row = connection.execute(
+                "SELECT * FROM embedding_spaces WHERE id=?",
+                (space_id,),
+            ).fetchone()
+            if row is None:
+                raise EmbeddingSpaceError("embedding_space_missing")
+            prepared = PreparedEmbeddingSpace(
+                row["id"],
+                row["provider"],
+                row["model_name"],
+                row["model_revision"],
+                row["dimension"],
+                row["dtype"],
+                row["normalization_version"],
+                row["prefix_config_hash"],
+                row["metric"],
+                row["configuration_fingerprint"],
+            )
+            EmbeddingSpaceRules.validate_prepared(prepared)
+            return self._result(row, replayed=True)
+
     def save(
         self,
         space: PreparedEmbeddingSpace,
