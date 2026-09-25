@@ -6,6 +6,9 @@ from fire import Fire
 from injector import Injector
 
 from apps.cli.adapters.driving.initialize_workspace import initialize_workspace
+from apps.cli.adapters.driving.manage_delivery_subscription import (
+    run_delivery_cli,
+)
 from apps.cli.adapters.driving.manage_harvest import run_harvest_cli
 from apps.cli.adapters.driving.manage_watch_profiles import run_watch_cli
 from apps.cli.adapters.driving.manage_workspace_effects import (
@@ -28,6 +31,7 @@ def run() -> None:
                 "profile",
                 "harvest",
                 "effects",
+                "delivery",
                 "run-worker",
             ),
             nargs="?",
@@ -69,6 +73,9 @@ def run() -> None:
         return
     if sys.argv[1:2] == ["effects"]:
         run_workspace_effects_cli(sys.argv[1:])
+        return
+    if sys.argv[1:2] == ["delivery"]:
+        run_delivery_cli(sys.argv[1:])
         return
     if sys.argv[1:2] == ["run-worker"]:
         run_worker_cli(sys.argv[1:])
