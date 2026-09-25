@@ -81,11 +81,20 @@ from libs.kernel.adapters.driven.sqlite_connection_factory import SqliteConnecti
 from libs.kernel.adapters.driven.sqlite_object_unit_of_work_adapter import SqliteObjectUnitOfWorkAdapter
 from libs.kernel.adapters.driven.sqlite_schema_connection_factory import SqliteSchemaConnectionFactory
 from libs.kernel.adapters.driven.sqlite_workspace_bootstrap_adapter import SqliteWorkspaceBootstrapAdapter
+from libs.kernel.adapters.driven.sqlite_workspace_external_effects_adapter import (
+    SqliteWorkspaceExternalEffectsAdapter,
+)
 from libs.kernel.adapters.driven.sqlite_workspace_info_adapter import SqliteWorkspaceInfoAdapter
 from libs.kernel.application.commands.initialize_workspace import InitializeWorkspace
+from libs.kernel.application.commands.set_workspace_external_effects import (
+    SetWorkspaceExternalEffects,
+)
 from libs.kernel.application.commands.publish_object import PublishObject
 from libs.kernel.application.queries.read_object import ReadObject
 from libs.kernel.ports.initialize_workspace_port import InitializeWorkspacePort
+from libs.kernel.ports.set_workspace_external_effects_port import (
+    SetWorkspaceExternalEffectsPort,
+)
 from libs.kernel.ports.workspace_bootstrap_port import WorkspaceBootstrapPort
 from libs.paper_explanations.adapters.driven.sqlite_digest_current_summary_adapter import (
     SqliteDigestCurrentSummaryAdapter,
@@ -173,6 +182,27 @@ class CliModule(Module):
             command = InitializeWorkspace(bootstrap)
             binder.bind(InitializeWorkspacePort, to=InstanceProvider(command), scope=singleton)
 
+
+
+
+class WorkspaceEffectsCliModule(Module):
+    """Explicitly mutate the workspace master I/O gate; never upgrade or start work."""
+
+    def __init__(self, workspace: str) -> None:
+        self._workspace = workspace
+
+    def configure(self, binder: Binder) -> None:
+        connection = SqliteSchemaConnectionFactory(
+            Path(self._workspace),
+            load_workspace_migrations(with_runtime=True),
+            minimum_version=17,
+        )
+        adapter = SqliteWorkspaceExternalEffectsAdapter(connection.connect)
+        command = SetWorkspaceExternalEffects(adapter)
+        binder.bind(
+            SetWorkspaceExternalEffectsPort,
+            to=InstanceProvider(command),
+        )
 
 class WatchProfileCliModule(Module):
     """Assemble profile ports without bootstrapping or opening a database."""
