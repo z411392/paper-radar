@@ -24,6 +24,7 @@ class Store:
     def __init__(self, snapshot):
         self.snapshots = [snapshot]
         self.cancelled = []
+        self.cancel_result = "cancelled"
 
     def load_preflight(self, outbox_id):
         snapshot = self.snapshots[0]
@@ -34,7 +35,7 @@ class Store:
 
     def cancel_pending(self, outbox_id):
         self.cancelled.append(outbox_id)
-        return "cancelled"
+        return self.cancel_result
 
 
 def snapshot(*items, enabled=True, outbox_state="pending", digest_state="queued"):
@@ -119,7 +120,7 @@ def test_current_paper_and_prior_status_use_only_formal_dispatch_boundary():
     assert store.cancelled == []
 
 
-def test_stale_paper_is_cancelled_before_dispatch():
+def test_stale_legacy_paper_is_cancelled_without_guessing_window():
     store = Store(snapshot(paper()))
     usecase, _, history, dispatch = command(store, summary=None)
 
@@ -127,7 +128,7 @@ def test_stale_paper_is_cancelled_before_dispatch():
 
     assert (result.state, result.error_code) == (
         "cancelled",
-        "digest_current_input_stale",
+        "digest_rebuild_context_missing",
     )
     assert store.cancelled == ["outbox:test"]
     history.contains.assert_not_called()
@@ -322,6 +323,29 @@ def test_status_recipient_loss_never_uses_rebuild_authority():
     assert (result.state, result.error_code) == (
         "cancelled",
         "status_notice_recipient_no_longer_eligible",
+    )
+    assert store.cancelled == ["outbox:test"]
+    prepare.assert_not_called()
+    dispatch.assert_not_called()
+
+
+def test_cancel_race_to_sending_never_reports_cancelled_or_rebuilds():
+    store = Store(snapshot(paper()))
+    store.cancel_result = "sending"
+    prepare = Mock()
+    usecase, _, _, dispatch = command(
+        store,
+        summary=None,
+        prepare=prepare,
+    )
+
+    result = usecase(
+        RevisionNoticeRequest("outbox:test", rebuild_request())
+    )
+
+    assert (result.state, result.error_code) == (
+        "awaiting_external",
+        "inflight_delivery_without_terminal_receipt",
     )
     assert store.cancelled == ["outbox:test"]
     prepare.assert_not_called()

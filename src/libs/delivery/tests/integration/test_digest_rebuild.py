@@ -265,6 +265,7 @@ def test_cancelled_slot_with_any_delivery_attempt_cannot_rebuild(tmp_path: Path)
                 _preview("event:correction", marker="second"),
                 second_object,
                 rebuild_reason="current_input_stale",
+                rebuild_outbox_id=first.outbox_id,
             )
         )
 

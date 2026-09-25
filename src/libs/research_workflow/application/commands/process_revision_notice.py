@@ -147,7 +147,9 @@ class ProcessRevisionNotice:
             if snapshot.outbox_state != "pending":
                 return eligibility
             if eligibility.error_code != "digest_current_input_stale":
-                self._store.cancel_pending(request.outbox_id)
+                cancelled = self._store.cancel_pending(request.outbox_id)
+                if cancelled != "cancelled":
+                    return self._terminal(cancelled)
                 return eligibility
 
             rebuild = request.rebuild_request
@@ -157,7 +159,9 @@ class ProcessRevisionNotice:
                     "digest_rebuild_context_mismatch",
                 )
 
-            self._store.cancel_pending(request.outbox_id)
+            cancelled = self._store.cancel_pending(request.outbox_id)
+            if cancelled != "cancelled":
+                return self._terminal(cancelled)
             if rebuild is None or self._prepare is None:
                 return RevisionNoticeOutcome(
                     "cancelled",
@@ -192,7 +196,9 @@ class ProcessRevisionNotice:
             second = self._eligibility(refreshed)
             if second is not None:
                 if second.state == "cancelled" and refreshed.outbox_state == "pending":
-                    self._store.cancel_pending(request.outbox_id)
+                    cancelled = self._store.cancel_pending(request.outbox_id)
+                    if cancelled != "cancelled":
+                        return self._terminal(cancelled)
                     if second.error_code == "digest_current_input_stale":
                         return RevisionNoticeOutcome(
                             "cancelled",
