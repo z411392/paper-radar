@@ -55,3 +55,20 @@ class CrossrefIntegrityGapDraft:
     error_code: str
     raw_json: str
     observed_at: datetime
+
+@dataclass(frozen=True)
+class CrossrefIntegrityAssertionRef:
+    assertion_id: str
+    notice_canonical_doi: str | None
+    target_canonical_doi: str | None
+
+
+@dataclass(frozen=True)
+class CrossrefIntegrityWorkBindingDraft:
+    assertion_id: str
+    role: str
+    canonical_doi: str
+    manifestation_id: str
+    work_id: str
+    canonical_work_id: str
+    bound_at: datetime
