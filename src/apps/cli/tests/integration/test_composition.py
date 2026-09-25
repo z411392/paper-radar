@@ -1,10 +1,14 @@
 import json
+from pathlib import Path
 
 import pytest
 from injector import Injector, UnsatisfiedRequirement
 
 from apps.cli.adapters.driving.show_version import show_version
 from apps.cli.module import CliModule
+from libs.research_workflow.ports.process_revision_notice_port import (
+    ProcessRevisionNoticePort,
+)
 from libs.research_workflow.ports.read_runtime_version_port import ReadRuntimeVersionPort
 
 
@@ -27,8 +31,6 @@ def test_missing_binding_is_not_silently_autowired() -> None:
 def test_worker_composition_exposes_revision_notice_preflight_without_mail_sender(
     tmp_path: Path,
 ) -> None:
-    from injector import Injector
-
     from apps.cli.module import WorkerCliModule
     from libs.kernel.adapters.driven.bundled_workspace_migrations import (
         load_workspace_migrations,
