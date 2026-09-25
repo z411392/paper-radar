@@ -554,3 +554,72 @@ def test_mark_processed_rejects_silently_ignored_update(tmp_path: Path) -> None:
     finally:
         connection.close()
     assert tuple(item) == ("pending", None, None, None)
+
+
+def test_projection_quarantine_rejects_silently_ignored_insert(
+    tmp_path: Path,
+) -> None:
+    path, store = _setup(tmp_path)
+    root = Path(__file__).resolve().parents[5]
+    connection = sqlite3.connect(path)
+    connection.executescript(
+        (root / "migrations/0019-crossref-projection-quarantines.sql").read_text(
+            encoding="utf-8"
+        )
+    )
+    connection.commit()
+    connection.close()
+
+    _, plan = _plan()
+    _, _, request, page = _start(store, plan)
+    receipt_id = _register_raw(path, b"ignored quarantine receipt")
+    store.record_attempt(
+        page.page_id,
+        receipt_id,
+        action="accept",
+        failure_code=None,
+        recorded_at=NOW,
+    )
+    store.save_decoded(
+        page.page_id,
+        _decoded(
+            request,
+            receipt_id=receipt_id,
+            items=(_item(0, "bad doi"),),
+        ),
+        NOW,
+    )
+
+    connection = sqlite3.connect(path)
+    connection.execute(
+        "CREATE TRIGGER ignore_projection_quarantine "
+        "BEFORE INSERT ON crossref_projection_quarantines "
+        "BEGIN SELECT RAISE(IGNORE); END"
+    )
+    connection.commit()
+    connection.close()
+
+    with pytest.raises(
+        CrossrefHarvestJournalError,
+        match="crossref_item_outcome_conflict",
+    ):
+        store.mark_projection_quarantined(
+            page.page_id,
+            0,
+            error_code="crossref_provider_doi_invalid",
+            quarantined_at=NOW,
+        )
+
+    pending = store.pending_items(page.page_id)
+    assert [(item.ordinal, item.raw_doi) for item in pending] == [
+        (0, "bad doi")
+    ]
+
+    connection = sqlite3.connect(path)
+    try:
+        count = connection.execute(
+            "SELECT count(*) FROM crossref_projection_quarantines"
+        ).fetchone()[0]
+    finally:
+        connection.close()
+    assert count == 0
