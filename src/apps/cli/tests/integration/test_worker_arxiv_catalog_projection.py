@@ -2,8 +2,8 @@ import hashlib
 import json
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
-from threading import Barrier
 from pathlib import Path
+from threading import Barrier
 
 from injector import Injector
 
