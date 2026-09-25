@@ -167,17 +167,29 @@ class ProcessEvidenceExplanation:
                 tracked_reading.draft,
                 claims,
             )
+            verification = tracked_verification.verification
+            support_succeeded = (
+                verification.support_execution_state == "succeeded"
+            )
             persisted = self._persist_explanation(
                 PersistExplanationRequest(
                     tracked_reading.draft,
                     claims,
-                    tracked_verification.verification,
+                    verification,
                     tracked_claims.run_id,
                     tracked_claims.generation_fingerprint,
                     tracked_reading.run_id,
                     tracked_reading.generation_fingerprint,
-                    tracked_verification.support_run_id,
-                    tracked_verification.support_generation_fingerprint,
+                    (
+                        tracked_verification.support_run_id
+                        if support_succeeded
+                        else None
+                    ),
+                    (
+                        tracked_verification.support_generation_fingerprint
+                        if support_succeeded
+                        else None
+                    ),
                     self._clock.now(),
                 )
             )

@@ -87,13 +87,17 @@ class Reading:
 
 
 class Verification:
-    def __init__(self, qa_state="passed"):
+    def __init__(self, qa_state="passed", support_state="succeeded"):
         self.qa_state = qa_state
+        self.support_state = support_state
 
     def __call__(self, draft, claims):
         del draft, claims
         return SimpleNamespace(
-            verification=SimpleNamespace(qa_state=self.qa_state),
+            verification=SimpleNamespace(
+                qa_state=self.qa_state,
+                support_execution_state=self.support_state,
+            ),
             support_run_id="run:" + "f" * 64,
             support_generation_fingerprint="0" * 64,
         )
@@ -103,9 +107,11 @@ class PersistExplanation:
     def __init__(self, qa_state="passed"):
         self.qa_state = qa_state
         self.calls = 0
+        self.requests = []
 
     def __call__(self, request):
         self.calls += 1
+        self.requests.append(request)
         return PersistedExplanation(
             "summary:" + "4" * 64,
             SNAPSHOT,
@@ -142,7 +148,7 @@ def request():
     )
 
 
-def pipeline(*, decision="direct", qa_state="passed"):
+def pipeline(*, decision="direct", qa_state="passed", support_state="succeeded"):
     reading = Reading()
     persist = PersistExplanation(qa_state)
     current = PublishCurrent()
@@ -151,7 +157,7 @@ def pipeline(*, decision="direct", qa_state="passed"):
         Relevance(decision),
         PersistRelevance(),
         reading,
-        Verification(qa_state),
+        Verification(qa_state, support_state),
         persist,
         current,
         Clock(),
@@ -232,3 +238,33 @@ def test_frozen_profile_revision_mismatch_cancels_job():
     assert result.state == "cancelled"
     assert result.error_code == "scheduled_input_stale"
     assert reading.calls == persist.calls == current.calls == 0
+
+
+def test_failed_support_run_is_diagnostic_only_not_summary_foreign_key():
+    command, _, persist, current = pipeline(
+        qa_state="pending",
+        support_state="failed",
+    )
+
+    result = command(request())
+
+    assert result.state == "awaiting_external"
+    saved = persist.requests[0]
+    assert saved.support_generation_run_id is None
+    assert saved.support_generation_fingerprint is None
+    assert current.calls == 0
+
+
+def test_successful_support_run_is_bound_to_summary_persistence():
+    command, _, persist, current = pipeline(
+        qa_state="passed",
+        support_state="succeeded",
+    )
+
+    result = command(request())
+
+    assert result.state == "succeeded"
+    saved = persist.requests[0]
+    assert saved.support_generation_run_id == "run:" + "f" * 64
+    assert saved.support_generation_fingerprint == "0" * 64
+    assert current.calls == 1
