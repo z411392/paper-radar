@@ -127,6 +127,9 @@ from libs.research_workflow.ports.workflow_job_store_port import WorkflowJobStor
 from libs.scholarly_catalog.adapters.driven.sqlite_crossref_integrity_store_adapter import (
     SqliteCrossrefIntegrityStoreAdapter,
 )
+from libs.scholarly_catalog.adapters.driven.sqlite_crossref_integrity_work_binding_store_adapter import (
+    SqliteCrossrefIntegrityWorkBindingStoreAdapter,
+)
 from libs.scholarly_catalog.adapters.driven.sqlite_crossref_provider_revision_store_adapter import (
     SqliteCrossrefProviderRevisionStoreAdapter,
 )
@@ -136,8 +139,17 @@ from libs.scholarly_catalog.adapters.driven.sqlite_crossref_relation_store_adapt
 from libs.scholarly_catalog.adapters.driven.sqlite_digest_research_event_adapter import (
     SqliteDigestResearchEventAdapter,
 )
+from libs.scholarly_catalog.adapters.driven.sqlite_paper_identity_store_adapter import (
+    SqlitePaperIdentityStoreAdapter,
+)
+from libs.scholarly_catalog.application.commands.bind_crossref_integrity_works import (
+    BindCrossrefIntegrityWorks,
+)
 from libs.scholarly_catalog.application.commands.project_crossref_pending_item import (
     ProjectCrossrefPendingItem,
+)
+from libs.scholarly_catalog.application.queries.read_paper_identity import (
+    ReadPaperIdentity,
 )
 from libs.scholarly_catalog.domain.services.normalize_paper_identifier import (
     NormalizePaperIdentifier,
@@ -366,7 +378,7 @@ class WorkerCliModule(Module):
         connection = SqliteSchemaConnectionFactory(
             root,
             load_workspace_migrations(with_runtime=True),
-            minimum_version=20 if crossref_requested else 10,
+            minimum_version=21 if crossref_requested else 10,
         )
         profile_store = SqliteWatchProfileStoreAdapter(connection.connect)
         builder = BuildHarvestQueryInput(
@@ -502,6 +514,15 @@ class WorkerCliModule(Module):
                     SqliteCrossrefProviderRevisionStoreAdapter(connection.connect),
                     SqliteCrossrefRelationStoreAdapter(connection.connect),
                     SqliteCrossrefIntegrityStoreAdapter(connection.connect),
+                    BindCrossrefIntegrityWorks(
+                        ReadPaperIdentity(
+                            NormalizePaperIdentifier(),
+                            SqlitePaperIdentityStoreAdapter(connection.connect),
+                        ),
+                        SqliteCrossrefIntegrityWorkBindingStoreAdapter(
+                            connection.connect
+                        ),
+                    ),
                 ),
                 clock=clock.now,
             )
