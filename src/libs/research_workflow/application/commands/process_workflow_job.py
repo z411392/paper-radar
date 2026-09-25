@@ -13,6 +13,7 @@ from libs.discovery.exceptions.crossref_protocol_error import CrossrefProtocolEr
 from libs.discovery.exceptions.crossref_rate_error import CrossrefRateError
 from libs.discovery.exceptions.harvest_error import HarvestError
 from libs.discovery.exceptions.source_fetch_error import SourceFetchError
+from libs.discovery.exceptions.source_observation_read_error import SourceObservationReadError
 from libs.discovery.exceptions.source_query_error import SourceQueryError
 from libs.discovery.ports.run_pubmed_harvest_window_port import RunPubmedHarvestWindowPort
 from libs.research_workflow.ports.build_crossref_window_plan_port import (
@@ -23,6 +24,9 @@ from libs.research_workflow.dtos.revision_notice import RevisionNoticeRequest
 from libs.research_workflow.dtos.worker import WorkflowJobProcessResult
 from libs.research_workflow.dtos.workflow_job import CompleteWorkflowJob
 from libs.research_workflow.exceptions.harvest_workflow_error import HarvestWorkflowError
+from libs.research_workflow.exceptions.source_catalog_projection_error import (
+    SourceCatalogProjectionError,
+)
 from libs.research_workflow.exceptions.workflow_job_error import WorkflowJobError
 from libs.research_workflow.ports.build_harvest_query_input_port import BuildHarvestQueryInputPort
 from libs.research_workflow.ports.run_crossref_harvest_window_port import (
@@ -31,9 +35,14 @@ from libs.research_workflow.ports.run_crossref_harvest_window_port import (
 from libs.research_workflow.ports.process_revision_notice_port import (
     ProcessRevisionNoticePort,
 )
+from libs.research_workflow.ports.project_source_catalog_unit_port import (
+    ProjectSourceCatalogUnitPort,
+)
 from libs.research_workflow.ports.run_harvest_slice_port import RunHarvestSlicePort
 from libs.research_workflow.ports.workflow_clock_port import WorkflowClockPort
 from libs.research_workflow.ports.workflow_job_store_port import WorkflowJobStorePort
+from libs.scholarly_catalog.exceptions.evidence_snapshot_error import EvidenceSnapshotError
+from libs.scholarly_catalog.exceptions.paper_identity_error import PaperIdentityError
 
 
 class ProcessWorkflowJob:
@@ -61,6 +70,7 @@ class ProcessWorkflowJob:
         crossref_plan: BuildCrossrefWindowPlanPort | None = None,
         crossref: RunCrossrefHarvestWindowPort | None = None,
         revision_notice: ProcessRevisionNoticePort | None = None,
+        source_catalog: ProjectSourceCatalogUnitPort | None = None,
     ) -> None:
         self._store = store
         self._builder = builder
@@ -72,6 +82,7 @@ class ProcessWorkflowJob:
         self._crossref_plan = crossref_plan
         self._crossref = crossref
         self._revision_notice = revision_notice
+        self._source_catalog = source_catalog
 
     @staticmethod
     def _instant(value: object) -> datetime:
@@ -359,6 +370,59 @@ class ProcessWorkflowJob:
             )
 
         if result.stop_reason == "complete":
+            if source_id in {"arxiv", "pubmed"}:
+                progress = result.progress
+                if progress.state != "verified_empty":
+                    if self._source_catalog is None:
+                        return self._defer(
+                            lease,
+                            error_code="source_catalog_projection_not_connected",
+                            delay=timedelta(hours=1),
+                            state="awaiting_external",
+                        )
+                    try:
+                        projection = self._source_catalog(
+                            source_id,
+                            progress.unit_id,
+                            max_observations=100,
+                            projected_at=self._clock.now(),
+                        )
+                    except (
+                        SourceObservationReadError,
+                        SourceCatalogProjectionError,
+                        PaperIdentityError,
+                        EvidenceSnapshotError,
+                    ) as exc:
+                        state = (
+                            "awaiting_external"
+                            if any(
+                                token in exc.code
+                                for token in (
+                                    "corrupt",
+                                    "mismatch",
+                                    "missing",
+                                    "unavailable",
+                                    "unsupported",
+                                )
+                            )
+                            else "failed"
+                        )
+                        return self._defer(
+                            lease,
+                            error_code=exc.code,
+                            delay=(
+                                timedelta(hours=1)
+                                if state == "awaiting_external"
+                                else timedelta(minutes=5)
+                            ),
+                            state=state,
+                        )
+                    if projection.state != "succeeded":
+                        return self._defer(
+                            lease,
+                            error_code="source_catalog_projection_budget",
+                            delay=timedelta(minutes=1),
+                        )
             return self._complete(
                 lease,
                 state="succeeded",
