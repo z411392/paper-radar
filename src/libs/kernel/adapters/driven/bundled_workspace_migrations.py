@@ -31,6 +31,7 @@ def load_workspace_migrations(
             "0015-crossref-capture-inbox.sql",
             "0016-crossref-capture-resolutions.sql",
             "0017-crossref-provider-revisions.sql",
+            "0018-crossref-projection-quarantines.sql",
         )
     elif with_discovery:
         names = (
