@@ -11,6 +11,9 @@ from libs.discovery.dtos.crossref_harvest import CrossrefPendingItem
 from libs.scholarly_catalog.adapters.driven.sqlite_crossref_provider_revision_store_adapter import (
     SqliteCrossrefProviderRevisionStoreAdapter,
 )
+from libs.scholarly_catalog.adapters.driven.sqlite_crossref_relation_store_adapter import (
+    SqliteCrossrefRelationStoreAdapter,
+)
 from libs.scholarly_catalog.application.commands.project_crossref_pending_item import (
     ProjectCrossrefPendingItem,
 )
@@ -41,15 +44,23 @@ def _setup(tmp_path: Path):
     root = Path(__file__).resolve().parents[5]
     connection = sqlite3.connect(path)
     connection.execute("PRAGMA foreign_keys=ON")
-    connection.executescript(
-        (root / "migrations/0017-crossref-provider-revisions.sql").read_text(
-            encoding="utf-8"
+    for name in (
+        "0017-crossref-provider-revisions.sql",
+        "0019-crossref-relation-assertions.sql",
+    ):
+        connection.executescript(
+            (root / "migrations" / name).read_text(encoding="utf-8")
         )
-    )
     connection.commit()
     connection.close()
-    store = SqliteCrossrefProviderRevisionStoreAdapter(_connect(path))
-    return path, ProjectCrossrefPendingItem(NormalizePaperIdentifier(), store)
+    connect = _connect(path)
+    store = SqliteCrossrefProviderRevisionStoreAdapter(connect)
+    relations = SqliteCrossrefRelationStoreAdapter(connect)
+    return path, ProjectCrossrefPendingItem(
+        NormalizePaperIdentifier(),
+        store,
+        relations,
+    )
 
 
 def _canonical(value: dict) -> str:
@@ -194,6 +205,7 @@ def test_two_writers_are_idempotent_for_same_provider_revision(
         projector = ProjectCrossrefPendingItem(
             NormalizePaperIdentifier(),
             SqliteCrossrefProviderRevisionStoreAdapter(connect),
+            SqliteCrossrefRelationStoreAdapter(connect),
         )
         return projector(
             CrossrefPendingItem(
