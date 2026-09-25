@@ -294,3 +294,59 @@ def test_alias_change_does_not_rewrite_historical_binding(
     )[0]["canonical_work_id"]
     assert original == target.work_id
     assert rebound == original
+
+
+def test_binding_store_rejects_existing_but_noncanonical_work_snapshot(
+    tmp_path: Path,
+) -> None:
+    path, _, resolve_identity, project = _setup(tmp_path)
+    _identity(resolve_identity, "10.1000/NOTICE", key="notice", kind="notice")
+    target = _identity(resolve_identity, "10.1000/TARGET", key="target")
+    other = _identity(resolve_identity, "10.1000/OTHER", key="other")
+    project(
+        _item(
+            {
+                "DOI": "10.1000/NOTICE",
+                "update-to": [_update()],
+            }
+        ),
+        observed_at=NOW,
+    )
+    row = _rows(
+        path,
+        "SELECT assertion_id,canonical_doi,manifestation_id,work_id "
+        "FROM crossref_integrity_work_bindings WHERE role='target'",
+    )[0]
+    connection = sqlite3.connect(path)
+    try:
+        connection.execute(
+            "DELETE FROM crossref_integrity_work_bindings "
+            "WHERE assertion_id=? AND role='target'",
+            (row["assertion_id"],),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    from libs.scholarly_catalog.adapters.driven.sqlite_crossref_integrity_work_binding_store_adapter import (
+        SqliteCrossrefIntegrityWorkBindingStoreAdapter,
+    )
+    from libs.scholarly_catalog.dtos.crossref_integrity_assertion import (
+        CrossrefIntegrityWorkBindingDraft,
+    )
+
+    with pytest.raises(
+        CrossrefProviderProjectionError,
+        match="crossref_integrity_binding_identity_mismatch",
+    ):
+        SqliteCrossrefIntegrityWorkBindingStoreAdapter(_connect(path)).register(
+            CrossrefIntegrityWorkBindingDraft(
+                row["assertion_id"],
+                "target",
+                row["canonical_doi"],
+                row["manifestation_id"],
+                target.work_id,
+                other.work_id,
+                NOW,
+            )
+        )

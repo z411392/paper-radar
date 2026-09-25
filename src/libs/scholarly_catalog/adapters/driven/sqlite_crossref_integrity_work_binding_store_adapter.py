@@ -82,6 +82,37 @@ class SqliteCrossrefIntegrityWorkBindingStoreAdapter:
             if connection is not None:
                 connection.close()
 
+    @staticmethod
+    def _canonical_work(
+        connection: sqlite3.Connection,
+        work_id: str,
+    ) -> str:
+        current = work_id
+        visited: set[str] = set()
+        for _ in range(128):
+            if current in visited:
+                raise CrossrefProviderProjectionError(
+                    "crossref_integrity_binding_identity_corrupt"
+                )
+            visited.add(current)
+            if connection.execute(
+                "SELECT 1 FROM paper_works WHERE id=?",
+                (current,),
+            ).fetchone() is None:
+                raise CrossrefProviderProjectionError(
+                    "crossref_integrity_binding_identity_corrupt"
+                )
+            row = connection.execute(
+                "SELECT canonical_work_id FROM work_aliases WHERE alias_work_id=?",
+                (current,),
+            ).fetchone()
+            if row is None:
+                return current
+            current = row["canonical_work_id"]
+        raise CrossrefProviderProjectionError(
+            "crossref_integrity_binding_identity_corrupt"
+        )
+
     def register(self, draft: CrossrefIntegrityWorkBindingDraft) -> None:
         if not isinstance(draft, CrossrefIntegrityWorkBindingDraft):
             raise CrossrefProviderProjectionError(
@@ -121,10 +152,7 @@ class SqliteCrossrefIntegrityWorkBindingStoreAdapter:
                 raise CrossrefProviderProjectionError(
                     "crossref_integrity_binding_identity_mismatch"
                 )
-            if connection.execute(
-                "SELECT 1 FROM paper_works WHERE id=?",
-                (canonical_work,),
-            ).fetchone() is None:
+            if self._canonical_work(connection, work) != canonical_work:
                 raise CrossrefProviderProjectionError(
                     "crossref_integrity_binding_identity_mismatch"
                 )
