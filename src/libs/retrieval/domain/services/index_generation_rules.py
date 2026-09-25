@@ -1,6 +1,7 @@
 import hashlib
 import json
 import re
+from datetime import datetime, timezone
 
 from libs.retrieval.dtos.index_generation import (
     IndexGenerationInput,
@@ -242,3 +243,17 @@ class IndexGenerationRules:
             content,
             hashlib.sha256(content).hexdigest(),
         )
+
+
+    @staticmethod
+    def instant(value: object) -> datetime:
+        if (
+            not isinstance(value, datetime)
+            or value.tzinfo is None
+            or value.utcoffset() is None
+        ):
+            raise IndexGenerationError("index_generation_time")
+        try:
+            return value.astimezone(timezone.utc)
+        except (ValueError, OverflowError):
+            raise IndexGenerationError("index_generation_time") from None
