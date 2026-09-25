@@ -10,8 +10,14 @@ from libs.discovery.exceptions.crossref_capture_error import CrossrefCaptureErro
 from libs.discovery.exceptions.crossref_capture_inbox_error import CrossrefCaptureInboxError
 from libs.discovery.exceptions.crossref_harvest_journal_error import CrossrefHarvestJournalError
 from libs.discovery.exceptions.crossref_protocol_error import CrossrefProtocolError
+from libs.discovery.exceptions.arxiv_observation_replay_error import (
+    ArxivObservationReplayError,
+)
 from libs.discovery.exceptions.crossref_rate_error import CrossrefRateError
 from libs.discovery.exceptions.harvest_error import HarvestError
+from libs.discovery.exceptions.pubmed_observation_replay_error import (
+    PubmedObservationReplayError,
+)
 from libs.discovery.exceptions.source_fetch_error import SourceFetchError
 from libs.discovery.exceptions.source_observation_read_error import SourceObservationReadError
 from libs.discovery.exceptions.source_query_error import SourceQueryError
@@ -389,6 +395,8 @@ class ProcessWorkflowJob:
                         )
                     except (
                         SourceObservationReadError,
+                        ArxivObservationReplayError,
+                        PubmedObservationReplayError,
                         SourceCatalogProjectionError,
                         PaperIdentityError,
                         EvidenceSnapshotError,
