@@ -109,6 +109,9 @@ from libs.research_workflow.adapters.driven.sqlite_workflow_job_store_adapter im
 )
 from libs.research_workflow.adapters.driven.system_harvest_runtime_adapter import SystemHarvestRuntimeAdapter
 from libs.research_workflow.adapters.driven.system_workflow_clock_adapter import SystemWorkflowClockAdapter
+from libs.research_workflow.application.commands.process_revision_notice import (
+    ProcessRevisionNotice,
+)
 from libs.research_workflow.application.commands.process_workflow_job import ProcessWorkflowJob
 from libs.research_workflow.application.commands.run_harvest_slice import RunHarvestSlice
 from libs.research_workflow.application.commands.run_projected_crossref_harvest_window import (
@@ -129,6 +132,9 @@ from libs.research_workflow.ports.process_workflow_job_port import ProcessWorkfl
 from libs.research_workflow.ports.read_runtime_version_port import ReadRuntimeVersionPort
 from libs.research_workflow.ports.run_crossref_harvest_window_port import (
     RunCrossrefHarvestWindowPort,
+)
+from libs.research_workflow.ports.process_revision_notice_port import (
+    ProcessRevisionNoticePort,
 )
 from libs.research_workflow.ports.run_harvest_slice_port import RunHarvestSlicePort
 from libs.research_workflow.ports.run_scheduler_tick_port import RunSchedulerTickPort
@@ -597,15 +603,28 @@ class WorkerCliModule(Module):
             )
         delivery_store = SqliteDeliveryStoreAdapter(connection.connect)
         digest_artifacts = KernelDigestArtifactAdapter(publish_object, read_object)
+        current_summaries = SqliteDigestCurrentSummaryAdapter(
+            connection.connect,
+            read_object,
+        )
+        prior_recipient = SqlitePriorRecipientHistoryAdapter(
+            connection.connect
+        )
         scheduled_digest = PrepareScheduledDigest(
             events=SqliteDigestResearchEventAdapter(connection.connect),
-            summaries=SqliteDigestCurrentSummaryAdapter(connection.connect, read_object),
+            summaries=current_summaries,
             relevance=SqliteDigestRelevanceAdapter(connection.connect),
             context=SqliteDigestDeliveryContextAdapter(connection.connect),
             queue=QueueDigest(digest_artifacts, delivery_store),
-            prior_recipient=SqlitePriorRecipientHistoryAdapter(
-                connection.connect
-            ),
+            prior_recipient=prior_recipient,
+        )
+        revision_notice = ProcessRevisionNotice(
+            store=delivery_store,
+            summaries=current_summaries,
+            prior_recipient=prior_recipient,
+            dispatch=None,
+            prepare=scheduled_digest,
+            clock=clock.now,
         )
 
         jobs = SqliteWorkflowJobStoreAdapter(connection.connect)
@@ -623,6 +642,7 @@ class WorkerCliModule(Module):
             pubmed=pubmed,
             crossref_plan=crossref_plan,
             crossref=crossref,
+            revision_notice=revision_notice,
         )
         cycle = RunWorkerCycle(scheduler, processor, clock)
 
@@ -630,6 +650,7 @@ class WorkerCliModule(Module):
         binder.bind(WorkflowClockPort, to=InstanceProvider(clock))
         binder.bind(RunSchedulerTickPort, to=InstanceProvider(scheduler))
         binder.bind(PrepareScheduledDigestPort, to=InstanceProvider(scheduled_digest))
+        binder.bind(ProcessRevisionNoticePort, to=InstanceProvider(revision_notice))
         if pubmed is not None:
             binder.bind(RunPubmedHarvestWindowPort, to=InstanceProvider(pubmed))
         if crossref is not None and crossref_plan is not None:

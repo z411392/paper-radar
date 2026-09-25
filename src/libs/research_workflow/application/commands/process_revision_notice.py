@@ -28,7 +28,7 @@ class ProcessRevisionNotice:
         store: DeliveryDispatchStorePort,
         summaries: ReadDigestCurrentSummaryPort,
         prior_recipient: PriorRecipientHistoryPort,
-        dispatch: DispatchDigestPort,
+        dispatch: DispatchDigestPort | None,
         prepare: PrepareScheduledDigestPort | None = None,
         clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
     ) -> None:
@@ -95,6 +95,11 @@ class ProcessRevisionNotice:
         return None
 
     def _dispatch_current(self, outbox_id: str) -> RevisionNoticeOutcome:
+        if self._dispatch is None:
+            return RevisionNoticeOutcome(
+                "awaiting_external",
+                "delivery_dispatch_runtime_not_connected",
+            )
         dispatched = self._dispatch(outbox_id, now=self._clock())
         if dispatched.state == "provider_accepted":
             return RevisionNoticeOutcome("succeeded")

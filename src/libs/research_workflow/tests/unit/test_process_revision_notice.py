@@ -86,8 +86,10 @@ def command(
     summaries = Mock(return_value=summary)
     history = Mock()
     history.contains.return_value = prior
-    dispatch = Mock(
-        return_value=DispatchOutcome(dispatch_state, "outbox:test")
+    dispatch = (
+        None
+        if dispatch_state is None
+        else Mock(return_value=DispatchOutcome(dispatch_state, "outbox:test"))
     )
     usecase = ProcessRevisionNotice(
         store=store,
@@ -350,3 +352,23 @@ def test_cancel_race_to_sending_never_reports_cancelled_or_rebuilds():
     assert store.cancelled == ["outbox:test"]
     prepare.assert_not_called()
     dispatch.assert_not_called()
+
+
+def test_connected_preflight_without_mail_runtime_waits_after_validation():
+    store = Store(snapshot(status()))
+    usecase, summaries, history, dispatch = command(
+        store,
+        prior=True,
+        dispatch_state=None,
+    )
+
+    result = usecase(RevisionNoticeRequest("outbox:test"))
+
+    assert (result.state, result.error_code) == (
+        "awaiting_external",
+        "delivery_dispatch_runtime_not_connected",
+    )
+    summaries.assert_not_called()
+    history.contains.assert_called_once_with("reader:test", "email", "work:status")
+    assert dispatch is None
+    assert store.cancelled == []

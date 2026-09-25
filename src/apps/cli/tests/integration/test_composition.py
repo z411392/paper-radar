@@ -22,3 +22,26 @@ def test_driving_adapter_prints_only_public_version_fields(capsys: pytest.Captur
 def test_missing_binding_is_not_silently_autowired() -> None:
     with pytest.raises(UnsatisfiedRequirement):
         Injector(auto_bind=False).get(ReadRuntimeVersionPort)
+
+
+def test_worker_composition_exposes_revision_notice_preflight_without_mail_sender(
+    tmp_path: Path,
+) -> None:
+    from injector import Injector
+
+    from apps.cli.module import WorkerCliModule
+    from libs.kernel.adapters.driven.bundled_workspace_migrations import (
+        load_workspace_migrations,
+    )
+    from libs.kernel.adapters.driven.sqlite_workspace_bootstrap_adapter import (
+        SqliteWorkspaceBootstrapAdapter,
+    )
+
+    root = tmp_path / "runtime"
+    SqliteWorkspaceBootstrapAdapter(
+        root,
+        load_workspace_migrations(with_runtime=True),
+    ).initialize()
+    injector = Injector([WorkerCliModule(str(root))])
+
+    assert injector.get(ProcessRevisionNoticePort) is not None
