@@ -58,6 +58,15 @@ from libs.discovery.adapters.driven.sqlite_crossref_harvest_journal_adapter impo
 from libs.discovery.adapters.driven.sqlite_harvest_processing_adapter import SqliteHarvestProcessingAdapter
 from libs.discovery.adapters.driven.sqlite_harvest_resume_adapter import SqliteHarvestResumeAdapter
 from libs.discovery.adapters.driven.sqlite_harvest_store_adapter import SqliteHarvestStoreAdapter
+from libs.discovery.adapters.driven.sqlite_arxiv_observation_replay_adapter import (
+    SqliteArxivObservationReplayAdapter,
+)
+from libs.discovery.adapters.driven.sqlite_pubmed_observation_replay_adapter import (
+    SqlitePubmedObservationReplayAdapter,
+)
+from libs.discovery.adapters.driven.sqlite_source_observation_page_adapter import (
+    SqliteSourceObservationPageAdapter,
+)
 from libs.discovery.adapters.driven.sqlite_pubmed_harvest_store_adapter import (
     SqlitePubmedHarvestStoreAdapter,
 )
@@ -113,6 +122,9 @@ from libs.paper_explanations.adapters.driven.sqlite_digest_current_summary_adapt
 )
 from libs.research_workflow.adapters.driven.python_runtime_version_adapter import PythonRuntimeVersionAdapter
 from libs.research_workflow.adapters.driven.sqlite_scheduler_input_adapter import SqliteSchedulerInputAdapter
+from libs.research_workflow.adapters.driven.sqlite_source_catalog_projection_store_adapter import (
+    SqliteSourceCatalogProjectionStoreAdapter,
+)
 from libs.research_workflow.adapters.driven.sqlite_workflow_job_store_adapter import (
     SqliteWorkflowJobStoreAdapter,
 )
@@ -122,6 +134,9 @@ from libs.research_workflow.application.commands.process_revision_notice import 
     ProcessRevisionNotice,
 )
 from libs.research_workflow.application.commands.process_workflow_job import ProcessWorkflowJob
+from libs.research_workflow.application.commands.project_source_catalog_unit import (
+    ProjectSourceCatalogUnit,
+)
 from libs.research_workflow.application.commands.run_harvest_slice import RunHarvestSlice
 from libs.research_workflow.application.commands.run_projected_crossref_harvest_window import (
     RunProjectedCrossrefHarvestWindow,
@@ -138,6 +153,9 @@ from libs.research_workflow.ports.build_crossref_window_plan_port import (
 )
 from libs.research_workflow.ports.build_harvest_query_input_port import BuildHarvestQueryInputPort
 from libs.research_workflow.ports.process_workflow_job_port import ProcessWorkflowJobPort
+from libs.research_workflow.ports.project_source_catalog_unit_port import (
+    ProjectSourceCatalogUnitPort,
+)
 from libs.research_workflow.ports.read_runtime_version_port import ReadRuntimeVersionPort
 from libs.research_workflow.ports.run_crossref_harvest_window_port import (
     RunCrossrefHarvestWindowPort,
@@ -151,6 +169,12 @@ from libs.research_workflow.ports.run_worker_cycle_port import RunWorkerCyclePor
 from libs.research_workflow.ports.runtime_version_provider_port import RuntimeVersionProviderPort
 from libs.research_workflow.ports.workflow_clock_port import WorkflowClockPort
 from libs.research_workflow.ports.workflow_job_store_port import WorkflowJobStorePort
+from libs.scholarly_catalog.adapters.driven.kernel_evidence_object_adapter import (
+    KernelEvidenceObjectAdapter,
+)
+from libs.scholarly_catalog.adapters.driven.sqlite_evidence_snapshot_store_adapter import (
+    SqliteEvidenceSnapshotStoreAdapter,
+)
 from libs.scholarly_catalog.adapters.driven.sqlite_crossref_integrity_event_source_adapter import (
     SqliteCrossrefIntegrityEventSourceAdapter,
 )
@@ -178,6 +202,18 @@ from libs.scholarly_catalog.adapters.driven.sqlite_paper_identity_store_adapter 
 from libs.scholarly_catalog.application.commands.bind_crossref_integrity_works import (
     BindCrossrefIntegrityWorks,
 )
+from libs.scholarly_catalog.application.commands.prepare_abstract_evidence import (
+    PrepareAbstractEvidence,
+)
+from libs.scholarly_catalog.application.commands.prepare_evidence_snapshot import (
+    PrepareEvidenceSnapshot,
+)
+from libs.scholarly_catalog.application.commands.project_arxiv_observation import (
+    ProjectArxivObservation,
+)
+from libs.scholarly_catalog.application.commands.project_pubmed_observation import (
+    ProjectPubmedObservation,
+)
 from libs.scholarly_catalog.application.commands.project_crossref_pending_item import (
     ProjectCrossrefPendingItem,
 )
@@ -187,7 +223,11 @@ from libs.scholarly_catalog.application.commands.promote_crossref_integrity_even
 from libs.scholarly_catalog.application.commands.record_paper_revision import (
     RecordPaperRevision,
 )
+from libs.scholarly_catalog.application.commands.resolve_paper_identity import (
+    ResolvePaperIdentity,
+)
 from libs.scholarly_catalog.application.queries.read_paper_identity import ReadPaperIdentity
+from libs.scholarly_catalog.domain.services.evidence_snapshot_rules import EvidenceSnapshotRules
 from libs.scholarly_catalog.domain.services.normalize_paper_identifier import (
     NormalizePaperIdentifier,
 )
@@ -451,9 +491,21 @@ class WorkerCliModule(Module):
             and self._crossref_email is not None
             and self._crossref_rate_limit_dir is not None
         )
+        arxiv_requested = (
+            self._allow_live_source
+            and self._rate_limit_state is not None
+        )
+        pubmed_requested = (
+            self._allow_live_source
+            and self._ncbi_email is not None
+            and self._ncbi_rate_limit_state is not None
+        )
+        source_projection_requested = arxiv_requested or pubmed_requested
         minimum_version = 22 if crossref_requested else 10
         if self._allow_live_mail:
             minimum_version = max(minimum_version, 23)
+        if source_projection_requested:
+            minimum_version = max(minimum_version, 24)
         connection = SqliteSchemaConnectionFactory(
             root,
             load_workspace_migrations(with_runtime=True),
@@ -508,6 +560,50 @@ class WorkerCliModule(Module):
                 ncbi_transport,
                 publish_object,
                 SqlitePubmedHarvestStoreAdapter(connection.connect),
+            )
+
+        source_catalog = None
+        if source_projection_requested:
+            identity_store = SqlitePaperIdentityStoreAdapter(connection.connect)
+            resolve_identity = ResolvePaperIdentity(
+                NormalizePaperIdentifier(),
+                identity_store,
+            )
+            record_revision = RecordPaperRevision(
+                SqliteResearchEventStoreAdapter(connection.connect)
+            )
+            evidence_objects = KernelEvidenceObjectAdapter(
+                publish_object,
+                read_object,
+            )
+            abstract_evidence = PrepareAbstractEvidence(
+                PrepareEvidenceSnapshot(
+                    EvidenceSnapshotRules(),
+                    evidence_objects,
+                    SqliteEvidenceSnapshotStoreAdapter(connection.connect),
+                )
+            )
+            source_catalog = ProjectSourceCatalogUnit(
+                SqliteSourceObservationPageAdapter(connection.connect),
+                SqliteSourceCatalogProjectionStoreAdapter(connection.connect),
+                SqliteArxivObservationReplayAdapter(
+                    connection.connect,
+                    read_object,
+                ),
+                ProjectArxivObservation(
+                    resolve_identity,
+                    record_revision,
+                    abstract_evidence,
+                ),
+                SqlitePubmedObservationReplayAdapter(
+                    connection.connect,
+                    read_object,
+                ),
+                ProjectPubmedObservation(
+                    resolve_identity,
+                    record_revision,
+                    abstract_evidence,
+                ),
             )
 
         crossref_plan = None
@@ -717,6 +813,7 @@ class WorkerCliModule(Module):
             crossref_plan=crossref_plan,
             crossref=crossref,
             revision_notice=revision_notice,
+            source_catalog=source_catalog,
         )
         cycle = RunWorkerCycle(scheduler, processor, clock)
 
@@ -729,6 +826,11 @@ class WorkerCliModule(Module):
             binder.bind(DispatchDigestPort, to=InstanceProvider(mail_dispatch))
         if pubmed is not None:
             binder.bind(RunPubmedHarvestWindowPort, to=InstanceProvider(pubmed))
+        if source_catalog is not None:
+            binder.bind(
+                ProjectSourceCatalogUnitPort,
+                to=InstanceProvider(source_catalog),
+            )
         if crossref is not None and crossref_plan is not None:
             binder.bind(
                 BuildCrossrefWindowPlanPort,
