@@ -38,6 +38,7 @@ def test_built_wheel_runs_in_a_clean_noneditable_environment(tmp_path: Path) -> 
         "0014-crossref-capture-claims.sql",
         "0015-crossref-capture-inbox.sql",
         "0016-crossref-capture-resolutions.sql",
+        "0017-crossref-provider-revisions.sql",
     ]
     with zipfile.ZipFile(artifacts[0]) as archive:
         names = archive.namelist()
@@ -60,8 +61,6 @@ def test_built_wheel_runs_in_a_clean_noneditable_environment(tmp_path: Path) -> 
     env.pop("VIRTUAL_ENV", None)
     env.update({"UV_PROJECT_ENVIRONMENT": str(venv), "UV_OFFLINE": "1", "UV_PYTHON": sys.executable})
 
-    # The lock has artifact URLs; an installed cache need not have registry resolution metadata.
-    # Install locked runtime dependencies without the project, then install only the built wheel.
     for command in [
         [uv, "venv", "--python", sys.executable, str(venv)],
         [uv, "sync", "--locked", "--offline", "--no-dev", "--no-install-project", "--project", str(root)],
@@ -129,7 +128,7 @@ def test_built_wheel_runs_in_a_clean_noneditable_environment(tmp_path: Path) -> 
         assert initialized.returncode == 0, initialized.stdout + initialized.stderr
         snapshots.append(json.loads(initialized.stdout))
     assert snapshots[0] == snapshots[1]
-    assert snapshots[0]["schema_version"] == 16
+    assert snapshots[0]["schema_version"] == 17
     assert snapshots[0]["external_effects_enabled"] is False
     assert (workspace / "state/app.sqlite3").is_file()
     assert list(cwd.iterdir()) == []
