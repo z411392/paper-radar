@@ -492,3 +492,65 @@ def test_receipt_must_be_available_raw_object(tmp_path: Path) -> None:
             failure_code=None,
             recorded_at=NOW,
         )
+
+
+def test_mark_processed_rejects_silently_ignored_update(tmp_path: Path) -> None:
+    path, store = _setup(tmp_path)
+    _, plan = _plan()
+    _, _, request, page = _start(store, plan)
+    receipt_id = _register_raw(path, b"ignored update receipt")
+    store.record_attempt(
+        page.page_id,
+        receipt_id,
+        action="accept",
+        failure_code=None,
+        recorded_at=NOW,
+    )
+    store.save_decoded(
+        page.page_id,
+        _decoded(
+            request,
+            receipt_id=receipt_id,
+            items=(_item(0, "10.1234/A"),),
+        ),
+        NOW,
+    )
+
+    connection = sqlite3.connect(path)
+    connection.execute(
+        "CREATE TRIGGER ignore_mark_processed "
+        "BEFORE UPDATE OF outcome_state ON crossref_harvest_items "
+        "WHEN OLD.outcome_state='pending' AND NEW.outcome_state='processed' "
+        "BEGIN SELECT RAISE(IGNORE); END"
+    )
+    connection.commit()
+    connection.close()
+
+    with pytest.raises(
+        CrossrefHarvestJournalError,
+        match="crossref_item_outcome_conflict",
+    ):
+        store.mark_processed(
+            page.page_id,
+            0,
+            canonical_doi="10.1234/a",
+            outcome_ref="provider-revision:test",
+            processed_at=NOW,
+        )
+
+    pending = store.pending_items(page.page_id)
+    assert [(item.ordinal, item.raw_doi) for item in pending] == [
+        (0, "10.1234/A")
+    ]
+
+    connection = sqlite3.connect(path)
+    connection.row_factory = sqlite3.Row
+    try:
+        item = connection.execute(
+            "SELECT outcome_state,canonical_doi,outcome_ref,processed_at "
+            "FROM crossref_harvest_items WHERE page_id=? AND ordinal=0",
+            (page.page_id,),
+        ).fetchone()
+    finally:
+        connection.close()
+    assert tuple(item) == ("pending", None, None, None)
