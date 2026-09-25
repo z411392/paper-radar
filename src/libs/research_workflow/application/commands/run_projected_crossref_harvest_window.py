@@ -126,16 +126,9 @@ class RunProjectedCrossrefHarvestWindow:
                 failed = self._project_page(result)
                 if failed is not None:
                     return failed
-                if len(touched_pages) >= max_pages:
-                    return CrossrefHarvestStepResult(
-                        "page_committed",
-                        result.window_id,
-                        result.pass_id,
-                        result.page_id,
-                        result.receipt_id,
-                        0,
-                        "crossref_page_budget",
-                    )
+                # Projection changes owner-local item outcomes only. The discovery
+                # journal still owns the actual page commit, so always re-enter the
+                # bounded harvest runner once to commit this same decoded page.
                 continue
             if result.state == "page_committed":
                 if len(touched_pages) >= max_pages:

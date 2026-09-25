@@ -210,8 +210,13 @@ def test_projection_system_failure_stays_pending_and_records_page_error() -> Non
     ]
 
 
-def test_page_budget_does_not_fetch_another_page_after_projection() -> None:
-    harvest = Harvest([result("projection_required")])
+def test_page_budget_commits_projected_page_before_returning() -> None:
+    harvest = Harvest(
+        [
+            result("projection_required"),
+            result("page_committed", pending=0, error="crossref_page_budget"),
+        ]
+    )
     journal = Journal({"crossref-page:1": [item()]})
     runner = RunProjectedCrossrefHarvestWindow(
         harvest,
@@ -224,4 +229,30 @@ def test_page_budget_does_not_fetch_another_page_after_projection() -> None:
 
     assert outcome.state == "page_committed"
     assert outcome.error_code == "crossref_page_budget"
-    assert harvest.calls == 1
+    assert harvest.calls == 2
+
+
+def test_projection_never_fabricates_page_commit_when_harvest_does_not_commit() -> None:
+    harvest = Harvest(
+        [
+            result("projection_required"),
+            result("projection_required", pending=0),
+        ]
+    )
+    journal = Journal({"crossref-page:1": [item()]})
+    runner = RunProjectedCrossrefHarvestWindow(
+        harvest,
+        journal,
+        Project(),
+        clock=lambda: NOW,
+    )
+
+    outcome = runner(
+        object(),
+        owner_id="worker:test",
+        max_pages=1,
+        lease_seconds=60,
+    )
+
+    assert outcome.state == "projection_required"
+    assert harvest.calls == 2
