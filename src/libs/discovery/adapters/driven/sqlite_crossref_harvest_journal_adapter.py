@@ -953,7 +953,7 @@ class SqliteCrossrefHarvestJournalAdapter:
                 raise CrossrefHarvestJournalError(
                     "crossref_item_outcome_conflict"
                 )
-            connection.execute(
+            inserted = connection.execute(
                 "INSERT INTO crossref_projection_quarantines "
                 "VALUES(?,?,?,?,?)",
                 (
@@ -963,7 +963,25 @@ class SqliteCrossrefHarvestJournalAdapter:
                     item["canonical_sha256"],
                     quarantined,
                 ),
-            )
+            ).rowcount
+            if inserted != 1:
+                raise CrossrefHarvestJournalError(
+                    "crossref_item_outcome_conflict"
+                )
+            written = connection.execute(
+                "SELECT error_code,canonical_sha256,quarantined_at "
+                "FROM crossref_projection_quarantines "
+                "WHERE page_id=? AND ordinal=?",
+                (page_id, ordinal),
+            ).fetchone()
+            if written is None or tuple(written) != (
+                error,
+                item["canonical_sha256"],
+                quarantined,
+            ):
+                raise CrossrefHarvestJournalError(
+                    "crossref_item_outcome_conflict"
+                )
             return False
 
     @classmethod
