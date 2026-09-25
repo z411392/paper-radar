@@ -148,10 +148,29 @@ class SqliteClaimedCrossrefAttachmentAdapter:
         except (ValueError, TypeError, OverflowError, CrossrefCaptureInboxError) as exc:
             raise Error('crossref_attachment_outcome_conflict') from exc
         dispatched_us = claim_row['dispatched_us']
-        if (type(dispatched_us) is not int or type(staged_us) is not int
-                or not max(claim_row['reserved_us'], dispatched_us, staged_us)
-                <= recorded_us < claim_row['lease_until_us']
-                or (attached_us is not None and recorded_us != attached_us)):
+        if type(dispatched_us) is not int or type(staged_us) is not int:
+            raise Error('crossref_attachment_outcome_conflict')
+        normal_authority = (
+            max(claim_row['reserved_us'], dispatched_us, staged_us)
+            <= recorded_us
+            < claim_row['lease_until_us']
+        )
+        if not normal_authority:
+            recovery = connection.execute(
+                'SELECT * FROM crossref_capture_recoveries WHERE claim_id=?',
+                (claim.claim_id,),
+            ).fetchone()
+            if (
+                recovery is None
+                or recovery['attempt_id'] != row['id']
+                or recovery['receipt_id'] != stored.receipt_id
+                or recovery['recovered_us'] != recorded_us
+                or recovery['reason'] != 'durable_inbox_after_dispatch'
+                or recovery['policy_version'] != 'crossref-recovery-v1'
+                or recorded_us < max(dispatched_us, staged_us, claim_row['lease_until_us'])
+            ):
+                raise Error('crossref_attachment_outcome_conflict')
+        if attached_us is not None and recorded_us != attached_us:
             raise Error('crossref_attachment_outcome_conflict')
         attempt_no = SqliteClaimedCrossrefAttachmentAdapter._prior_resolution_count(
             connection,
@@ -199,10 +218,15 @@ class SqliteClaimedCrossrefAttachmentAdapter:
     @staticmethod
     def _active(
         connection, claim, row, staged_us, now_us, *,
-        attached: CrossrefStoredCapture | None = None, expected: CrossrefRateDecision | None = None,
+        attached: CrossrefStoredCapture | None = None,
+        expected: CrossrefRateDecision | None = None,
+        allow_expired: bool = False,
     ):
-        if (type(row['dispatched_us']) is not int or now_us < max(row['dispatched_us'], staged_us)
-                or now_us >= row['lease_until_us']):
+        if (
+            type(row['dispatched_us']) is not int
+            or now_us < max(row['dispatched_us'], staged_us)
+            or (not allow_expired and now_us >= row['lease_until_us'])
+        ):
             raise Error('crossref_attachment_lease_invalid')
         state = connection.execute(
             'SELECT p.*,w.query_fingerprint,w.state AS window_state FROM crossref_harvest_passes p '
@@ -271,12 +295,130 @@ class SqliteClaimedCrossrefAttachmentAdapter:
             )
             return self._existing(connection, claim, stored, proof[3], row, staged_us)
 
-    def attach(self, claim: CrossrefCaptureClaim, stored: CrossrefStoredCapture,
-               decision: CrossrefRateDecision, *, attached_at: datetime) -> CrossrefAttachment:
+    def _write_attachment(
+        self,
+        connection: sqlite3.Connection,
+        claim: CrossrefCaptureClaim,
+        stored: CrossrefStoredCapture,
+        decision: CrossrefRateDecision,
+        proof,
+        *,
+        now_us: int,
+        recovery: bool,
+    ) -> CrossrefAttachment:
+        row, staged_us = self._proof(connection, claim, stored, proof)
+        self._active(
+            connection,
+            claim,
+            row,
+            staged_us,
+            now_us,
+            allow_expired=recovery,
+        )
+        attempt_no = self._prior_resolution_count(connection, claim) + 1
+        attempt_id = 'crossref-attempt:' + Rules.sha(Rules.canonical(
+            (claim.page_id, attempt_no, stored.receipt_id),
+        ))
+        recorded_at = datetime.fromtimestamp(
+            now_us / 1_000_000,
+            tz=timezone.utc,
+        ).isoformat()
+        inserted = connection.execute(
+            'INSERT INTO crossref_harvest_page_attempts VALUES(?,?,?,?,?,?,?)',
+            (
+                attempt_id,
+                claim.page_id,
+                attempt_no,
+                stored.receipt_id,
+                decision.action,
+                decision.failure_code,
+                recorded_at,
+            ),
+        ).rowcount
+        if inserted != 1:
+            raise Error('crossref_attachment_outcome_conflict')
+        if decision.action == 'accept':
+            changed = connection.execute(
+                "UPDATE crossref_harvest_pages SET state='captured',"
+                "successful_receipt_id=?,last_error_code=NULL "
+                "WHERE id=? AND state='requested'",
+                (stored.receipt_id, claim.page_id),
+            ).rowcount
+        else:
+            changed = connection.execute(
+                "UPDATE crossref_harvest_pages SET last_error_code=? "
+                "WHERE id=? AND state='requested'",
+                (decision.failure_code, claim.page_id),
+            ).rowcount
+        if changed != 1:
+            raise Error('crossref_attachment_page_not_active')
+        if recovery:
+            recovered = connection.execute(
+                'INSERT INTO crossref_capture_recoveries VALUES(?,?,?,?,?,?)',
+                (
+                    claim.claim_id,
+                    attempt_id,
+                    stored.receipt_id,
+                    now_us,
+                    'durable_inbox_after_dispatch',
+                    'crossref-recovery-v1',
+                ),
+            ).rowcount
+            if recovered != 1:
+                raise Error('crossref_attachment_outcome_conflict')
+
+        final_claim, final_staged = self._proof(
+            connection,
+            claim,
+            stored,
+            proof,
+        )
+        self._active(
+            connection,
+            claim,
+            final_claim,
+            final_staged,
+            now_us,
+            attached=stored,
+            expected=decision,
+            allow_expired=recovery,
+        )
+        verified = self._existing(
+            connection,
+            claim,
+            stored,
+            decision,
+            final_claim,
+            final_staged,
+            attached_us=now_us,
+        )
+        if verified is None or verified.attempt_id != attempt_id:
+            raise Error('crossref_attachment_outcome_conflict')
+        return CrossrefAttachment(
+            claim.claim_id,
+            claim.page_id,
+            stored.receipt_id,
+            attempt_id,
+            decision.action,
+            decision.failure_code,
+            False,
+        )
+
+    def attach(
+        self,
+        claim: CrossrefCaptureClaim,
+        stored: CrossrefStoredCapture,
+        decision: CrossrefRateDecision,
+        *,
+        attached_at: datetime,
+    ) -> CrossrefAttachment:
         proof = self._evidence(claim, stored)
         expected = proof[3]
-        if (not isinstance(decision, CrossrefRateDecision)
-                or (decision.action, decision.failure_code) != (expected.action, expected.failure_code)):
+        if (
+            not isinstance(decision, CrossrefRateDecision)
+            or (decision.action, decision.failure_code)
+            != (expected.action, expected.failure_code)
+        ):
             raise Error('crossref_attachment_decision_mismatch')
         try:
             now_us = InboxRules.instant_us(attached_at)
@@ -290,43 +432,75 @@ class SqliteClaimedCrossrefAttachmentAdapter:
                 proof,
                 require_latest=False,
             )
-            prior = self._existing(connection, claim, stored, expected, row, staged_us)
+            prior = self._existing(
+                connection,
+                claim,
+                stored,
+                expected,
+                row,
+                staged_us,
+            )
             if prior is not None:
                 return prior
-            row, staged_us = self._proof(connection, claim, stored, proof)
-            self._active(connection, claim, row, staged_us, now_us)
-            attempt_no = self._prior_resolution_count(connection, claim) + 1
-            attempt_id = 'crossref-attempt:' + Rules.sha(Rules.canonical(
-                (claim.page_id, attempt_no, stored.receipt_id),
-            ))
-            inserted = connection.execute(
-                'INSERT INTO crossref_harvest_page_attempts VALUES(?,?,?,?,?,?,?)',
-                (attempt_id, claim.page_id, attempt_no, stored.receipt_id, decision.action,
-                 decision.failure_code, Rules.instant(attached_at).isoformat()),
-            ).rowcount
-            if inserted != 1:
-                raise Error('crossref_attachment_outcome_conflict')
-            if decision.action == 'accept':
-                changed = connection.execute("UPDATE crossref_harvest_pages SET state='captured',"
-                    'successful_receipt_id=?,last_error_code=NULL WHERE id=? AND state=\'requested\'',
-                    (stored.receipt_id, claim.page_id)).rowcount
-            else:
-                changed = connection.execute('UPDATE crossref_harvest_pages SET last_error_code=? '
-                    "WHERE id=? AND state='requested'", (decision.failure_code, claim.page_id)).rowcount
-            if changed != 1:
-                raise Error('crossref_attachment_page_not_active')
-            # A statement count is not a proof of the final joined state. Re-read inside
-            # the same writer transaction; any inconsistency rolls back both writes.
-            final_claim, final_staged = self._proof(connection, claim, stored, proof)
-            self._active(connection, claim, final_claim, final_staged, now_us,
-                         attached=stored, expected=expected)
-            verified = self._existing(connection, claim, stored, expected, final_claim, final_staged,
-                                      attached_us=now_us)
-            if verified is None or verified.attempt_id != attempt_id:
-                raise Error('crossref_attachment_outcome_conflict')
-            return CrossrefAttachment(claim.claim_id, claim.page_id, stored.receipt_id,
-                                      attempt_id, decision.action, decision.failure_code, False)
+            return self._write_attachment(
+                connection,
+                claim,
+                stored,
+                decision,
+                proof,
+                now_us=now_us,
+                recovery=False,
+            )
 
+    def recover(
+        self,
+        claim: CrossrefCaptureClaim,
+        stored: CrossrefStoredCapture,
+        decision: CrossrefRateDecision,
+        *,
+        recovered_at: datetime,
+    ) -> CrossrefAttachment:
+        proof = self._evidence(claim, stored)
+        expected = proof[3]
+        if (
+            not isinstance(decision, CrossrefRateDecision)
+            or (decision.action, decision.failure_code)
+            != (expected.action, expected.failure_code)
+        ):
+            raise Error('crossref_attachment_decision_mismatch')
+        try:
+            now_us = InboxRules.instant_us(recovered_at)
+        except CrossrefCaptureInboxError as exc:
+            raise Error('invalid_crossref_attachment_time') from exc
+        with self._transaction(write=True) as connection:
+            row, staged_us = self._proof(
+                connection,
+                claim,
+                stored,
+                proof,
+                require_latest=False,
+            )
+            prior = self._existing(
+                connection,
+                claim,
+                stored,
+                expected,
+                row,
+                staged_us,
+            )
+            if prior is not None:
+                return prior
+            current = self._proof(connection, claim, stored, proof)[0]
+            expired = now_us >= current['lease_until_us']
+            return self._write_attachment(
+                connection,
+                claim,
+                stored,
+                decision,
+                proof,
+                now_us=now_us,
+                recovery=expired,
+            )
 
 
     @staticmethod
