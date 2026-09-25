@@ -1,4 +1,5 @@
 import re
+from urllib.parse import unquote
 
 from libs.scholarly_catalog.dtos.normalized_identifier import NormalizedIdentifier
 from libs.scholarly_catalog.exceptions.paper_identity_error import PaperIdentityError
@@ -26,9 +27,36 @@ class NormalizePaperIdentifier:
                 return value[len(prefix) :]
         return None
 
+    @staticmethod
+    def _ascii_fold(value: str) -> str:
+        return "".join(
+            chr(ord(char) + 32) if "A" <= char <= "Z" else char
+            for char in value
+        )
+
+    @staticmethod
+    def _decode_uri_component_once(value: str) -> str:
+        index = 0
+        while index < len(value):
+            if value[index] != "%":
+                index += 1
+                continue
+            if (
+                index + 2 >= len(value)
+                or re.fullmatch(r"[0-9A-Fa-f]{2}", value[index + 1 : index + 3])
+                is None
+            ):
+                raise PaperIdentityError("invalid_identifier")
+            index += 3
+        try:
+            return unquote(value, encoding="utf-8", errors="strict")
+        except (UnicodeDecodeError, ValueError):
+            raise PaperIdentityError("invalid_identifier") from None
+
     @classmethod
     def _doi(cls, value: str) -> NormalizedIdentifier:
         raw = value
+        wrapped = False
         prefixed = cls._strip_known_prefix(
             raw,
             (
@@ -40,22 +68,24 @@ class NormalizePaperIdentifier:
         )
         if prefixed is not None:
             raw = prefixed
+            wrapped = True
         elif raw[:4].lower() == "doi:":
             raw = raw[4:].strip()
         elif "://" in raw:
             raise PaperIdentityError("invalid_identifier")
         raw = raw.strip()
+        if wrapped:
+            raw = cls._decode_uri_component_once(raw)
         if (
             not raw
             or "?" in raw
             or "#" in raw
-            or "%" in raw
             or len(raw.encode("utf-8")) > 512
             or any(char.isspace() or ord(char) < 33 or ord(char) == 127 for char in raw)
             or re.fullmatch(r"10\.\d{4,9}/[^\s]+", raw, flags=re.IGNORECASE) is None
         ):
             raise PaperIdentityError("invalid_identifier")
-        return NormalizedIdentifier("doi", raw.lower(), None)
+        return NormalizedIdentifier("doi", cls._ascii_fold(raw), None)
 
     @classmethod
     def _arxiv(cls, value: str) -> NormalizedIdentifier:
