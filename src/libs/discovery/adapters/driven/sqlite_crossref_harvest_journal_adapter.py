@@ -795,8 +795,12 @@ class SqliteCrossrefHarvestJournalAdapter:
                 raise CrossrefHarvestJournalError("crossref_page_missing")
             rows = connection.execute(
                 "SELECT page_id,ordinal,raw_doi,canonical_json,canonical_sha256 "
-                "FROM crossref_harvest_items "
-                "WHERE page_id=? AND outcome_state='pending' ORDER BY ordinal",
+                "FROM crossref_harvest_items i "
+                "WHERE i.page_id=? AND i.outcome_state='pending' "
+                "AND NOT EXISTS("
+                "SELECT 1 FROM crossref_projection_quarantines q "
+                "WHERE q.page_id=i.page_id AND q.ordinal=i.ordinal"
+                ") ORDER BY i.ordinal",
                 (page_id,),
             ).fetchall()
             return tuple(CrossrefPendingItem(*tuple(row)) for row in rows)
@@ -847,11 +851,80 @@ class SqliteCrossrefHarvestJournalAdapter:
                 raise CrossrefHarvestJournalError(
                     "crossref_item_outcome_conflict"
                 )
+            quarantine = connection.execute(
+                "SELECT 1 FROM crossref_projection_quarantines "
+                "WHERE page_id=? AND ordinal=?",
+                (page_id, ordinal),
+            ).fetchone()
+            if quarantine is not None:
+                raise CrossrefHarvestJournalError(
+                    "crossref_item_outcome_conflict"
+                )
             connection.execute(
                 "UPDATE crossref_harvest_items SET outcome_state='processed',"
                 "canonical_doi=?,outcome_ref=?,processed_at=? "
                 "WHERE page_id=? AND ordinal=? AND outcome_state='pending'",
                 (doi, reference, processed, page_id, ordinal),
+            )
+            return False
+
+    def mark_projection_quarantined(
+        self,
+        page_id: str,
+        ordinal: int,
+        *,
+        error_code: str,
+        quarantined_at: datetime,
+    ) -> bool:
+        self._text(page_id, "invalid_crossref_page_id", 256)
+        if type(ordinal) is not int or ordinal < 0:
+            raise CrossrefHarvestJournalError("invalid_crossref_item")
+        error = self._text(
+            error_code,
+            "invalid_crossref_projection_quarantine",
+            128,
+        )
+        quarantined = self._time(quarantined_at)
+        with self._transaction(write=True) as connection:
+            item = connection.execute(
+                "SELECT * FROM crossref_harvest_items "
+                "WHERE page_id=? AND ordinal=?",
+                (page_id, ordinal),
+            ).fetchone()
+            if item is None:
+                raise CrossrefHarvestJournalError("crossref_item_missing")
+            if (
+                item["decode_state"] != "decoded"
+                or item["outcome_state"] != "pending"
+            ):
+                raise CrossrefHarvestJournalError(
+                    "crossref_item_outcome_conflict"
+                )
+            existing = connection.execute(
+                "SELECT * FROM crossref_projection_quarantines "
+                "WHERE page_id=? AND ordinal=?",
+                (page_id, ordinal),
+            ).fetchone()
+            if existing is not None:
+                if (
+                    existing["error_code"] == error
+                    and existing["canonical_sha256"]
+                    == item["canonical_sha256"]
+                ):
+                    return True
+                raise CrossrefHarvestJournalError(
+                    "crossref_item_outcome_conflict"
+                )
+            connection.execute(
+                "INSERT INTO crossref_projection_quarantines "
+                "VALUES(?,?,?,?,?)",
+                (
+                    page_id,
+                    ordinal,
+                    error,
+                    item["canonical_sha256"],
+                    quarantined,
+                ),
             )
             return False
 
@@ -864,7 +937,10 @@ class SqliteCrossrefHarvestJournalAdapter:
         row = connection.execute(
             "SELECT count(i.ordinal),"
             "SUM(CASE WHEN i.outcome_state='processed' THEN 1 ELSE 0 END),"
-            "SUM(CASE WHEN i.outcome_state='quarantined' THEN 1 ELSE 0 END),"
+            "SUM(CASE WHEN i.outcome_state='quarantined' "
+            "OR EXISTS(SELECT 1 FROM crossref_projection_quarantines q "
+            "WHERE q.page_id=i.page_id AND q.ordinal=i.ordinal) "
+            "THEN 1 ELSE 0 END),"
             "COUNT(DISTINCT CASE WHEN i.outcome_state='processed' "
             "THEN i.canonical_doi END) "
             "FROM crossref_harvest_items i "
@@ -922,8 +998,12 @@ class SqliteCrossrefHarvestJournalAdapter:
             ):
                 raise CrossrefHarvestJournalError("crossref_checkpoint_conflict")
             pending = connection.execute(
-                "SELECT count(*) FROM crossref_harvest_items "
-                "WHERE page_id=? AND outcome_state='pending'",
+                "SELECT count(*) FROM crossref_harvest_items i "
+                "WHERE i.page_id=? AND i.outcome_state='pending' "
+                "AND NOT EXISTS("
+                "SELECT 1 FROM crossref_projection_quarantines q "
+                "WHERE q.page_id=i.page_id AND q.ordinal=i.ordinal"
+                ")",
                 (page_id,),
             ).fetchone()[0]
             if pending:
