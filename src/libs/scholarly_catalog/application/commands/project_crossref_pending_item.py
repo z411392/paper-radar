@@ -28,6 +28,9 @@ from libs.scholarly_catalog.exceptions.crossref_provider_projection_error import
     CrossrefProviderProjectionError,
 )
 from libs.scholarly_catalog.exceptions.paper_identity_error import PaperIdentityError
+from libs.scholarly_catalog.ports.bind_crossref_integrity_works_port import (
+    BindCrossrefIntegrityWorksPort,
+)
 from libs.scholarly_catalog.ports.crossref_integrity_store_port import (
     CrossrefIntegrityStorePort,
 )
@@ -46,11 +49,13 @@ class ProjectCrossrefPendingItem:
         store: CrossrefProviderRevisionStorePort,
         relations: CrossrefRelationStorePort,
         integrity: CrossrefIntegrityStorePort | None = None,
+        integrity_bindings: BindCrossrefIntegrityWorksPort | None = None,
     ) -> None:
         self._normalize = normalize
         self._store = store
         self._relations = relations
         self._integrity = integrity
+        self._integrity_bindings = integrity_bindings
 
     def __call__(
         self,
@@ -183,8 +188,13 @@ class ProjectCrossrefPendingItem:
                 )
                 for gap in integrity_gaps
             )
-            self._integrity.register(
+            integrity_refs = self._integrity.register(
                 tuple(integrity_assertions),
                 integrity_gap_drafts,
             )
+            if self._integrity_bindings is not None:
+                self._integrity_bindings(
+                    integrity_refs,
+                    observed_at=observed_at,
+                )
         return result

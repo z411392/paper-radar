@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 
 from libs.scholarly_catalog.dtos.crossref_integrity_assertion import (
     CrossrefIntegrityAssertionDraft,
+    CrossrefIntegrityAssertionRef,
     CrossrefIntegrityGapDraft,
 )
 from libs.scholarly_catalog.exceptions.crossref_provider_projection_error import (
@@ -131,11 +132,12 @@ class SqliteCrossrefIntegrityStoreAdapter:
         self,
         assertions: tuple[CrossrefIntegrityAssertionDraft, ...],
         gaps: tuple[CrossrefIntegrityGapDraft, ...],
-    ) -> None:
+    ) -> tuple[CrossrefIntegrityAssertionRef, ...]:
         if not isinstance(assertions, tuple) or not isinstance(gaps, tuple):
             raise CrossrefProviderProjectionError(
                 "invalid_crossref_integrity_assertion"
             )
+        refs: list[CrossrefIntegrityAssertionRef] = []
         with self._transaction() as connection:
             for draft in assertions:
                 if not isinstance(draft, CrossrefIntegrityAssertionDraft):
@@ -317,6 +319,13 @@ class SqliteCrossrefIntegrityStoreAdapter:
                     raise CrossrefProviderProjectionError(
                         "crossref_integrity_observation_conflict"
                     )
+                refs.append(
+                    CrossrefIntegrityAssertionRef(
+                        assertion_id,
+                        notice_doi,
+                        target_doi,
+                    )
+                )
 
             for gap in gaps:
                 if not isinstance(gap, CrossrefIntegrityGapDraft):
@@ -364,3 +373,5 @@ class SqliteCrossrefIntegrityStoreAdapter:
                     raise CrossrefProviderProjectionError(
                         "crossref_integrity_gap_conflict"
                     )
+
+        return tuple(refs)

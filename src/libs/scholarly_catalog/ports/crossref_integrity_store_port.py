@@ -2,6 +2,7 @@ from typing import Protocol
 
 from libs.scholarly_catalog.dtos.crossref_integrity_assertion import (
     CrossrefIntegrityAssertionDraft,
+    CrossrefIntegrityAssertionRef,
     CrossrefIntegrityGapDraft,
 )
 
@@ -11,4 +12,4 @@ class CrossrefIntegrityStorePort(Protocol):
         self,
         assertions: tuple[CrossrefIntegrityAssertionDraft, ...],
         gaps: tuple[CrossrefIntegrityGapDraft, ...],
-    ) -> None: ...
+    ) -> tuple[CrossrefIntegrityAssertionRef, ...]: ...
