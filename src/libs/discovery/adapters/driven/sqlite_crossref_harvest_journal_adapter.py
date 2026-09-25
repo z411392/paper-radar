@@ -876,12 +876,30 @@ class SqliteCrossrefHarvestJournalAdapter:
                     raise CrossrefHarvestJournalError(
                         "crossref_item_outcome_conflict"
                     )
-            connection.execute(
+            changed = connection.execute(
                 "UPDATE crossref_harvest_items SET outcome_state='processed',"
                 "canonical_doi=?,outcome_ref=?,processed_at=? "
                 "WHERE page_id=? AND ordinal=? AND outcome_state='pending'",
                 (doi, reference, processed, page_id, ordinal),
-            )
+            ).rowcount
+            if changed != 1:
+                raise CrossrefHarvestJournalError(
+                    "crossref_item_outcome_conflict"
+                )
+            written = connection.execute(
+                "SELECT outcome_state,canonical_doi,outcome_ref,processed_at "
+                "FROM crossref_harvest_items WHERE page_id=? AND ordinal=?",
+                (page_id, ordinal),
+            ).fetchone()
+            if written is None or tuple(written) != (
+                "processed",
+                doi,
+                reference,
+                processed,
+            ):
+                raise CrossrefHarvestJournalError(
+                    "crossref_item_outcome_conflict"
+                )
             return False
 
     def mark_projection_quarantined(
