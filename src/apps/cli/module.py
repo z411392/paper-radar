@@ -133,6 +133,9 @@ from libs.research_workflow.ports.run_worker_cycle_port import RunWorkerCyclePor
 from libs.research_workflow.ports.runtime_version_provider_port import RuntimeVersionProviderPort
 from libs.research_workflow.ports.workflow_clock_port import WorkflowClockPort
 from libs.research_workflow.ports.workflow_job_store_port import WorkflowJobStorePort
+from libs.scholarly_catalog.adapters.driven.sqlite_crossref_integrity_event_source_adapter import (
+    SqliteCrossrefIntegrityEventSourceAdapter,
+)
 from libs.scholarly_catalog.adapters.driven.sqlite_crossref_integrity_store_adapter import (
     SqliteCrossrefIntegrityStoreAdapter,
 )
@@ -148,6 +151,9 @@ from libs.scholarly_catalog.adapters.driven.sqlite_crossref_relation_store_adapt
 from libs.scholarly_catalog.adapters.driven.sqlite_digest_research_event_adapter import (
     SqliteDigestResearchEventAdapter,
 )
+from libs.scholarly_catalog.adapters.driven.sqlite_research_event_store_adapter import (
+    SqliteResearchEventStoreAdapter,
+)
 from libs.scholarly_catalog.adapters.driven.sqlite_paper_identity_store_adapter import (
     SqlitePaperIdentityStoreAdapter,
 )
@@ -156,6 +162,12 @@ from libs.scholarly_catalog.application.commands.bind_crossref_integrity_works i
 )
 from libs.scholarly_catalog.application.commands.project_crossref_pending_item import (
     ProjectCrossrefPendingItem,
+)
+from libs.scholarly_catalog.application.commands.promote_crossref_integrity_events import (
+    PromoteCrossrefIntegrityEvents,
+)
+from libs.scholarly_catalog.application.commands.record_paper_revision import (
+    RecordPaperRevision,
 )
 from libs.scholarly_catalog.application.queries.read_paper_identity import ReadPaperIdentity
 from libs.scholarly_catalog.domain.services.normalize_paper_identifier import (
@@ -546,6 +558,16 @@ class WorkerCliModule(Module):
                     connection.connect
                 ),
             )
+            integrity_events = PromoteCrossrefIntegrityEvents(
+                SqliteCrossrefIntegrityEventSourceAdapter(
+                    connection.connect
+                ),
+                RecordPaperRevision(
+                    SqliteResearchEventStoreAdapter(
+                        connection.connect
+                    )
+                ),
+            )
             project_crossref = ProjectCrossrefPendingItem(
                 normalize_identifier,
                 SqliteCrossrefProviderRevisionStoreAdapter(
@@ -558,6 +580,7 @@ class WorkerCliModule(Module):
                     connection.connect
                 ),
                 integrity_bindings=integrity_bindings,
+                integrity_events=integrity_events,
             )
             crossref = RunProjectedCrossrefHarvestWindow(
                 claimed_crossref,

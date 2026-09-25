@@ -40,6 +40,9 @@ from libs.scholarly_catalog.ports.crossref_provider_revision_store_port import (
 from libs.scholarly_catalog.ports.crossref_relation_store_port import (
     CrossrefRelationStorePort,
 )
+from libs.scholarly_catalog.ports.promote_crossref_integrity_events_port import (
+    PromoteCrossrefIntegrityEventsPort,
+)
 
 
 class ProjectCrossrefPendingItem:
@@ -50,12 +53,14 @@ class ProjectCrossrefPendingItem:
         relations: CrossrefRelationStorePort,
         integrity: CrossrefIntegrityStorePort | None = None,
         integrity_bindings: BindCrossrefIntegrityWorksPort | None = None,
+        integrity_events: PromoteCrossrefIntegrityEventsPort | None = None,
     ) -> None:
         self._normalize = normalize
         self._store = store
         self._relations = relations
         self._integrity = integrity
         self._integrity_bindings = integrity_bindings
+        self._integrity_events = integrity_events
 
     def __call__(
         self,
@@ -197,4 +202,6 @@ class ProjectCrossrefPendingItem:
                     integrity_refs,
                     observed_at=observed_at,
                 )
+            if self._integrity_events is not None:
+                self._integrity_events(integrity_refs)
         return result
