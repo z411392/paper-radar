@@ -1,5 +1,6 @@
+import hashlib
 from dataclasses import asdict
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -75,8 +76,6 @@ def _setup(tmp_path: Path):
         10,
     )
     body = _body()
-    import hashlib
-
     digest = hashlib.sha256(body).hexdigest()
     object_id = "raw:" + digest
     capture = {
@@ -281,3 +280,29 @@ def test_same_raw_with_inconsistent_request_is_ambiguous(tmp_path: Path) -> None
         match="arxiv_observation_capture_ambiguous",
     ):
         adapter(OBSERVATION)
+
+
+def test_binding_query_mismatch_is_rejected_before_raw_read(tmp_path: Path) -> None:
+    schema, _, body, _ = _setup(tmp_path)
+    connection = schema.connect()
+    try:
+        connection.execute(
+            "UPDATE source_bindings SET query_fingerprint=?",
+            ("f" * 64,),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    reads = []
+
+    def read_object(object_id: str) -> bytes:
+        reads.append(object_id)
+        return body
+
+    adapter = SqliteArxivObservationReplayAdapter(schema.connect, read_object)
+    with pytest.raises(
+        ArxivObservationReplayError,
+        match="arxiv_observation_state_corrupt",
+    ):
+        adapter(OBSERVATION)
+    assert reads == []

@@ -145,14 +145,19 @@ class SqliteArxivObservationReplayAdapter:
     def _snapshot(self, observation_id: str) -> _ReplaySnapshot:
         with self._transaction() as connection:
             row = connection.execute(
-                "SELECT o.*,u.state AS unit_state FROM source_observations o "
-                "JOIN harvest_units u ON u.id=o.unit_id WHERE o.id=?",
+                "SELECT o.*,u.state AS unit_state,b.source AS binding_source,"
+                "b.query_fingerprint AS binding_query_fingerprint,"
+                "b.enabled AS binding_enabled FROM source_observations o "
+                "JOIN harvest_units u ON u.id=o.unit_id "
+                "JOIN source_bindings b ON b.id=u.binding_id WHERE o.id=?",
                 (observation_id,),
             ).fetchone()
             if row is None:
                 raise Error("arxiv_observation_missing")
             if (
                 row["source"] != "arxiv"
+                or row["binding_source"] != "arxiv"
+                or row["binding_enabled"] != 1
                 or row["unit_state"] not in {"partial", "succeeded"}
                 or not isinstance(row["native_id"], str)
                 or not row["native_id"]
@@ -188,6 +193,8 @@ class SqliteArxivObservationReplayAdapter:
             if any(candidate != first for candidate in candidates[1:]):
                 raise Error("arxiv_observation_capture_ambiguous")
             request, sha, size = first
+            if request.query_fingerprint != row["binding_query_fingerprint"]:
+                raise Error("arxiv_observation_state_corrupt")
             return _ReplaySnapshot(
                 row["id"],
                 row["unit_id"],

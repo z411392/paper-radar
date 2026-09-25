@@ -2,6 +2,9 @@ import hashlib
 import json
 
 from libs.discovery.dtos.arxiv_observation_replay import ArxivObservationReplay
+from libs.scholarly_catalog.domain.services.normalize_paper_identifier import (
+    NormalizePaperIdentifier,
+)
 from libs.scholarly_catalog.dtos.arxiv_catalog_projection import (
     ArxivCatalogProjection,
 )
@@ -66,6 +69,15 @@ class ProjectArxivObservation:
         if not isinstance(replay, ArxivObservationReplay):
             raise PaperIdentityError("invalid_arxiv_projection")
         record = replay.record
+        normalized = NormalizePaperIdentifier()(
+            "arxiv",
+            record.source_record_id,
+        )
+        if (
+            normalized.normalized_value != record.arxiv_id
+            or normalized.native_version != expected_version
+        ):
+            raise PaperIdentityError("invalid_arxiv_projection")
         fingerprint = self._fingerprint(replay)
         observation = PaperIdentityObservation(
             source_observation_id=replay.observation_id,
