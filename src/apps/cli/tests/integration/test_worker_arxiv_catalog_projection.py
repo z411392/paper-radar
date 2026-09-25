@@ -1,6 +1,8 @@
 import hashlib
 import json
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+from threading import Barrier
 from pathlib import Path
 
 from injector import Injector
@@ -22,6 +24,9 @@ from libs.kernel.adapters.driven.sqlite_connection_factory import (
 )
 from libs.kernel.adapters.driven.sqlite_workspace_bootstrap_adapter import (
     SqliteWorkspaceBootstrapAdapter,
+)
+from libs.research_workflow.ports.process_workflow_job_port import (
+    ProcessWorkflowJobPort,
 )
 from libs.research_workflow.ports.run_worker_cycle_port import RunWorkerCyclePort
 
@@ -465,5 +470,116 @@ def test_worker_arxiv_explanation_replay_reuses_generation_and_owner_state(
         ).fetchone()
         assert after == before
         assert tuple(pointer_after) == tuple(pointer_before)
+    finally:
+        connection.close()
+
+
+def test_two_workers_fence_one_durable_explanation_job(
+    tmp_path: Path,
+) -> None:
+    root = _workspace(tmp_path)
+    transport = FakeArxivTransport()
+    harvest_only = Injector(
+        [
+            WorkerCliModule(
+                str(root),
+                allow_live_source=True,
+                rate_limit_state=str(tmp_path / "arxiv-rate-fencing.json"),
+                transport=transport,
+            )
+        ],
+        auto_bind=False,
+    ).get(RunWorkerCyclePort)
+
+    harvested = harvest_only(
+        "worker:harvest-only",
+        max_new_jobs=10,
+        max_jobs=1,
+        lease_seconds=300,
+    )
+
+    assert harvested.processed_jobs == 1
+    assert harvested.jobs[0].job_kind == "harvest_window"
+    assert harvested.jobs[0].state == "succeeded"
+
+    connection = SqliteConnectionFactory(root).connect()
+    try:
+        pending = connection.execute(
+            "SELECT state FROM workflow_jobs WHERE job_kind='explain_snapshot'"
+        ).fetchone()
+        assert pending["state"] == "pending"
+    finally:
+        connection.close()
+
+    generator = FakeStructuredGenerator()
+    budget = GenerationBudgetPolicy(
+        "2026-09",
+        "USD",
+        1_000_000,
+        10_000,
+        "d" * 64,
+    )
+    processor_a = Injector(
+        [
+            WorkerCliModule(
+                str(root),
+                structured_generation=generator,
+                generation_budget_policy=budget,
+            )
+        ],
+        auto_bind=False,
+    ).get(ProcessWorkflowJobPort)
+    processor_b = Injector(
+        [
+            WorkerCliModule(
+                str(root),
+                structured_generation=generator,
+                generation_budget_policy=budget,
+            )
+        ],
+        auto_bind=False,
+    ).get(ProcessWorkflowJobPort)
+
+    barrier = Barrier(2)
+
+    def process(processor, owner):
+        barrier.wait(timeout=5)
+        return processor(owner, lease_seconds=300)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        future_a = pool.submit(process, processor_a, "worker:explain-a")
+        future_b = pool.submit(process, processor_b, "worker:explain-b")
+        outcomes = (future_a.result(timeout=10), future_b.result(timeout=10))
+
+    assert sorted(result.state for result in outcomes) == ["idle", "succeeded"]
+    succeeded = next(result for result in outcomes if result.state == "succeeded")
+    assert succeeded.job_kind == "explain_snapshot"
+    assert generator.calls == [
+        "claim_extraction",
+        "relevance_assessment",
+        "abstract_reading_card",
+        "support_verification",
+    ]
+
+    connection = SqliteConnectionFactory(root).connect()
+    try:
+        assert connection.execute(
+            "SELECT count(*) FROM model_runs"
+        ).fetchone()[0] == 4
+        assert connection.execute(
+            "SELECT count(*) FROM relevance_assessments"
+        ).fetchone()[0] == 1
+        assert connection.execute(
+            "SELECT count(*) FROM summary_revisions"
+        ).fetchone()[0] == 1
+        assert connection.execute(
+            "SELECT count(*) FROM current_summaries"
+        ).fetchone()[0] == 1
+        attempts = connection.execute(
+            "SELECT count(*) FROM job_attempts a "
+            "JOIN workflow_jobs j ON j.id=a.job_id "
+            "WHERE j.job_kind='explain_snapshot'"
+        ).fetchone()[0]
+        assert attempts == 1
     finally:
         connection.close()
