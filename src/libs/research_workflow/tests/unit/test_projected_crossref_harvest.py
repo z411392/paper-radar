@@ -1,8 +1,13 @@
 from datetime import datetime, timezone
 
+import pytest
+
 from libs.discovery.dtos.crossref_harvest import (
     CrossrefHarvestStepResult,
     CrossrefPendingItem,
+)
+from libs.discovery.exceptions.crossref_harvest_journal_error import (
+    CrossrefHarvestJournalError,
 )
 from libs.research_workflow.application.commands.run_projected_crossref_harvest_window import (
     RunProjectedCrossrefHarvestWindow,
@@ -257,3 +262,46 @@ def test_projection_never_fabricates_page_commit_when_harvest_does_not_commit() 
     assert outcome.state == "projection_failed"
     assert outcome.error_code == "crossref_projection_no_progress"
     assert harvest.calls == 2
+
+
+def test_mark_processed_system_failure_propagates_and_never_quarantines() -> None:
+    harvest = Harvest([result("projection_required")])
+
+    class FailingJournal(Journal):
+        def mark_processed(
+            self,
+            page_id,
+            ordinal,
+            *,
+            canonical_doi,
+            outcome_ref,
+            processed_at,
+        ):
+            del page_id, ordinal, canonical_doi, outcome_ref, processed_at
+            raise CrossrefHarvestJournalError("crossref_journal_database_error")
+
+    journal = FailingJournal({"crossref-page:1": [item()]})
+    project = Project()
+    runner = RunProjectedCrossrefHarvestWindow(
+        harvest,
+        journal,
+        project,
+        clock=lambda: NOW,
+    )
+
+    with pytest.raises(
+        CrossrefHarvestJournalError,
+        match="crossref_journal_database_error",
+    ):
+        runner(
+            object(),
+            owner_id="worker:test",
+            max_pages=1,
+            lease_seconds=60,
+        )
+
+    assert len(project.calls) == 1
+    assert journal.pending_items("crossref-page:1") == (item(),)
+    assert journal.processed == []
+    assert journal.quarantined == []
+    assert journal.errors == []
