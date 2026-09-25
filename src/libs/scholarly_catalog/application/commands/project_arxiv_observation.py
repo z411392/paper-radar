@@ -5,6 +5,7 @@ from libs.discovery.dtos.arxiv_observation_replay import ArxivObservationReplay
 from libs.scholarly_catalog.domain.services.normalize_paper_identifier import (
     NormalizePaperIdentifier,
 )
+from libs.scholarly_catalog.dtos.abstract_evidence import AbstractEvidenceRequest
 from libs.scholarly_catalog.dtos.arxiv_catalog_projection import (
     ArxivCatalogProjection,
 )
@@ -12,6 +13,9 @@ from libs.scholarly_catalog.dtos.paper_identity_observation import (
     PaperIdentityObservation,
 )
 from libs.scholarly_catalog.exceptions.paper_identity_error import PaperIdentityError
+from libs.scholarly_catalog.ports.prepare_abstract_evidence_port import (
+    PrepareAbstractEvidencePort,
+)
 from libs.scholarly_catalog.ports.record_paper_revision_port import (
     RecordPaperRevisionPort,
 )
@@ -25,9 +29,11 @@ class ProjectArxivObservation:
         self,
         resolve: ResolvePaperIdentityPort,
         record_revision: RecordPaperRevisionPort,
+        abstract_evidence: PrepareAbstractEvidencePort | None = None,
     ) -> None:
         self._resolve = resolve
         self._record_revision = record_revision
+        self._abstract_evidence = abstract_evidence
 
     @staticmethod
     def _fingerprint(value: ArxivObservationReplay) -> str:
@@ -122,6 +128,26 @@ class ProjectArxivObservation:
             occurred_at=record.updated_at,
             observed_at=replay.observed_at,
         )
+        evidence_state = "not_configured"
+        evidence_snapshot_id = None
+        if self._abstract_evidence is not None:
+            evidence = self._abstract_evidence(
+                AbstractEvidenceRequest(
+                    resolution.revision_id,
+                    resolution.work_id,
+                    replay.parser_version,
+                    record.abstract,
+                    replay.observed_at,
+                )
+            )
+            if (
+                evidence.revision_id != resolution.revision_id
+                or evidence.work_id != resolution.work_id
+                or evidence.state not in {"available", "unavailable"}
+            ):
+                raise PaperIdentityError("arxiv_evidence_projection_mismatch")
+            evidence_state = evidence.state
+            evidence_snapshot_id = evidence.snapshot_id
         return ArxivCatalogProjection(
             replay.observation_id,
             resolution.work_id,
@@ -133,4 +159,6 @@ class ProjectArxivObservation:
             resolution.created_work,
             resolution.created_manifestation,
             resolution.created_revision,
+            evidence_state,
+            evidence_snapshot_id,
         )

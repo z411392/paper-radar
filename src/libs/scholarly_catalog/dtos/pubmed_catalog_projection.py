@@ -13,3 +13,5 @@ class PubmedCatalogProjection:
     created_work: bool
     created_manifestation: bool
     created_revision: bool
+    evidence_state: str = "not_configured"
+    evidence_snapshot_id: str | None = None
