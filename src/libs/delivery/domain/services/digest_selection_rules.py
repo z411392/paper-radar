@@ -168,7 +168,12 @@ class DigestSelectionRules:
             and existing.event_kind == candidate.event_kind
         )
         if not same:
-            raise DigestSelectionError("conflicting_digest_candidates")
+            code = (
+                "conflicting_work_candidates"
+                if candidate.item_kind == "paper"
+                else "conflicting_status_candidates"
+            )
+            raise DigestSelectionError(code)
         domains = tuple(sorted(set(existing.domains) | set(candidate.domains)))
         return replace(existing, domains=domains)
 

@@ -111,12 +111,26 @@ class SqliteDeliveryStoreAdapter:
         cls._fingerprint(preview.content_fingerprint, "invalid_preview_fingerprint")
         if any(not isinstance(item, SelectedDigestItem) for item in preview.items):
             raise DeliveryStoreError("invalid_digest_items")
+        paper_kinds = {
+            "new_work",
+            "late_discovery",
+            "revision_available",
+            "newly_accessible",
+        }
         for item in preview.items:
             if item.item_kind == "paper":
-                if not isinstance(item.summary_id, str) or not isinstance(item.revision_id, str):
+                if (
+                    item.event_kind not in paper_kinds
+                    or not isinstance(item.summary_id, str)
+                    or not isinstance(item.revision_id, str)
+                ):
                     raise DeliveryStoreError("invalid_digest_items")
             elif item.item_kind == "status_notice":
-                if item.summary_id is not None or item.revision_id is not None:
+                if (
+                    item.event_kind not in {"correction", "retraction"}
+                    or item.summary_id is not None
+                    or item.revision_id is not None
+                ):
                     raise DeliveryStoreError("invalid_digest_items")
             else:
                 raise DeliveryStoreError("invalid_digest_items")

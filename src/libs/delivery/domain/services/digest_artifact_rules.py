@@ -100,10 +100,37 @@ class DigestArtifactRules:
                 "item_kind",
                 "event_kind",
             }
+            paper_kinds = {
+                "new_work",
+                "late_discovery",
+                "revision_available",
+                "newly_accessible",
+            }
             for item in data["items"]:
                 if not isinstance(item, dict) or set(item) != required_item:
                     raise DigestArtifactError("invalid_digest_artifact")
-                if item["item_kind"] not in {"paper", "status_notice"}:
+                if not all(
+                    isinstance(item[key], str) and item[key]
+                    for key in ("event_id", "work_id", "event_kind")
+                ):
+                    raise DigestArtifactError("invalid_digest_artifact")
+                if item["item_kind"] == "paper":
+                    if (
+                        item["event_kind"] not in paper_kinds
+                        or not isinstance(item["summary_id"], str)
+                        or not item["summary_id"]
+                        or not isinstance(item["revision_id"], str)
+                        or not item["revision_id"]
+                    ):
+                        raise DigestArtifactError("invalid_digest_artifact")
+                elif item["item_kind"] == "status_notice":
+                    if (
+                        item["event_kind"] not in {"correction", "retraction"}
+                        or item["summary_id"] is not None
+                        or item["revision_id"] is not None
+                    ):
+                        raise DigestArtifactError("invalid_digest_artifact")
+                else:
                     raise DigestArtifactError("invalid_digest_artifact")
         return StoredDigestPayload(
             subscription_id=data["subscription_id"],

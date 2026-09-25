@@ -140,3 +140,13 @@ def test_status_notice_is_prioritized_over_regular_paper() -> None:
     preview = PrepareDigest()(request((paper, status)))
 
     assert [entry.item_kind for entry in preview.items] == ["status_notice", "paper"]
+
+
+def test_status_candidate_shape_cannot_be_forged_as_regular_event() -> None:
+    forged = status_item("event:status", "new_work")
+
+    import pytest
+    from libs.delivery.domain.services.digest_selection_rules import DigestSelectionError
+
+    with pytest.raises(DigestSelectionError, match="invalid_event_kind"):
+        PrepareDigest()(request((forged,)))
