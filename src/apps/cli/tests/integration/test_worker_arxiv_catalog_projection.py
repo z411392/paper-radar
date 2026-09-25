@@ -6,6 +6,7 @@ from pathlib import Path
 from injector import Injector
 
 from apps.cli.module import WorkerCliModule
+from libs.discovery.dtos.source_http_response import SourceHttpResponse
 from libs.paper_explanations.dtos.generation_budget_policy import (
     GenerationBudgetPolicy,
 )
@@ -13,7 +14,6 @@ from libs.paper_explanations.dtos.structured_generation_result import (
     GenerationReceipt,
     StructuredGenerationResult,
 )
-from libs.discovery.dtos.source_http_response import SourceHttpResponse
 from libs.kernel.adapters.driven.bundled_workspace_migrations import (
     load_workspace_migrations,
 )
