@@ -108,6 +108,9 @@ from libs.research_workflow.adapters.driven.system_harvest_runtime_adapter impor
 from libs.research_workflow.adapters.driven.system_workflow_clock_adapter import SystemWorkflowClockAdapter
 from libs.research_workflow.application.commands.process_workflow_job import ProcessWorkflowJob
 from libs.research_workflow.application.commands.run_harvest_slice import RunHarvestSlice
+from libs.research_workflow.application.commands.run_projected_crossref_harvest_window import (
+    RunProjectedCrossrefHarvestWindow,
+)
 from libs.research_workflow.application.commands.run_scheduler_tick import RunSchedulerTick
 from libs.research_workflow.application.commands.run_worker_cycle import RunWorkerCycle
 from libs.research_workflow.application.queries.build_crossref_window_plan import (
@@ -130,8 +133,33 @@ from libs.research_workflow.ports.run_worker_cycle_port import RunWorkerCyclePor
 from libs.research_workflow.ports.runtime_version_provider_port import RuntimeVersionProviderPort
 from libs.research_workflow.ports.workflow_clock_port import WorkflowClockPort
 from libs.research_workflow.ports.workflow_job_store_port import WorkflowJobStorePort
+from libs.scholarly_catalog.adapters.driven.sqlite_crossref_integrity_store_adapter import (
+    SqliteCrossrefIntegrityStoreAdapter,
+)
+from libs.scholarly_catalog.adapters.driven.sqlite_crossref_integrity_work_binding_store_adapter import (
+    SqliteCrossrefIntegrityWorkBindingStoreAdapter,
+)
+from libs.scholarly_catalog.adapters.driven.sqlite_crossref_provider_revision_store_adapter import (
+    SqliteCrossrefProviderRevisionStoreAdapter,
+)
+from libs.scholarly_catalog.adapters.driven.sqlite_crossref_relation_store_adapter import (
+    SqliteCrossrefRelationStoreAdapter,
+)
 from libs.scholarly_catalog.adapters.driven.sqlite_digest_research_event_adapter import (
     SqliteDigestResearchEventAdapter,
+)
+from libs.scholarly_catalog.adapters.driven.sqlite_paper_identity_store_adapter import (
+    SqlitePaperIdentityStoreAdapter,
+)
+from libs.scholarly_catalog.application.commands.bind_crossref_integrity_works import (
+    BindCrossrefIntegrityWorks,
+)
+from libs.scholarly_catalog.application.commands.project_crossref_pending_item import (
+    ProjectCrossrefPendingItem,
+)
+from libs.scholarly_catalog.application.queries.read_paper_identity import ReadPaperIdentity
+from libs.scholarly_catalog.domain.services.normalize_paper_identifier import (
+    NormalizePaperIdentifier,
 )
 from libs.watch_profiles.adapters.driven.sqlite_digest_relevance_adapter import (
     SqliteDigestRelevanceAdapter,
@@ -195,7 +223,7 @@ class WorkspaceEffectsCliModule(Module):
         connection = SqliteSchemaConnectionFactory(
             Path(self._workspace),
             load_workspace_migrations(with_runtime=True),
-            minimum_version=17,
+            minimum_version=22,
         )
         adapter = SqliteWorkspaceExternalEffectsAdapter(connection.connect)
         command = SetWorkspaceExternalEffects(adapter)
@@ -378,7 +406,7 @@ class WorkerCliModule(Module):
         connection = SqliteSchemaConnectionFactory(
             root,
             load_workspace_migrations(with_runtime=True),
-            minimum_version=17 if crossref_requested else 10,
+            minimum_version=22 if crossref_requested else 10,
         )
         profile_store = SqliteWatchProfileStoreAdapter(connection.connect)
         builder = BuildHarvestQueryInput(
@@ -487,9 +515,12 @@ class WorkerCliModule(Module):
                 source=crossref_source,
                 clock=clock.now,
             )
-            crossref = RunClaimedCrossrefHarvestWindow(
+            crossref_journal = SqliteCrossrefHarvestJournalAdapter(
+                connection.connect
+            )
+            claimed_crossref = RunClaimedCrossrefHarvestWindow(
                 crossref_source,
-                SqliteCrossrefHarvestJournalAdapter(connection.connect),
+                crossref_journal,
                 crossref_claims,
                 crossref_inbox,
                 crossref_capture,
@@ -501,6 +532,37 @@ class WorkerCliModule(Module):
                     crossref_source,
                 ),
                 SqliteWorkspaceInfoAdapter(connection.connect),
+                clock=clock.now,
+            )
+
+            normalize_identifier = NormalizePaperIdentifier()
+            identity_store = SqlitePaperIdentityStoreAdapter(connection.connect)
+            integrity_bindings = BindCrossrefIntegrityWorks(
+                ReadPaperIdentity(
+                    normalize_identifier,
+                    identity_store,
+                ),
+                SqliteCrossrefIntegrityWorkBindingStoreAdapter(
+                    connection.connect
+                ),
+            )
+            project_crossref = ProjectCrossrefPendingItem(
+                normalize_identifier,
+                SqliteCrossrefProviderRevisionStoreAdapter(
+                    connection.connect
+                ),
+                SqliteCrossrefRelationStoreAdapter(
+                    connection.connect
+                ),
+                integrity=SqliteCrossrefIntegrityStoreAdapter(
+                    connection.connect
+                ),
+                integrity_bindings=integrity_bindings,
+            )
+            crossref = RunProjectedCrossrefHarvestWindow(
+                claimed_crossref,
+                crossref_journal,
+                project_crossref,
                 clock=clock.now,
             )
             crossref_plan = BuildCrossrefWindowPlan(

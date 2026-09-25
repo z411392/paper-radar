@@ -235,3 +235,42 @@ def test_commissioned_crossref_worker_rejects_previous_runtime_before_provider_i
     assert error["code"] == "schema_upgrade_required"
     assert "--with-runtime" in error["hint"]
     assert list(rate_dir.iterdir()) == []
+
+
+def test_effects_rejects_previous_runtime_without_enabling_it(tmp_path: Path) -> None:
+    workspace = tmp_path / "runtime-v21"
+    current = load_workspace_migrations(with_runtime=True)
+    assert len(current) == 22
+    info = SqliteWorkspaceBootstrapAdapter(
+        workspace,
+        current[:-1],
+    ).initialize()
+    assert info.schema_version == 21
+    assert info.external_effects_enabled is False
+
+    result = _run(
+        "effects",
+        "enable",
+        "--workspace",
+        str(workspace),
+    )
+
+    assert result.returncode == 1
+    error = json.loads(result.stderr)["error"]
+    assert error["code"] == "schema_upgrade_required"
+    connection = SqliteSchemaConnectionFactory(
+        workspace,
+        current,
+        minimum_version=21,
+    ).connect()
+    try:
+        enabled = connection.execute(
+            "SELECT external_effects_enabled FROM workspace_metadata "
+            "WHERE singleton=1"
+        ).fetchone()[0]
+        assert enabled == 0
+        assert connection.execute(
+            "SELECT MAX(version) FROM schema_migrations"
+        ).fetchone()[0] == 21
+    finally:
+        connection.close()
