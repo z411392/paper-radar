@@ -9,6 +9,7 @@ from libs.retrieval.domain.services.npy_float32_batch_codec import (
 )
 from libs.retrieval.dtos.embedding_batch import (
     EmbeddingBatchInput,
+    EmbeddingVectorEntry,
     PreparedEmbeddingBatch,
     PreparedEmbeddingRow,
 )
@@ -83,15 +84,15 @@ class EmbeddingBatchRules:
         ):
             raise EmbeddingBatchError("invalid_embedding_batch")
 
-        ordered = sorted(value.entries, key=lambda item: item.document_id)
         if any(
-            not hasattr(entry, "document_id")
+            not isinstance(entry, EmbeddingVectorEntry)
             or not isinstance(entry.document_id, str)
             or cls._DOCUMENT.fullmatch(entry.document_id) is None
             or not isinstance(entry.vector, tuple)
-            for entry in ordered
+            for entry in value.entries
         ):
             raise EmbeddingBatchError("invalid_embedding_batch")
+        ordered = sorted(value.entries, key=lambda item: item.document_id)
         document_ids = tuple(entry.document_id for entry in ordered)
         if len(set(document_ids)) != len(document_ids):
             raise EmbeddingBatchError("embedding_document_duplicate")

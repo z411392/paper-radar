@@ -6,6 +6,7 @@ from libs.retrieval.exceptions.embedding_batch_error import EmbeddingBatchError
 
 
 class NpyFloat32BatchCodec:
+    MAX_CONTENT_BYTES = 128_000_000
     _MAGIC = b"\x93NUMPY"
     _VERSION = b"\x01\x00"
     _PREFIX_SIZE = 10
@@ -24,6 +25,9 @@ class NpyFloat32BatchCodec:
             or not 1 <= dimension <= 1_000_000
         ):
             raise EmbeddingBatchError("invalid_embedding_vector")
+        data_bytes = len(rows) * dimension * 4
+        if data_bytes > cls.MAX_CONTENT_BYTES:
+            raise EmbeddingBatchError("embedding_batch_too_large")
         packed_rows = []
         for row in rows:
             if not isinstance(row, tuple) or len(row) != dimension:
@@ -76,6 +80,7 @@ class NpyFloat32BatchCodec:
         if (
             not isinstance(content, bytes)
             or len(content) < cls._PREFIX_SIZE + 1
+            or len(content) > cls.MAX_CONTENT_BYTES + 65535
             or content[:6] != cls._MAGIC
             or content[6:8] != cls._VERSION
         ):
