@@ -240,6 +240,13 @@ class ProcessWorkflowJob:
                         delay=timedelta(hours=1),
                         state="awaiting_external",
                     )
+                if result.state == "projection_failed":
+                    return self._defer(
+                        lease,
+                        error_code=result.error_code or "crossref_projection_failed",
+                        delay=timedelta(hours=1),
+                        state="awaiting_external",
+                    )
                 if result.state == "page_committed":
                     return self._defer(
                         lease,
