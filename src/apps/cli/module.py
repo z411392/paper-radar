@@ -238,7 +238,7 @@ class WorkspaceEffectsCliModule(Module):
         connection = SqliteSchemaConnectionFactory(
             Path(self._workspace),
             load_workspace_migrations(with_runtime=True),
-            minimum_version=22,
+            minimum_version=23,
         )
         adapter = SqliteWorkspaceExternalEffectsAdapter(connection.connect)
         command = SetWorkspaceExternalEffects(adapter)

@@ -51,7 +51,7 @@ def _object(connection: sqlite3.Connection, kind: str, content: bytes) -> str:
 def _seed(root: Path, *, current_summary: str) -> SqliteDeliveryStoreAdapter:
     migrations = load_workspace_migrations(with_runtime=True)
     info = SqliteWorkspaceBootstrapAdapter(root, migrations).initialize()
-    assert info.schema_version == 22
+    assert info.schema_version == 23
     schema = SqliteSchemaConnectionFactory(root, migrations, minimum_version=22)
     connection = schema.connect()
     try:
