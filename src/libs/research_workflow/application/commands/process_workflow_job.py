@@ -33,6 +33,11 @@ from libs.research_workflow.ports.workflow_job_store_port import WorkflowJobStor
 
 
 class ProcessWorkflowJob:
+    _CROSSREF_AWAITING_EXTERNAL_CODES = frozenset(
+        {
+            "crossref_item_outcome_conflict",
+        }
+    )
     _STALE_CODES = frozenset(
         {
             "scheduled_input_stale",
@@ -325,16 +330,19 @@ class ProcessWorkflowJob:
             )
             state = (
                 "awaiting_external"
-                if any(
-                    token in exc.code
-                    for token in (
-                        "corrupt",
-                        "mismatch",
-                        "unknown",
-                        "disabled",
-                        "missing",
-                        "unavailable",
-                        "circuit",
+                if (
+                    exc.code in self._CROSSREF_AWAITING_EXTERNAL_CODES
+                    or any(
+                        token in exc.code
+                        for token in (
+                            "corrupt",
+                            "mismatch",
+                            "unknown",
+                            "disabled",
+                            "missing",
+                            "unavailable",
+                            "circuit",
+                        )
                     )
                 )
                 else "failed"

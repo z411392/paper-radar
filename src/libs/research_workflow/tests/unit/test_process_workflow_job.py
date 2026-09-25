@@ -2,6 +2,9 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import Mock
 
 from libs.delivery.dtos.scheduled_digest import ScheduledDigestOutcome
+from libs.discovery.exceptions.crossref_harvest_journal_error import (
+    CrossrefHarvestJournalError,
+)
 from libs.research_workflow.application.commands.process_workflow_job import (
     ProcessWorkflowJob,
 )
@@ -294,3 +297,69 @@ def test_pubmed_job_without_pubmed_runtime_is_awaiting_not_arxiv_fallback() -> N
     assert result.state == "awaiting_external"
     assert store.completed[0].error_code == "pubmed_runtime_not_connected"
     arxiv.assert_not_called()
+
+
+def crossref_payload() -> str:
+    return (
+        '{"binding_key":"personal:3:statistics:7:crossref",'
+        '"domain_id":"statistics","domain_revision":7,'
+        '"profile_id":"personal","profile_revision":3,"source_id":"crossref",'
+        '"window_end":"2026-09-24T00:00:00+00:00",'
+        '"window_start":"2026-09-23T00:00:00+00:00"}'
+    )
+
+
+def test_crossref_journal_database_error_is_retryable_failed_job() -> None:
+    store = Store(lease("harvest_window", crossref_payload()))
+    builder = Mock(return_value=object())
+    planner = Mock(return_value=object())
+    crossref = Mock(
+        side_effect=CrossrefHarvestJournalError(
+            "crossref_journal_database_error"
+        )
+    )
+    command = ProcessWorkflowJob(
+        store=store,
+        builder=builder,
+        harvest=None,
+        clock=Clock(),
+        live_source_enabled=True,
+        crossref_plan=planner,
+        crossref=crossref,
+    )
+
+    result = command("worker:test", lease_seconds=60)
+
+    assert result.state == "failed"
+    completion = store.completed[0]
+    assert completion.state == "failed"
+    assert completion.error_code == "crossref_journal_database_error"
+    assert completion.next_due_at == NOW + timedelta(minutes=5, seconds=2)
+
+
+def test_crossref_item_outcome_conflict_awaits_external_repair() -> None:
+    store = Store(lease("harvest_window", crossref_payload()))
+    builder = Mock(return_value=object())
+    planner = Mock(return_value=object())
+    crossref = Mock(
+        side_effect=CrossrefHarvestJournalError(
+            "crossref_item_outcome_conflict"
+        )
+    )
+    command = ProcessWorkflowJob(
+        store=store,
+        builder=builder,
+        harvest=None,
+        clock=Clock(),
+        live_source_enabled=True,
+        crossref_plan=planner,
+        crossref=crossref,
+    )
+
+    result = command("worker:test", lease_seconds=60)
+
+    assert result.state == "awaiting_external"
+    completion = store.completed[0]
+    assert completion.state == "awaiting_external"
+    assert completion.error_code == "crossref_item_outcome_conflict"
+    assert completion.next_due_at == NOW + timedelta(hours=1, seconds=2)
