@@ -42,6 +42,11 @@ def _setup(tmp_path: Path) -> tuple[Path, SqliteSchedulerInputAdapter]:
           enabled INTEGER NOT NULL,timezone TEXT NOT NULL,schedule_json TEXT NOT NULL,
           max_items INTEGER NOT NULL,recipient_ref TEXT NOT NULL,policy_version INTEGER NOT NULL,
           created_at TEXT NOT NULL);
+        CREATE TABLE digests(
+          id TEXT PRIMARY KEY,subscription_id TEXT NOT NULL,
+          period_key TEXT NOT NULL,state TEXT NOT NULL);
+        CREATE TABLE delivery_outbox(
+          id TEXT PRIMARY KEY,digest_id TEXT NOT NULL,state TEXT NOT NULL);
         CREATE TABLE workflow_jobs(
           id TEXT PRIMARY KEY,job_kind TEXT NOT NULL,business_key TEXT NOT NULL UNIQUE,
           input_json TEXT NOT NULL,input_fingerprint TEXT NOT NULL,state TEXT NOT NULL,
@@ -215,3 +220,30 @@ def test_invalid_or_duplicate_schedule_json_becomes_visible_gap_not_guessed_time
     assert snapshot.input_gaps == (
         adapter.gap("delivery", "subscription:daily", "invalid_delivery_schedule"),
     )
+
+
+def test_pending_queued_outbox_is_exposed_to_scheduler(tmp_path: Path) -> None:
+    path, adapter = _setup(tmp_path)
+    connection = sqlite3.connect(path)
+    connection.execute(
+        "INSERT INTO digests VALUES(?,?,?,'queued')",
+        ("digest:pending", "subscription:daily", "2026-09-24"),
+    )
+    connection.execute(
+        "INSERT INTO delivery_outbox VALUES(?,?,'pending')",
+        ("outbox:pending", "digest:pending"),
+    )
+    connection.execute(
+        "INSERT INTO digests VALUES(?,?,?,'sent')",
+        ("digest:sent", "subscription:daily", "2026-09-23"),
+    )
+    connection.execute(
+        "INSERT INTO delivery_outbox VALUES(?,?,'provider_accepted')",
+        ("outbox:sent", "digest:sent"),
+    )
+    connection.commit()
+    connection.close()
+
+    snapshot = adapter.read(NOW)
+
+    assert snapshot.pending_delivery_outboxes == ("outbox:pending",)

@@ -291,3 +291,42 @@ def test_pubmed_cursor_must_remain_on_utc_day_boundaries() -> None:
 
     with pytest.raises(WorkflowJobError, match="invalid_pubmed_harvest_window"):
         PlanCatchupJobs()(snapshot, now=NOW + timedelta(days=1))
+
+
+def test_pending_delivery_outbox_is_scheduled_even_when_harvest_blocks_new_digest() -> None:
+    schedule = binding("statistics", last=NOW - timedelta(hours=24))
+    snapshot = SchedulerSnapshot(
+        harvest_bindings=(schedule,),
+        delivery_schedules=(delivery(NOW - timedelta(days=1)),),
+        known_jobs=(),
+        input_gaps=(),
+        pending_delivery_outboxes=("outbox:status",),
+    )
+
+    plan = PlanCatchupJobs()(snapshot, now=NOW)
+
+    assert [job.job_kind for job in plan.jobs] == [
+        "dispatch_digest",
+        "harvest_window",
+    ]
+    dispatch = PlanCatchupJobs.decode(plan.jobs[0].input_json)
+    assert dispatch == {"outbox_id": "outbox:status"}
+    assert plan.jobs[0].business_key == "dispatch:outbox:status"
+    assert plan.digest_deferred is True
+
+
+def test_multiple_pending_outboxes_have_stable_business_identity_order() -> None:
+    snapshot = SchedulerSnapshot(
+        harvest_bindings=(),
+        delivery_schedules=(),
+        known_jobs=(),
+        input_gaps=(),
+        pending_delivery_outboxes=("outbox:b", "outbox:a"),
+    )
+
+    plan = PlanCatchupJobs()(snapshot, now=NOW)
+
+    assert [job.business_key for job in plan.jobs] == [
+        "dispatch:outbox:a",
+        "dispatch:outbox:b",
+    ]

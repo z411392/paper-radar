@@ -294,3 +294,39 @@ def test_pubmed_job_without_pubmed_runtime_is_awaiting_not_arxiv_fallback() -> N
     assert result.state == "awaiting_external"
     assert store.completed[0].error_code == "pubmed_runtime_not_connected"
     arxiv.assert_not_called()
+
+
+def test_dispatch_digest_without_revision_notice_runtime_is_awaiting_external() -> None:
+    store = Store(lease("dispatch_digest", '{"outbox_id":"outbox:test"}'))
+    command = ProcessWorkflowJob(
+        store=store,
+        builder=Mock(),
+        harvest=None,
+        clock=Clock(),
+        live_source_enabled=False,
+    )
+
+    result = command("worker:test", lease_seconds=60)
+
+    assert result.state == "awaiting_external"
+    assert store.completed[0].error_code == "revision_notice_runtime_not_connected"
+
+
+def test_dispatch_digest_uses_formal_revision_notice_port() -> None:
+    store = Store(lease("dispatch_digest", '{"outbox_id":"outbox:test"}'))
+    notice = Mock(return_value=Mock(state="succeeded", error_code=None))
+    command = ProcessWorkflowJob(
+        store=store,
+        builder=Mock(),
+        harvest=None,
+        clock=Clock(),
+        live_source_enabled=False,
+        revision_notice=notice,
+    )
+
+    result = command("worker:test", lease_seconds=60)
+
+    notice.assert_called_once()
+    assert notice.call_args.args == ("outbox:test",)
+    assert result.state == "succeeded"
+    assert store.completed[0].state == "succeeded"
