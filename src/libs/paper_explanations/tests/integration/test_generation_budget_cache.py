@@ -245,3 +245,34 @@ def test_cached_object_is_bound_to_full_generation_identity(tmp_path: Path) -> N
             cached.output_object_id,
             other_identity,
         )
+
+
+def test_tracked_execution_exposes_local_run_and_generation_identity(tmp_path: Path) -> None:
+    _, _, _, ledger = setup(tmp_path)
+    model = Mock(return_value=result())
+    command = RunBudgetedGeneration(model, ledger, Clock(), policy())
+
+    execution = command.execute(request())
+
+    identity = GenerationExecutionRules.identity(request(), policy())
+    assert execution.run_id.startswith("run:")
+    assert execution.generation_fingerprint == identity.generation_fingerprint
+    assert execution.result == result()
+    assert execution.cached is False
+
+
+def test_tracked_cache_replay_returns_same_local_run_identity(tmp_path: Path) -> None:
+    _, objects, connect, ledger = setup(tmp_path)
+    model = Mock(return_value=result())
+    first = RunBudgetedGeneration(model, ledger, Clock(), policy()).execute(request())
+    second = RunBudgetedGeneration(
+        model,
+        SqliteGenerationLedgerAdapter(connect, objects),
+        Clock(AT + timedelta(minutes=1)),
+        policy(),
+    ).execute(request())
+
+    assert second.cached is True
+    assert second.run_id == first.run_id
+    assert second.generation_fingerprint == first.generation_fingerprint
+    assert model.call_count == 1
