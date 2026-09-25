@@ -130,6 +130,28 @@ class SqliteCurrentSummaryStoreAdapter:
             row["pointer_version"],
         )
 
+    def read(
+        self,
+        work_id: str,
+        language: str,
+        explanation_profile: str,
+    ) -> CurrentSummaryPointer | None:
+        work_id = self._id(work_id, "work", "invalid_work_id")
+        if (
+            not isinstance(language, str)
+            or not language
+            or not isinstance(explanation_profile, str)
+            or not explanation_profile
+        ):
+            raise ExplanationVerificationError("invalid_current_input")
+        with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT * FROM current_summaries "
+                "WHERE work_id=? AND language=? AND explanation_profile=?",
+                (work_id, language, explanation_profile),
+            ).fetchone()
+            return None if row is None else self._pointer(row)
+
     def publish(
         self,
         summary_id: str,
