@@ -4,6 +4,9 @@ from pathlib import Path
 
 import pytest
 
+import hashlib
+
+from libs.discovery.dtos.crossref_harvest import CrossrefPendingItem
 from libs.kernel.adapters.driven.bundled_workspace_migrations import (
     load_workspace_migrations,
 )
@@ -16,14 +19,39 @@ from libs.kernel.adapters.driven.sqlite_workspace_bootstrap_adapter import (
 from libs.scholarly_catalog.adapters.driven.sqlite_crossref_integrity_event_source_adapter import (
     SqliteCrossrefIntegrityEventSourceAdapter,
 )
+from libs.scholarly_catalog.adapters.driven.sqlite_crossref_integrity_store_adapter import (
+    SqliteCrossrefIntegrityStoreAdapter,
+)
+from libs.scholarly_catalog.adapters.driven.sqlite_crossref_integrity_work_binding_store_adapter import (
+    SqliteCrossrefIntegrityWorkBindingStoreAdapter,
+)
+from libs.scholarly_catalog.adapters.driven.sqlite_crossref_provider_revision_store_adapter import (
+    SqliteCrossrefProviderRevisionStoreAdapter,
+)
+from libs.scholarly_catalog.adapters.driven.sqlite_crossref_relation_store_adapter import (
+    SqliteCrossrefRelationStoreAdapter,
+)
+from libs.scholarly_catalog.adapters.driven.sqlite_paper_identity_store_adapter import (
+    SqlitePaperIdentityStoreAdapter,
+)
 from libs.scholarly_catalog.adapters.driven.sqlite_research_event_store_adapter import (
     SqliteResearchEventStoreAdapter,
+)
+from libs.scholarly_catalog.application.commands.bind_crossref_integrity_works import (
+    BindCrossrefIntegrityWorks,
+)
+from libs.scholarly_catalog.application.commands.project_crossref_pending_item import (
+    ProjectCrossrefPendingItem,
 )
 from libs.scholarly_catalog.application.commands.promote_crossref_integrity_events import (
     PromoteCrossrefIntegrityEvents,
 )
 from libs.scholarly_catalog.application.commands.record_paper_revision import (
     RecordPaperRevision,
+)
+from libs.scholarly_catalog.application.queries.read_paper_identity import ReadPaperIdentity
+from libs.scholarly_catalog.domain.services.normalize_paper_identifier import (
+    NormalizePaperIdentifier,
 )
 from libs.scholarly_catalog.dtos.crossref_integrity_assertion import (
     CrossrefIntegrityAssertionRef,
@@ -324,6 +352,7 @@ def test_corrupt_target_binding_fails_closed(tmp_path: Path) -> None:
     connection = factory.connect()
     try:
         connection.execute("PRAGMA foreign_keys=OFF")
+        connection.execute("DROP TRIGGER crossref_integrity_binding_immutable")
         connection.execute(
             "UPDATE crossref_integrity_work_bindings "
             "SET canonical_doi='10.1000/wrong' "
@@ -339,3 +368,80 @@ def test_corrupt_target_binding_fails_closed(tmp_path: Path) -> None:
         match="crossref_integrity_event_binding_corrupt",
     ):
         _command(factory.connect)((assertion,))
+
+
+def test_projector_binds_then_promotes_correction_end_to_end(
+    tmp_path: Path,
+) -> None:
+    factory = _setup(tmp_path)
+    _seed_identity(factory.connect)
+    normalize = NormalizePaperIdentifier()
+    integrity_bindings = BindCrossrefIntegrityWorks(
+        ReadPaperIdentity(
+            normalize,
+            SqlitePaperIdentityStoreAdapter(factory.connect),
+        ),
+        SqliteCrossrefIntegrityWorkBindingStoreAdapter(factory.connect),
+    )
+    integrity_events = PromoteCrossrefIntegrityEvents(
+        SqliteCrossrefIntegrityEventSourceAdapter(factory.connect),
+        RecordPaperRevision(
+            SqliteResearchEventStoreAdapter(factory.connect)
+        ),
+    )
+    project = ProjectCrossrefPendingItem(
+        normalize,
+        SqliteCrossrefProviderRevisionStoreAdapter(factory.connect),
+        SqliteCrossrefRelationStoreAdapter(factory.connect),
+        integrity=SqliteCrossrefIntegrityStoreAdapter(factory.connect),
+        integrity_bindings=integrity_bindings,
+        integrity_events=integrity_events,
+    )
+    payload = {
+        "DOI": NOTICE_DOI,
+        "update-to": [
+            {
+                "DOI": TARGET_DOI,
+                "type": "correction",
+                "source": "publisher",
+                "updated": {
+                    "date-time": "2026-09-24T12:34:56+00:00",
+                },
+            }
+        ],
+    }
+    canonical = json.dumps(
+        payload,
+        sort_keys=True,
+        ensure_ascii=True,
+        separators=(",", ":"),
+    )
+    pending = CrossrefPendingItem(
+        "crossref-page:promotion",
+        0,
+        NOTICE_DOI,
+        canonical,
+        hashlib.sha256(canonical.encode("ascii")).hexdigest(),
+    )
+
+    first = project(pending, observed_at=NOW)
+    second = project(pending, observed_at=NOW)
+
+    assert first.provider_revision_id == second.provider_revision_id
+    connection = factory.connect()
+    try:
+        bindings = connection.execute(
+            "SELECT role,canonical_doi,canonical_work_id "
+            "FROM crossref_integrity_work_bindings"
+        ).fetchall()
+        events = connection.execute(
+            "SELECT event_kind,work_id,occurred_at FROM research_events"
+        ).fetchall()
+    finally:
+        connection.close()
+    assert [tuple(row) for row in bindings] == [
+        ("target", TARGET_DOI, WORK),
+    ]
+    assert [tuple(row) for row in events] == [
+        ("correction", WORK, "2026-09-24T12:34:56+00:00"),
+    ]
