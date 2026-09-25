@@ -75,23 +75,60 @@ class DigestSelectionRules:
     def _candidate(cls, value: object) -> DigestCandidate:
         if not isinstance(value, DigestCandidate):
             raise DigestSelectionError("invalid_digest_candidate")
-        for name, item in (
-            ("event", value.event_id),
-            ("work", value.work_id),
-            ("summary", value.summary_id),
-            ("revision", value.revision_id),
-            ("current_summary", value.current_summary_id),
-            ("current_revision", value.current_revision_id),
-        ):
+        for name, item in (("event", value.event_id), ("work", value.work_id)):
             cls._text(item, f"invalid_{name}_id", maximum=256)
-        if value.qa_state not in {"pending", "passed", "rejected"}:
-            raise DigestSelectionError("invalid_qa_state")
+        if value.item_kind not in {"paper", "status_notice"}:
+            raise DigestSelectionError("invalid_item_kind")
+        cls._text(value.event_kind, "invalid_event_kind", maximum=64)
+
+        if value.item_kind == "paper":
+            for name, item in (
+                ("summary", value.summary_id),
+                ("revision", value.revision_id),
+                ("current_summary", value.current_summary_id),
+                ("current_revision", value.current_revision_id),
+            ):
+                cls._text(item, f"invalid_{name}_id", maximum=256)
+            if value.qa_state not in {"pending", "passed", "rejected"}:
+                raise DigestSelectionError("invalid_qa_state")
+            if value.event_kind not in {
+                "new_work",
+                "late_discovery",
+                "revision_available",
+                "newly_accessible",
+            }:
+                raise DigestSelectionError("invalid_event_kind")
+        else:
+            if any(
+                item is not None
+                for item in (
+                    value.summary_id,
+                    value.revision_id,
+                    value.current_summary_id,
+                    value.current_revision_id,
+                )
+            ):
+                raise DigestSelectionError("invalid_status_notice_reference")
+            if value.qa_state != "not_applicable":
+                raise DigestSelectionError("invalid_qa_state")
+            if value.event_kind not in {"correction", "retraction"}:
+                raise DigestSelectionError("invalid_event_kind")
+
         event_at = cls._instant(value.event_at, "invalid_event_at")
         if type(value.priority) is not int or not -1_000_000 <= value.priority <= 1_000_000:
             raise DigestSelectionError("invalid_priority")
-        if not isinstance(value.domains, tuple) or not value.domains or len(value.domains) > 64:
+        if not isinstance(value.domains, tuple) or len(value.domains) > 64:
             raise DigestSelectionError("invalid_domains")
-        domains = tuple(sorted({cls._text(item, "invalid_domain", maximum=128) for item in value.domains}))
+        if value.item_kind == "paper" and not value.domains:
+            raise DigestSelectionError("invalid_domains")
+        domains = tuple(
+            sorted(
+                {
+                    cls._text(item, "invalid_domain", maximum=128)
+                    for item in value.domains
+                }
+            )
+        )
         cls._text(value.title, "invalid_title", maximum=2048)
         source_url = cls._url(value.source_url, "invalid_source_url")
         if (
@@ -106,11 +143,14 @@ class DigestSelectionRules:
 
     @staticmethod
     def _eligible(candidate: DigestCandidate, cutoff: datetime) -> bool:
+        if candidate.event_at > cutoff:
+            return False
+        if candidate.item_kind == "status_notice":
+            return True
         return (
             candidate.qa_state == "passed"
             and candidate.summary_id == candidate.current_summary_id
             and candidate.revision_id == candidate.current_revision_id
-            and candidate.event_at <= cutoff
         )
 
     @staticmethod
@@ -124,16 +164,18 @@ class DigestSelectionRules:
             and existing.title == candidate.title
             and existing.source_url == candidate.source_url
             and existing.plain_language == candidate.plain_language
+            and existing.item_kind == candidate.item_kind
+            and existing.event_kind == candidate.event_kind
         )
         if not same:
-            raise DigestSelectionError("conflicting_work_candidates")
+            raise DigestSelectionError("conflicting_digest_candidates")
         domains = tuple(sorted(set(existing.domains) | set(candidate.domains)))
         return replace(existing, domains=domains)
 
     @classmethod
     def select(cls, request: PrepareDigestRequest) -> tuple[SelectedDigestItem, ...]:
         cutoff, _ = cls.validate_request(request)
-        by_work: dict[str, SelectedDigestItem] = {}
+        selected: dict[tuple[str, str], SelectedDigestItem] = {}
         for raw in request.candidates:
             candidate = cls._candidate(raw)
             if not cls._eligible(candidate, cutoff):
@@ -149,11 +191,18 @@ class DigestSelectionRules:
                 title=candidate.title,
                 source_url=candidate.source_url,
                 plain_language=candidate.plain_language,
+                item_kind=candidate.item_kind,
+                event_kind=candidate.event_kind,
             )
-            existing = by_work.get(candidate.work_id)
-            by_work[candidate.work_id] = item if existing is None else cls._merge(existing, candidate)
+            identity = (
+                ("paper", candidate.work_id)
+                if candidate.item_kind == "paper"
+                else ("status_notice", candidate.event_id)
+            )
+            existing = selected.get(identity)
+            selected[identity] = item if existing is None else cls._merge(existing, candidate)
 
-        items = list(by_work.values())
+        items = list(selected.values())
         items.sort(key=lambda item: item.event_id)
         items.sort(key=lambda item: item.event_at, reverse=True)
         items.sort(key=lambda item: item.priority, reverse=True)

@@ -5,38 +5,72 @@ from libs.delivery.dtos.digest_preview import SelectedDigestItem
 
 class DigestPreviewTemplate:
     @staticmethod
+    def _heading(items: tuple[SelectedDigestItem, ...]) -> tuple[str, str]:
+        status_count = sum(item.item_kind == "status_notice" for item in items)
+        if status_count == len(items):
+            return (
+                f"Paper Radar｜研究狀態更新 {status_count} 則",
+                "Paper Radar 研究狀態更新",
+            )
+        if status_count:
+            return (
+                f"Paper Radar｜每日更新 {len(items)} 則",
+                "Paper Radar 每日更新",
+            )
+        return (
+            f"Paper Radar｜每日精選 {len(items)} 篇",
+            "Paper Radar 每日精選",
+        )
+
+    @staticmethod
     def render(
         items: tuple[SelectedDigestItem, ...],
         *,
         settings_url: str | None,
         coverage_notes: tuple[str, ...] = (),
     ) -> tuple[str, str, str]:
-        subject = f"Paper Radar｜每日精選 {len(items)} 篇"
-
-        text_lines = ["Paper Radar 每日精選", ""]
+        subject, heading = DigestPreviewTemplate._heading(items)
+        text_lines = [heading, ""]
         html_items: list[str] = []
+        labels = {"correction": "更正通知", "retraction": "撤稿通知"}
+
         for index, item in enumerate(items, start=1):
-            domains = "、".join(item.domains)
-            text_lines.extend(
-                [
-                    f"{index}. {item.title}",
-                    f"領域：{domains}",
-                    *[f"- {line}" for line in item.plain_language],
-                ]
-            )
+            if item.item_kind == "status_notice":
+                label = labels[item.event_kind]
+                text_lines.extend(
+                    [
+                        f"{index}. [{label}] {item.title}",
+                        *[f"- {line}" for line in item.plain_language],
+                    ]
+                )
+                title = html.escape(item.title)
+                label_html = html.escape(label)
+                meta_html = f"<p>類型：{label_html}</p>"
+            else:
+                domains = "、".join(item.domains)
+                text_lines.extend(
+                    [
+                        f"{index}. {item.title}",
+                        f"領域：{domains}",
+                        *[f"- {line}" for line in item.plain_language],
+                    ]
+                )
+                title = html.escape(item.title)
+                meta_html = f"<p>領域：{html.escape(domains)}</p>"
+
             if item.source_url is not None:
                 text_lines.append(f"來源：{item.source_url}")
             text_lines.append("")
 
-            title = html.escape(item.title)
-            domain_html = html.escape(domains)
-            paragraphs = "".join(f"<p>{html.escape(line)}</p>" for line in item.plain_language)
+            paragraphs = "".join(
+                f"<p>{html.escape(line)}</p>" for line in item.plain_language
+            )
             source = ""
             if item.source_url is not None:
                 href = html.escape(item.source_url, quote=True)
                 source = f'<p><a href="{href}">查看來源</a></p>'
             html_items.append(
-                f"<li><h2>{title}</h2><p>領域：{domain_html}</p>{paragraphs}{source}</li>"
+                f"<li><h2>{title}</h2>{meta_html}{paragraphs}{source}</li>"
             )
 
         if coverage_notes:
@@ -56,7 +90,7 @@ class DigestPreviewTemplate:
 
         text_body = "\n".join(text_lines).rstrip() + "\n"
         html_body = (
-            "<!doctype html><html><body><h1>Paper Radar 每日精選</h1>"
+            f"<!doctype html><html><body><h1>{html.escape(heading)}</h1>"
             f"<ol>{''.join(html_items)}</ol>{coverage_html}{settings_html}</body></html>"
         )
         return subject, text_body, html_body

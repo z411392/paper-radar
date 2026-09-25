@@ -111,6 +111,15 @@ class SqliteDeliveryStoreAdapter:
         cls._fingerprint(preview.content_fingerprint, "invalid_preview_fingerprint")
         if any(not isinstance(item, SelectedDigestItem) for item in preview.items):
             raise DeliveryStoreError("invalid_digest_items")
+        for item in preview.items:
+            if item.item_kind == "paper":
+                if not isinstance(item.summary_id, str) or not isinstance(item.revision_id, str):
+                    raise DeliveryStoreError("invalid_digest_items")
+            elif item.item_kind == "status_notice":
+                if item.summary_id is not None or item.revision_id is not None:
+                    raise DeliveryStoreError("invalid_digest_items")
+            else:
+                raise DeliveryStoreError("invalid_digest_items")
         if len({item.event_id for item in preview.items}) != len(preview.items):
             raise DeliveryStoreError("duplicate_digest_event")
         return preview, cutoff_at, created_at
@@ -153,7 +162,7 @@ class SqliteDeliveryStoreAdapter:
                 item.work_id,
                 item.summary_id,
                 item.revision_id,
-                "paper",
+                item.item_kind,
             )
             for position, item in enumerate(preview.items, start=1)
         )
@@ -282,7 +291,7 @@ class SqliteDeliveryStoreAdapter:
                 connection.execute(
                     "INSERT INTO digest_items("
                     "digest_id,position,event_id,work_id,summary_id,revision_id,item_kind"
-                    ") VALUES(?,?,?,?,?,?,'paper')",
+                    ") VALUES(?,?,?,?,?,?,?)",
                     (
                         digest_id,
                         position,
@@ -290,6 +299,7 @@ class SqliteDeliveryStoreAdapter:
                         item.work_id,
                         item.summary_id,
                         item.revision_id,
+                        item.item_kind,
                     ),
                 )
             connection.execute(

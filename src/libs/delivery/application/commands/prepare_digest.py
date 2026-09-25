@@ -38,6 +38,8 @@ class PrepareDigest:
                     "work_id": item.work_id,
                     "summary_id": item.summary_id,
                     "revision_id": item.revision_id,
+                    "item_kind": item.item_kind,
+                    "event_kind": item.event_kind,
                     "domains": item.domains,
                 }
                 for item in items

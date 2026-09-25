@@ -9,7 +9,7 @@ class DigestArtifactError(ValueError):
 
 
 class DigestArtifactRules:
-    VERSION = 1
+    VERSION = 2
 
     @staticmethod
     def serialize(preview: DigestPreview) -> bytes:
@@ -36,6 +36,8 @@ class DigestArtifactRules:
                     "work_id": item.work_id,
                     "summary_id": item.summary_id,
                     "revision_id": item.revision_id,
+                    "item_kind": item.item_kind,
+                    "event_kind": item.event_kind,
                 }
                 for position, item in enumerate(preview.items, start=1)
             ],
@@ -70,7 +72,11 @@ class DigestArtifactRules:
             "html_body",
             "items",
         }
-        if not isinstance(data, dict) or set(data) != required or data["schema_version"] != 1:
+        if (
+            not isinstance(data, dict)
+            or set(data) != required
+            or data["schema_version"] not in {1, 2}
+        ):
             raise DigestArtifactError("invalid_digest_artifact")
         for key in (
             "subscription_id",
@@ -84,6 +90,21 @@ class DigestArtifactRules:
                 raise DigestArtifactError("invalid_digest_artifact")
         if not isinstance(data["items"], list) or not data["items"]:
             raise DigestArtifactError("invalid_digest_artifact")
+        if data["schema_version"] == 2:
+            required_item = {
+                "position",
+                "event_id",
+                "work_id",
+                "summary_id",
+                "revision_id",
+                "item_kind",
+                "event_kind",
+            }
+            for item in data["items"]:
+                if not isinstance(item, dict) or set(item) != required_item:
+                    raise DigestArtifactError("invalid_digest_artifact")
+                if item["item_kind"] not in {"paper", "status_notice"}:
+                    raise DigestArtifactError("invalid_digest_artifact")
         return StoredDigestPayload(
             subscription_id=data["subscription_id"],
             period_key=data["period_key"],

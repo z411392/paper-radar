@@ -6,10 +6,10 @@ from datetime import datetime
 class DigestCandidate:
     event_id: str
     work_id: str
-    summary_id: str
-    revision_id: str
-    current_summary_id: str
-    current_revision_id: str
+    summary_id: str | None
+    revision_id: str | None
+    current_summary_id: str | None
+    current_revision_id: str | None
     qa_state: str
     event_at: datetime
     priority: int
@@ -17,20 +17,24 @@ class DigestCandidate:
     title: str
     source_url: str | None
     plain_language: tuple[str, ...]
+    item_kind: str = "paper"
+    event_kind: str = "new_work"
 
 
 @dataclass(frozen=True)
 class SelectedDigestItem:
     event_id: str
     work_id: str
-    summary_id: str
-    revision_id: str
+    summary_id: str | None
+    revision_id: str | None
     event_at: datetime
     priority: int
     domains: tuple[str, ...]
     title: str
     source_url: str | None
     plain_language: tuple[str, ...]
+    item_kind: str = "paper"
+    event_kind: str = "new_work"
 
 
 @dataclass(frozen=True)
