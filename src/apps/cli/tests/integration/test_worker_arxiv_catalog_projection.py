@@ -383,3 +383,87 @@ def test_worker_arxiv_projection_runs_tracked_explanation_to_current_summary(
         ]
     finally:
         connection.close()
+
+
+def test_worker_arxiv_explanation_replay_reuses_generation_and_owner_state(
+    tmp_path: Path,
+) -> None:
+    root = _workspace(tmp_path)
+    transport = FakeArxivTransport()
+    generator = FakeStructuredGenerator()
+    injector = Injector(
+        [
+            WorkerCliModule(
+                str(root),
+                allow_live_source=True,
+                rate_limit_state=str(tmp_path / "arxiv-rate-explanation-replay.json"),
+                transport=transport,
+                structured_generation=generator,
+                generation_budget_policy=GenerationBudgetPolicy(
+                    "2026-09",
+                    "USD",
+                    1_000_000,
+                    10_000,
+                    "c" * 64,
+                ),
+            )
+        ],
+        auto_bind=False,
+    )
+    worker = injector.get(RunWorkerCyclePort)
+
+    first = worker(
+        "worker:arxiv-explanation-replay",
+        max_new_jobs=10,
+        max_jobs=10,
+        lease_seconds=300,
+    )
+    assert any(job.job_kind == "explain_snapshot" for job in first.jobs)
+    assert len(generator.calls) == 4
+
+    connection = SqliteConnectionFactory(root).connect()
+    try:
+        before = tuple(
+            connection.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
+            for table in (
+                "model_runs",
+                "relevance_assessments",
+                "summary_revisions",
+                "current_summaries",
+            )
+        )
+        pointer_before = connection.execute(
+            "SELECT summary_id,pointer_version FROM current_summaries"
+        ).fetchone()
+        assert before == (4, 1, 1, 1)
+        assert pointer_before["pointer_version"] == 1
+    finally:
+        connection.close()
+
+    worker(
+        "worker:arxiv-explanation-replay",
+        max_new_jobs=10,
+        max_jobs=10,
+        lease_seconds=300,
+    )
+
+    assert len(generator.calls) == 4
+
+    connection = SqliteConnectionFactory(root).connect()
+    try:
+        after = tuple(
+            connection.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
+            for table in (
+                "model_runs",
+                "relevance_assessments",
+                "summary_revisions",
+                "current_summaries",
+            )
+        )
+        pointer_after = connection.execute(
+            "SELECT summary_id,pointer_version FROM current_summaries"
+        ).fetchone()
+        assert after == before
+        assert tuple(pointer_after) == tuple(pointer_before)
+    finally:
+        connection.close()
