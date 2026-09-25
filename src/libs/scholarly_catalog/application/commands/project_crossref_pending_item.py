@@ -1,6 +1,9 @@
 from datetime import datetime
 
 from libs.discovery.dtos.crossref_harvest import CrossrefPendingItem
+from libs.scholarly_catalog.domain.services.crossref_integrity_rules import (
+    CrossrefIntegrityRules,
+)
 from libs.scholarly_catalog.domain.services.crossref_provider_revision_rules import (
     CrossrefProviderRevisionRules,
 )
@@ -9,6 +12,10 @@ from libs.scholarly_catalog.domain.services.crossref_relation_rules import (
 )
 from libs.scholarly_catalog.domain.services.normalize_paper_identifier import (
     NormalizePaperIdentifier,
+)
+from libs.scholarly_catalog.dtos.crossref_integrity_assertion import (
+    CrossrefIntegrityAssertionDraft,
+    CrossrefIntegrityGapDraft,
 )
 from libs.scholarly_catalog.dtos.crossref_provider_revision import (
     CrossrefProviderProjection,
@@ -21,6 +28,9 @@ from libs.scholarly_catalog.exceptions.crossref_provider_projection_error import
     CrossrefProviderProjectionError,
 )
 from libs.scholarly_catalog.exceptions.paper_identity_error import PaperIdentityError
+from libs.scholarly_catalog.ports.crossref_integrity_store_port import (
+    CrossrefIntegrityStorePort,
+)
 from libs.scholarly_catalog.ports.crossref_provider_revision_store_port import (
     CrossrefProviderRevisionStorePort,
 )
@@ -35,10 +45,12 @@ class ProjectCrossrefPendingItem:
         normalize: NormalizePaperIdentifier,
         store: CrossrefProviderRevisionStorePort,
         relations: CrossrefRelationStorePort,
+        integrity: CrossrefIntegrityStorePort | None = None,
     ) -> None:
         self._normalize = normalize
         self._store = store
         self._relations = relations
+        self._integrity = integrity
 
     def __call__(
         self,
@@ -114,4 +126,56 @@ class ProjectCrossrefPendingItem:
             for gap in gaps
         )
         self._relations.register(tuple(assertions), gap_drafts)
+
+        if self._integrity is not None:
+            integrity_entries, integrity_gaps = CrossrefIntegrityRules.extract(item)
+            integrity_assertions = []
+            for entry in integrity_entries:
+                target_raw = entry.target_doi_raw
+                if target_raw is None:
+                    target_canonical = None
+                    target_state = "missing"
+                else:
+                    try:
+                        target = self._normalize("doi", target_raw)
+                    except PaperIdentityError:
+                        target_canonical = None
+                        target_state = "invalid"
+                    else:
+                        target_canonical = target.normalized_value
+                        target_state = "normalized"
+                integrity_assertions.append(
+                    CrossrefIntegrityAssertionDraft(
+                        result.canonical_doi,
+                        result.provider_revision_id,
+                        entry.ordinal,
+                        target_raw,
+                        target_canonical,
+                        target_state,
+                        entry.type_raw,
+                        entry.source_raw,
+                        entry.label_raw,
+                        entry.record_id_raw,
+                        entry.event_class,
+                        entry.updated_value,
+                        entry.updated_precision,
+                        entry.updated_raw_json,
+                        entry.raw_json,
+                        observed_at,
+                    )
+                )
+            integrity_gap_drafts = tuple(
+                CrossrefIntegrityGapDraft(
+                    result.provider_revision_id,
+                    gap.path,
+                    gap.error_code,
+                    gap.raw_json,
+                    observed_at,
+                )
+                for gap in integrity_gaps
+            )
+            self._integrity.register(
+                tuple(integrity_assertions),
+                integrity_gap_drafts,
+            )
         return result
