@@ -6,7 +6,7 @@ from libs.delivery.dtos.scheduled_digest import ScheduledDigestRequest
 @dataclass(frozen=True)
 class RevisionNoticeRequest:
     outbox_id: str
-    rebuild_request: ScheduledDigestRequest | None
+    rebuild_request: ScheduledDigestRequest | None = None
 
 
 @dataclass(frozen=True)

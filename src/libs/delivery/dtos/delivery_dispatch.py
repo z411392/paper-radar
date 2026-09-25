@@ -76,3 +76,4 @@ class DeliveryPreflightSnapshot:
     outbox_state: str
     digest_state: str
     items: tuple[DeliveryPreflightItem, ...]
+    period_key: str | None = None

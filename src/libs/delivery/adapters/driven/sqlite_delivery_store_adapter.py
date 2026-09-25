@@ -593,8 +593,8 @@ class SqliteDeliveryStoreAdapter:
         with self._transaction() as connection:
             row = connection.execute(
                 "SELECT o.id AS outbox_id,o.digest_id,o.state AS outbox_state,"
-                "d.subscription_id,d.state AS digest_state,s.reader_id,s.channel,"
-                "s.enabled FROM delivery_outbox o "
+                "d.subscription_id,d.period_key,d.state AS digest_state,"
+                "s.reader_id,s.channel,s.enabled FROM delivery_outbox o "
                 "JOIN digests d ON d.id=o.digest_id "
                 "JOIN delivery_subscriptions s ON s.id=d.subscription_id "
                 "WHERE o.id=?",
@@ -659,6 +659,7 @@ class SqliteDeliveryStoreAdapter:
                 row["outbox_state"],
                 row["digest_state"],
                 tuple(result),
+                row["period_key"],
             )
 
     def cancel_pending(self, outbox_id: str) -> str:
