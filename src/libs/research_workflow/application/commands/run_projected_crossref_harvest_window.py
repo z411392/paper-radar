@@ -15,6 +15,13 @@ from libs.scholarly_catalog.ports.project_crossref_pending_item_port import (
 )
 
 
+_QUARANTINE_CODES = frozenset({
+    "crossref_provider_doi_invalid",
+    "crossref_provider_item_mismatch",
+    "invalid_crossref_provider_revision",
+})
+
+
 class RunProjectedCrossrefHarvestWindow:
     """Compose discovery traversal with catalog projection without crossing owners."""
 
@@ -56,6 +63,14 @@ class RunProjectedCrossrefHarvestWindow:
                     observed_at=self._clock(),
                 )
             except CrossrefProviderProjectionError as exc:
+                if exc.code in _QUARANTINE_CODES:
+                    self._journal.mark_projection_quarantined(
+                        page_id,
+                        item.ordinal,
+                        error_code=exc.code,
+                        quarantined_at=self._clock(),
+                    )
+                    continue
                 self._journal.note_page_error(page_id, exc.code)
                 return CrossrefHarvestStepResult(
                     "projection_failed",
