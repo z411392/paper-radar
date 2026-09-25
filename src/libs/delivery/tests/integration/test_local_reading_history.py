@@ -233,7 +233,7 @@ def _setup(tmp_path: Path) -> Path:
     )
 
     connection.execute(
-        "INSERT INTO research_events VALUES(?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO research_events VALUES(?,?,?,?,?,?,?,?)",
         (
             "event:paper",
             "work:old",
@@ -243,7 +243,6 @@ def _setup(tmp_path: Path) -> Path:
             "{}",
             NOW,
             NOW,
-            None,
         ),
     )
     connection.execute(
@@ -257,7 +256,6 @@ def _setup(tmp_path: Path) -> Path:
             "{}",
             NOW,
             NOW,
-            None,
         ),
     )
     connection.execute(
@@ -439,9 +437,6 @@ def test_alias_id_returns_canonical_family_versions_access_and_history(
     assert [(item.event_kind, item.ledger_state) for item in result.notifications] == [
         ("correction", "unknown"),
         ("new_work", "accepted"),
-    ] or [(item.event_kind, item.ledger_state) for item in result.notifications] == [
-        ("new_work", "accepted"),
-        ("correction", "unknown"),
     ]
     paper = next(item for item in result.notifications if item.event_id == "event:paper")
     assert paper.item_kind == "paper"
