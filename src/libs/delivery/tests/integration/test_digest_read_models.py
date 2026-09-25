@@ -236,7 +236,7 @@ def _setup(tmp_path: Path) -> Path:
         (
             "event:correction",
             WORK,
-            REVISION,
+            None,
             "correction",
             "event-key:correction",
             "{}",
@@ -347,9 +347,13 @@ def test_owner_read_models_return_only_digest_safe_current_data(tmp_path: Path) 
     connect = _connect(path)
     events = SqliteDigestResearchEventAdapter(connect)(START, CUTOFF)
 
-    assert [event.event_id for event in events] == ["event:new"]
+    assert [event.event_id for event in events] == ["event:new", "event:correction"]
     assert events[0].observed_at == datetime(2026, 9, 23, 23, 30, tzinfo=timezone.utc)
     assert events[0].title == "Paper title"
+    assert events[1].revision_id is None
+    assert events[1].event_kind == "correction"
+    assert events[1].title == "Paper title"
+    assert events[1].source_url == "https://arxiv.org/abs/1234.5678"
 
     reader = FakeReadObject(_artifact())
     summary = SqliteDigestCurrentSummaryAdapter(connect, reader)(WORK, REVISION)

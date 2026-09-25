@@ -95,3 +95,48 @@ def test_coverage_notes_are_escaped_rendered_and_part_of_preview_identity() -> N
     assert "&lt;retry&gt;" in with_gap.html_body
     assert "<retry>" not in with_gap.html_body
     assert first.content_fingerprint != with_gap.content_fingerprint
+
+
+def status_item(event_id: str, event_kind: str, priority: int = 100) -> DigestCandidate:
+    return DigestCandidate(
+        event_id=event_id,
+        work_id="work:status",
+        summary_id=None,
+        revision_id=None,
+        current_summary_id=None,
+        current_revision_id=None,
+        qa_state="not_applicable",
+        event_at=NOW,
+        priority=priority,
+        domains=(),
+        title="Paper with status change",
+        source_url="https://example.org/status",
+        plain_language=("來源目前回報這篇研究有狀態更新。",),
+        item_kind="status_notice",
+        event_kind=event_kind,
+    )
+
+
+def test_status_notices_keep_distinct_event_identity_for_same_work() -> None:
+    correction = status_item("event:correction", "correction")
+    retraction = status_item("event:retraction", "retraction")
+
+    preview = PrepareDigest()(request((retraction, correction)))
+
+    assert [item.event_id for item in preview.items] == [
+        "event:correction",
+        "event:retraction",
+    ]
+    assert all(item.item_kind == "status_notice" for item in preview.items)
+    assert {item.event_kind for item in preview.items} == {"correction", "retraction"}
+    assert all(item.summary_id is None for item in preview.items)
+    assert "研究狀態更新" in preview.subject
+
+
+def test_status_notice_is_prioritized_over_regular_paper() -> None:
+    paper = item("event:paper", "work:paper", 20)
+    status = status_item("event:status", "correction", priority=100)
+
+    preview = PrepareDigest()(request((paper, status)))
+
+    assert [entry.item_kind for entry in preview.items] == ["status_notice", "paper"]

@@ -71,6 +71,16 @@ class FakeContext:
         return frozenset(event_id for event_id in event_ids if event_id in self.notified)
 
 
+class FakePriorRecipient:
+    def __init__(self, allowed=True):
+        self.allowed = allowed
+        self.calls = []
+
+    def contains(self, reader_id, channel, work_id):
+        self.calls.append((reader_id, channel, work_id))
+        return self.allowed
+
+
 class FakeQueue:
     def __init__(self):
         self.calls = []
@@ -101,13 +111,32 @@ def event(
     event_id="event:1",
     work_id="work:1",
     revision_id="revision:1",
+    event_kind="new_work",
     observed_at=NOW - timedelta(hours=1),
 ):
     return DigestResearchEvent(
         event_id,
         work_id,
         revision_id,
-        "new_work",
+        event_kind,
+        observed_at,
+        "Paper",
+        "https://example.org/paper",
+    )
+
+
+def status_event(
+    event_id,
+    event_kind,
+    *,
+    work_id="work:1",
+    observed_at=NOW - timedelta(minutes=30),
+):
+    return DigestResearchEvent(
+        event_id,
+        work_id,
+        None,
+        event_kind,
         observed_at,
         "Paper",
         "https://example.org/paper",
@@ -124,7 +153,15 @@ def request(*, gaps=()):
     )
 
 
-def command(*, events, summaries, relevance, context=None, queue=None):
+def command(
+    *,
+    events,
+    summaries,
+    relevance,
+    context=None,
+    queue=None,
+    prior_recipient=None,
+):
     queue = queue or FakeQueue()
     usecase = PrepareScheduledDigest(
         events=FakeEvents(tuple(events)),
@@ -132,6 +169,7 @@ def command(*, events, summaries, relevance, context=None, queue=None):
         relevance=FakeRelevance(relevance),
         context=context or FakeContext(),
         queue=queue,
+        prior_recipient=prior_recipient,
     )
     return usecase, queue
 
@@ -304,3 +342,75 @@ def test_relevance_from_another_snapshot_does_not_qualify_current_summary():
 
     assert result.state == "empty"
     assert queue.calls == []
+
+
+def test_status_notice_skips_summary_and_relevance_but_requires_prior_recipient():
+    prior = FakePriorRecipient(True)
+    usecase, queue = command(
+        events=(status_event("event:correction", "correction"),),
+        summaries={},
+        relevance={},
+        prior_recipient=prior,
+    )
+
+    result = usecase(request(), created_at=NOW)
+
+    assert result.state == "queued"
+    assert result.item_count == 1
+    preview = queue.calls[0][0]
+    assert preview.items[0].item_kind == "status_notice"
+    assert preview.items[0].event_kind == "correction"
+    assert preview.items[0].summary_id is None
+    assert preview.items[0].revision_id is None
+    assert "來源目前回報這篇研究有更正紀錄" in preview.text_body
+    assert prior.calls == [("reader:local", "email", "work:1")]
+
+
+def test_same_work_correction_and_retraction_are_distinct_status_items():
+    prior = FakePriorRecipient(True)
+    usecase, queue = command(
+        events=(
+            status_event("event:correction", "correction", observed_at=NOW - timedelta(hours=2)),
+            status_event("event:retraction", "retraction", observed_at=NOW - timedelta(hours=1)),
+        ),
+        summaries={},
+        relevance={},
+        prior_recipient=prior,
+    )
+
+    result = usecase(request(), created_at=NOW)
+
+    assert result.state == "queued"
+    assert [item.event_id for item in queue.calls[0][0].items] == [
+        "event:retraction",
+        "event:correction",
+    ]
+    assert "不代表 Paper Radar 自行判定研究結論錯誤" in queue.calls[0][0].text_body
+
+
+def test_status_notice_is_not_queued_for_non_prior_recipient():
+    usecase, queue = command(
+        events=(status_event("event:correction", "correction"),),
+        summaries={},
+        relevance={},
+        prior_recipient=FakePriorRecipient(False),
+    )
+
+    result = usecase(request(), created_at=NOW)
+
+    assert result.state == "empty"
+    assert queue.calls == []
+
+
+def test_status_notice_without_prior_recipient_port_fails_closed():
+    usecase, _ = command(
+        events=(status_event("event:correction", "correction"),),
+        summaries={},
+        relevance={},
+    )
+
+    import pytest
+    from libs.delivery.exceptions.scheduled_digest_error import ScheduledDigestError
+
+    with pytest.raises(ScheduledDigestError, match="prior_recipient_check_unavailable"):
+        usecase(request(), created_at=NOW)
