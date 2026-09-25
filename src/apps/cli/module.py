@@ -155,6 +155,9 @@ from libs.research_workflow.ports.build_crossref_window_plan_port import (
     BuildCrossrefWindowPlanPort,
 )
 from libs.research_workflow.ports.build_harvest_query_input_port import BuildHarvestQueryInputPort
+from libs.research_workflow.ports.process_evidence_explanation_port import (
+    ProcessEvidenceExplanationPort,
+)
 from libs.research_workflow.ports.process_workflow_job_port import ProcessWorkflowJobPort
 from libs.research_workflow.ports.project_source_catalog_unit_port import (
     ProjectSourceCatalogUnitPort,
@@ -465,6 +468,7 @@ class WorkerCliModule(Module):
         smtp_password: str | None = None,
         mail_sender: MailSenderPort | None = None,
         recipient_resolver: RecipientResolverPort | None = None,
+        explanation: ProcessEvidenceExplanationPort | None = None,
     ) -> None:
         self._workspace = workspace
         self._allow_live_source = allow_live_source
@@ -486,6 +490,7 @@ class WorkerCliModule(Module):
         self._smtp_password = smtp_password
         self._mail_sender = mail_sender
         self._recipient_resolver = recipient_resolver
+        self._explanation = explanation
 
     def configure(self, binder: Binder) -> None:
         root = Path(self._workspace)
@@ -819,6 +824,7 @@ class WorkerCliModule(Module):
             crossref=crossref,
             revision_notice=revision_notice,
             source_catalog=source_catalog,
+            explanation=self._explanation,
         )
         cycle = RunWorkerCycle(scheduler, processor, clock)
 
@@ -835,6 +841,11 @@ class WorkerCliModule(Module):
             binder.bind(
                 ProjectSourceCatalogUnitPort,
                 to=InstanceProvider(source_catalog),
+            )
+        if self._explanation is not None:
+            binder.bind(
+                ProcessEvidenceExplanationPort,
+                to=InstanceProvider(self._explanation),
             )
         if crossref is not None and crossref_plan is not None:
             binder.bind(
