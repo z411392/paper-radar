@@ -265,7 +265,7 @@ class SqlitePubmedObservationReplayAdapter:
             )
         )
         fingerprint = hashlib.sha256(
-            (query + " GET " + url).encode("utf-8")
+            (query + "\0GET\0" + url).encode("utf-8")
         ).hexdigest()
         return SourcePageRequest(
             "pubmed",
