@@ -114,8 +114,8 @@ def test_delivery_configure_show_and_replay_on_clean_runtime(
     )
     assert len(snapshot.delivery_schedules) == 1
     schedule = snapshot.delivery_schedules[0]
-    assert schedule.reader_id == "reader:local"
-    assert schedule.channel == "email"
+    assert schedule.subscription_id == left["subscription_id"]
+    assert schedule.timezone == "Asia/Taipei"
     assert schedule.local_time == "08:00"
 
 
