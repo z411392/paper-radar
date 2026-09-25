@@ -1,6 +1,8 @@
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
+import pytest
+
 from libs.paper_explanations.dtos.explanation_persistence import PersistedExplanation
 from libs.research_workflow.application.commands.process_evidence_explanation import (
     ProcessEvidenceExplanation,
@@ -38,9 +40,15 @@ class Claims:
 
 
 class Relevance:
-    def __init__(self, decision="direct", state="succeeded"):
+    def __init__(
+        self,
+        decision="direct",
+        state="succeeded",
+        error_code="model_unavailable",
+    ):
         self.decision = decision
         self.state = state
+        self.error_code = error_code
 
     def __call__(self, profile_id, domain_id, claims):
         del claims
@@ -56,14 +64,18 @@ class Relevance:
                 self.decision if self.state == "succeeded" else None,
                 "reason" if self.state == "succeeded" else None,
                 ("anchor:test",) if self.decision in {"direct", "adjacent"} else (),
-                None if self.state == "succeeded" else "model_unavailable",
+                None if self.state == "succeeded" else self.error_code,
             )
         )
 
 
 class PersistRelevance:
+    def __init__(self):
+        self.calls = []
+
     def __call__(self, assessment, *, assessed_at):
         assert assessed_at == NOW
+        self.calls.append(assessment)
         return PersistedRelevanceAssessment(
             "relevance:test",
             assessment.execution_state,
@@ -148,20 +160,29 @@ def request():
     )
 
 
-def pipeline(*, decision="direct", qa_state="passed", support_state="succeeded"):
+def pipeline(
+    *,
+    decision="direct",
+    relevance_state="succeeded",
+    relevance_error="model_unavailable",
+    qa_state="passed",
+    support_state="succeeded",
+):
     reading = Reading()
+    persist_relevance = PersistRelevance()
     persist = PersistExplanation(qa_state)
     current = PublishCurrent()
     command = ProcessEvidenceExplanation(
         Claims(),
-        Relevance(decision),
-        PersistRelevance(),
+        Relevance(decision, relevance_state, relevance_error),
+        persist_relevance,
         reading,
         Verification(qa_state, support_state),
         persist,
         current,
         Clock(),
     )
+    command._test_persist_relevance = persist_relevance
     return command, reading, persist, current
 
 
@@ -268,3 +289,48 @@ def test_successful_support_run_is_bound_to_summary_persistence():
     assert saved.support_generation_run_id == "run:" + "f" * 64
     assert saved.support_generation_fingerprint == "0" * 64
     assert current.calls == 1
+
+
+def test_stale_relevance_is_persisted_before_scheduled_input_cancel() -> None:
+    command, reading, persist, current = pipeline(
+        relevance_state="stale",
+        relevance_error="profile_changed",
+    )
+
+    result = command(request())
+
+    persisted = command._test_persist_relevance.calls
+    assert len(persisted) == 1
+    assert persisted[0].execution_state == "stale"
+    assert result.state == "cancelled"
+    assert result.error_code == "scheduled_input_stale"
+    assert result.relevance_assessment_id == "relevance:test"
+    assert reading.calls == persist.calls == current.calls == 0
+
+
+@pytest.mark.parametrize(
+    "error_code",
+    [
+        "model_disabled",
+        "budget_blocked",
+        "authentication_failed",
+    ],
+)
+def test_model_commissioning_relevance_failure_awaits_external_after_persist(
+    error_code: str,
+) -> None:
+    command, reading, persist, current = pipeline(
+        relevance_state="failed",
+        relevance_error=error_code,
+    )
+
+    result = command(request())
+
+    persisted = command._test_persist_relevance.calls
+    assert len(persisted) == 1
+    assert persisted[0].execution_state == "failed"
+    assert persisted[0].error_code == error_code
+    assert result.state == "awaiting_external"
+    assert result.error_code == error_code
+    assert result.relevance_assessment_id == "relevance:test"
+    assert reading.calls == persist.calls == current.calls == 0
