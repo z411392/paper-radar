@@ -33,6 +33,7 @@ def load_workspace_migrations(
             "0017-crossref-provider-revisions.sql",
             "0018-crossref-projection-quarantines.sql",
             "0019-crossref-relation-assertions.sql",
+            "0020-crossref-integrity-assertions.sql",
         )
     elif with_discovery:
         names = (
