@@ -166,3 +166,22 @@ def test_invalid_query_fails_without_touching_projection(
     finally:
         connection.close()
     assert [row[0] for row in rows] == [document.document_id]
+
+
+def test_mixed_query_uses_trigram_when_full_literal_has_three_plus_characters(
+    tmp_path: Path,
+) -> None:
+    root, raw, prepare = _workspace(tmp_path)
+    document = prepare(
+        _document(
+            revision_id=REVISION_2,
+            title="robust 統計 methods",
+            explanation="mixed lexical fixture",
+        )
+    )
+    _rebuild(root, raw)()
+
+    result = _search(root, raw)(SearchLexicalQuery("robust 統計", 20))
+
+    assert result.mode == "trigram_match"
+    assert [hit.document_id for hit in result.hits] == [document.document_id]

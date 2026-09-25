@@ -55,12 +55,13 @@ class SearchQueryRules:
         if size > cls.MAX_QUERY_BYTES:
             raise SearchQueryError("invalid_search_query")
 
-        cjk_count = sum(1 for character in value.text if cls._is_cjk(character))
-        if cjk_count == 0:
+        contains_cjk = any(cls._is_cjk(character) for character in value.text)
+        literal_length = len(value.text.strip())
+        if not contains_cjk:
             mode = "unicode61_match"
             expression = cls._fts_literal(value.text)
             like_pattern = None
-        elif cjk_count >= 3:
+        elif literal_length >= 3:
             mode = "trigram_match"
             expression = cls._fts_literal(value.text)
             like_pattern = None
