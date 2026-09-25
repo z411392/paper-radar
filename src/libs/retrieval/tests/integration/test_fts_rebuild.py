@@ -168,3 +168,31 @@ def test_rebuild_limit_fails_before_replacing_existing_projection(
 
     assert _fts_ids(raw, "search_documents_fts") == (first.document_id,)
     assert _fts_ids(raw, "search_documents_fts_trigram") == (first.document_id,)
+
+
+def test_missing_current_object_registry_row_fails_without_replacing_fts(
+    tmp_path: Path,
+) -> None:
+    root, raw, prepare = _workspace(tmp_path)
+    current = prepare(_document())
+    rebuild = _rebuild(root, raw)
+    rebuild()
+    before_unicode = _fts_ids(raw, "search_documents_fts")
+    before_trigram = _fts_ids(raw, "search_documents_fts_trigram")
+
+    connection = raw.connect()
+    try:
+        connection.execute("PRAGMA foreign_keys=OFF")
+        connection.execute(
+            "DELETE FROM object_registry WHERE object_id=?",
+            (current.text_object_id,),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    with pytest.raises(Exception):
+        rebuild()
+
+    assert _fts_ids(raw, "search_documents_fts") == before_unicode
+    assert _fts_ids(raw, "search_documents_fts_trigram") == before_trigram

@@ -243,7 +243,7 @@ class SqliteSearchDocumentStoreAdapter:
                 "SELECT d.*,o.content_sha256,o.kind,o.media_type,o.byte_size,"
                 "o.state,o.retention_policy "
                 "FROM search_documents d "
-                "JOIN object_registry o ON o.object_id=d.text_object_id "
+                "LEFT JOIN object_registry o ON o.object_id=d.text_object_id "
                 "WHERE d.is_current=1 "
                 "ORDER BY d.sequence_no,d.id"
             ).fetchall()
