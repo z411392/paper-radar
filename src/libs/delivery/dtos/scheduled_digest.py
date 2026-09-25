@@ -16,6 +16,8 @@ class ScheduledDigestRequest:
     period_start: datetime
     cutoff_at: datetime
     coverage_gaps: tuple[DigestCoverageGap, ...] = ()
+    rebuild_reason: str | None = None
+    rebuild_outbox_id: str | None = None
 
 
 @dataclass(frozen=True)

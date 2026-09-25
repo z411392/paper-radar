@@ -67,6 +67,56 @@ class SqliteDigestDeliveryContextAdapter:
             row["epoch"],
         )
 
+    def already_notified_for_rebuild(
+        self,
+        reader_id: str,
+        channel: str,
+        event_ids: tuple[str, ...],
+        outbox_id: str,
+    ) -> frozenset[str]:
+        reader_id = self._text(reader_id, "invalid_digest_reader")
+        outbox_id = self._text(outbox_id, "invalid_outbox_id")
+        if channel not in {"email", "rss"}:
+            raise ScheduledDigestError("invalid_delivery_channel")
+        if not isinstance(event_ids, tuple) or len(event_ids) > 10000:
+            raise ScheduledDigestError("invalid_digest_events")
+        if not event_ids:
+            return frozenset()
+        for event_id in event_ids:
+            self._text(event_id, "invalid_digest_event")
+
+        found: set[str] = set()
+        connection: sqlite3.Connection | None = None
+        try:
+            connection = self._connect()
+            connection.row_factory = sqlite3.Row
+            connection.execute("PRAGMA query_only=ON")
+            connection.execute("BEGIN")
+            for offset in range(0, len(event_ids), 400):
+                chunk = event_ids[offset : offset + 400]
+                placeholders = ",".join("?" for _ in chunk)
+                rows = connection.execute(
+                    "SELECT event_id FROM notification_ledger "
+                    "WHERE reader_id=? AND channel=? "
+                    f"AND event_id IN ({placeholders}) "
+                    "AND NOT (outbox_id=? AND state='cancelled')",
+                    (reader_id, channel, *chunk, outbox_id),
+                ).fetchall()
+                found.update(row["event_id"] for row in rows)
+            connection.commit()
+            return frozenset(found)
+        except ScheduledDigestError:
+            if connection is not None and connection.in_transaction:
+                connection.rollback()
+            raise
+        except sqlite3.Error as exc:
+            if connection is not None and connection.in_transaction:
+                connection.rollback()
+            raise ScheduledDigestError("digest_context_database_error") from exc
+        finally:
+            if connection is not None:
+                connection.close()
+
     def already_notified(
         self,
         reader_id: str,

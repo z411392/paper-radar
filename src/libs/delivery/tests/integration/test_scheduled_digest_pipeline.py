@@ -71,7 +71,23 @@ class FakeContext:
 
     def already_notified(self, reader_id, channel, event_ids):
         self.notified_calls.append((reader_id, channel, event_ids))
-        return frozenset(event_id for event_id in event_ids if event_id in self.notified)
+        return frozenset(
+            event_id for event_id in event_ids if event_id in self.notified
+        )
+
+    def already_notified_for_rebuild(
+        self,
+        reader_id,
+        channel,
+        event_ids,
+        outbox_id,
+    ):
+        self.notified_calls.append(
+            (reader_id, channel, event_ids, outbox_id)
+        )
+        return frozenset(
+            event_id for event_id in event_ids if event_id in self.notified
+        )
 
 
 class FakePriorRecipient:
@@ -414,3 +430,39 @@ def test_status_notice_without_prior_recipient_port_fails_closed():
 
     with pytest.raises(ScheduledDigestError, match="prior_recipient_check_unavailable"):
         usecase(request(), created_at=NOW)
+
+
+def test_rebuild_uses_same_outbox_ledger_scope_and_passes_rebuild_authority():
+    prior = FakePriorRecipient(True)
+    queue = FakeQueue()
+    usecase, _ = command(
+        events=(status_event("event:correction", "correction"),),
+        summaries={},
+        relevance={},
+        prior_recipient=prior,
+        queue=queue,
+        context=FakeContext(),
+    )
+    rebuild = ScheduledDigestRequest(
+        "subscription:daily",
+        "2026-09-24",
+        START,
+        NOW,
+        (),
+        "current_input_stale",
+        "outbox:stale",
+    )
+
+    result = usecase(rebuild, created_at=NOW)
+
+    assert result.state == "queued"
+    context = usecase._context
+    assert context.notified_calls == [
+        (
+            "reader:local",
+            "email",
+            ("event:correction",),
+            "outbox:stale",
+        )
+    ]
+    assert queue.calls[0][0].items[0].event_id == "event:correction"

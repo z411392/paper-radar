@@ -12,3 +12,11 @@ class DigestDeliveryContextPort(Protocol):
         channel: str,
         event_ids: tuple[str, ...],
     ) -> frozenset[str]: ...
+
+    def already_notified_for_rebuild(
+        self,
+        reader_id: str,
+        channel: str,
+        event_ids: tuple[str, ...],
+        outbox_id: str,
+    ) -> frozenset[str]: ...

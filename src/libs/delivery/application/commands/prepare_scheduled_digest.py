@@ -93,6 +93,16 @@ class PrepareScheduledDigest:
         created = self._instant(created_at, "invalid_digest_created_at")
         if period_start >= cutoff:
             raise ScheduledDigestError("invalid_digest_period")
+        if request.rebuild_reason is None:
+            if request.rebuild_outbox_id is not None:
+                raise ScheduledDigestError("invalid_digest_rebuild")
+        elif (
+            request.rebuild_reason != "current_input_stale"
+            or not isinstance(request.rebuild_outbox_id, str)
+            or not request.rebuild_outbox_id.strip()
+            or "\0" in request.rebuild_outbox_id
+        ):
+            raise ScheduledDigestError("invalid_digest_rebuild")
 
         context = self._context.load(request.subscription_id)
         if not context.enabled:
@@ -119,11 +129,21 @@ class PrepareScheduledDigest:
                 key=lambda item: (item.observed_at, item.event_id),
             )
         )
-        notified = self._context.already_notified(
-            context.reader_id,
-            context.channel,
-            tuple(event.event_id for event in events),
-        )
+        event_ids = tuple(event.event_id for event in events)
+        if request.rebuild_reason is None:
+            notified = self._context.already_notified(
+                context.reader_id,
+                context.channel,
+                event_ids,
+            )
+        else:
+            assert request.rebuild_outbox_id is not None
+            notified = self._context.already_notified_for_rebuild(
+                context.reader_id,
+                context.channel,
+                event_ids,
+                request.rebuild_outbox_id,
+            )
 
         candidates = []
         for event in events:
@@ -222,6 +242,7 @@ class PrepareScheduledDigest:
             channel=context.channel,
             workspace_epoch=context.workspace_epoch,
             created_at=created,
+            rebuild_reason=request.rebuild_reason,
         )
         return ScheduledDigestOutcome(
             "queued",
