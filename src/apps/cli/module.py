@@ -124,6 +124,9 @@ from libs.research_workflow.ports.run_worker_cycle_port import RunWorkerCyclePor
 from libs.research_workflow.ports.runtime_version_provider_port import RuntimeVersionProviderPort
 from libs.research_workflow.ports.workflow_clock_port import WorkflowClockPort
 from libs.research_workflow.ports.workflow_job_store_port import WorkflowJobStorePort
+from libs.scholarly_catalog.adapters.driven.sqlite_crossref_integrity_store_adapter import (
+    SqliteCrossrefIntegrityStoreAdapter,
+)
 from libs.scholarly_catalog.adapters.driven.sqlite_crossref_provider_revision_store_adapter import (
     SqliteCrossrefProviderRevisionStoreAdapter,
 )
@@ -363,7 +366,7 @@ class WorkerCliModule(Module):
         connection = SqliteSchemaConnectionFactory(
             root,
             load_workspace_migrations(with_runtime=True),
-            minimum_version=19 if crossref_requested else 10,
+            minimum_version=20 if crossref_requested else 10,
         )
         profile_store = SqliteWatchProfileStoreAdapter(connection.connect)
         builder = BuildHarvestQueryInput(
@@ -498,6 +501,7 @@ class WorkerCliModule(Module):
                     NormalizePaperIdentifier(),
                     SqliteCrossrefProviderRevisionStoreAdapter(connection.connect),
                     SqliteCrossrefRelationStoreAdapter(connection.connect),
+                    SqliteCrossrefIntegrityStoreAdapter(connection.connect),
                 ),
                 clock=clock.now,
             )
