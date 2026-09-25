@@ -45,8 +45,8 @@ def _setup(tmp_path: Path):
     connection = sqlite3.connect(path)
     connection.execute("PRAGMA foreign_keys=ON")
     for name in (
-        "0017-crossref-provider-revisions.sql",
-        "0019-crossref-relation-assertions.sql",
+        "0018-crossref-provider-revisions.sql",
+        "0020-crossref-relation-assertions.sql",
     ):
         connection.executescript(
             (root / "migrations" / name).read_text(encoding="utf-8")

@@ -64,10 +64,10 @@ def _setup(tmp_path: Path):
     for name in (
         "0001-object-registry.sql",
         "0003-scholarly-catalog.sql",
-        "0017-crossref-provider-revisions.sql",
-        "0019-crossref-relation-assertions.sql",
-        "0020-crossref-integrity-assertions.sql",
-        "0021-crossref-integrity-work-bindings.sql",
+        "0018-crossref-provider-revisions.sql",
+        "0020-crossref-relation-assertions.sql",
+        "0021-crossref-integrity-assertions.sql",
+        "0022-crossref-integrity-work-bindings.sql",
     ):
         connection.executescript(
             (root / "migrations" / name).read_text(encoding="utf-8")
