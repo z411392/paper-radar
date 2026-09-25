@@ -1,4 +1,5 @@
 import hashlib
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -65,8 +66,6 @@ def _body() -> bytes:
 
 
 def _canonical_pmids(values: list[str]) -> str:
-    import json
-
     return json.dumps(
         values,
         ensure_ascii=False,
