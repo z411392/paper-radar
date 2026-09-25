@@ -78,6 +78,9 @@ def test_launchd_template_uses_same_cli_and_does_not_enable_live_source_by_defau
     assert "run-worker" in text
     assert "--with-runtime" not in text
     assert "--allow-live-source" not in text
+    assert "--allow-live-mail" not in text
+    assert "--recipient-map-file" not in text
+    assert "--smtp-password-file" not in text
     assert "--ncbi-email" not in text
     assert "--ncbi-api-key" not in text
     assert "--ncbi-rate-limit-state" not in text

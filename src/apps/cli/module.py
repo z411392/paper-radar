@@ -17,11 +17,11 @@ from libs.delivery.adapters.driven.sqlite_prior_recipient_history_adapter import
 from libs.delivery.application.commands.dispatch_digest import DispatchDigest
 from libs.delivery.application.commands.prepare_scheduled_digest import PrepareScheduledDigest
 from libs.delivery.application.commands.queue_digest import QueueDigest
+from libs.delivery.exceptions.mail_configuration_error import MailConfigurationError
 from libs.delivery.ports.dispatch_digest_port import DispatchDigestPort
 from libs.delivery.ports.mail_sender_port import MailSenderPort
 from libs.delivery.ports.prepare_scheduled_digest_port import PrepareScheduledDigestPort
 from libs.delivery.ports.recipient_resolver_port import RecipientResolverPort
-from libs.delivery.exceptions.mail_configuration_error import MailConfigurationError
 from libs.discovery.adapters.driven.arxiv_atom_parser_adapter import PARSER_VERSION, ArxivAtomParserAdapter
 from libs.discovery.adapters.driven.arxiv_query_compiler_adapter import ArxivQueryCompilerAdapter
 from libs.discovery.adapters.driven.arxiv_source_adapter import ArxivSourceAdapter

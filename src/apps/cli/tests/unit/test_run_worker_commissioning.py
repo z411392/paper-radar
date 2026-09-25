@@ -1,4 +1,6 @@
-from apps.cli.adapters.driving.run_worker import _parser
+import pytest
+
+from apps.cli.adapters.driving.run_worker import _parser, run_worker_cli
 
 
 def parse(*args: str):
@@ -82,3 +84,55 @@ def test_mail_commissioning_is_independent_from_live_sources() -> None:
     assert value.smtp_port == 465
     assert value.ncbi_email is None
     assert value.crossref_email is None
+
+
+def test_partial_mail_options_require_explicit_mail_switch(capsys) -> None:
+    with pytest.raises(SystemExit):
+        run_worker_cli(
+            [
+                "run-worker",
+                "--workspace",
+                "/tmp/workspace",
+                "--smtp-host",
+                "smtp.example.com",
+            ]
+        )
+    assert "mail options require --allow-live-mail" in capsys.readouterr().err
+
+
+def test_live_mail_requires_complete_configuration(capsys) -> None:
+    with pytest.raises(SystemExit):
+        run_worker_cli(
+            [
+                "run-worker",
+                "--workspace",
+                "/tmp/workspace",
+                "--allow-live-mail",
+            ]
+        )
+    assert "--allow-live-mail requires" in capsys.readouterr().err
+
+
+def test_live_mail_rejects_relative_local_file_paths(capsys) -> None:
+    with pytest.raises(SystemExit):
+        run_worker_cli(
+            [
+                "run-worker",
+                "--workspace",
+                "/tmp/workspace",
+                "--allow-live-mail",
+                "--recipient-map-file",
+                "recipients.json",
+                "--smtp-host",
+                "smtp.example.com",
+                "--smtp-port",
+                "465",
+                "--smtp-sender",
+                "paper-radar@example.com",
+                "--smtp-username",
+                "mailer@example.com",
+                "--smtp-password-file",
+                "password",
+            ]
+        )
+    assert "--recipient-map-file must be an absolute path" in capsys.readouterr().err
