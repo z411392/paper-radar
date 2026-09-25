@@ -236,14 +236,20 @@ class PrepareScheduledDigest:
         if not preview.queueable:
             return ScheduledDigestOutcome("empty", 0, None, None)
 
-        queued = self._queue(
-            preview,
-            reader_id=context.reader_id,
-            channel=context.channel,
-            workspace_epoch=context.workspace_epoch,
-            created_at=created,
-            rebuild_reason=request.rebuild_reason,
-        )
+        queue_args = {
+            "reader_id": context.reader_id,
+            "channel": context.channel,
+            "workspace_epoch": context.workspace_epoch,
+            "created_at": created,
+        }
+        if request.rebuild_reason is None:
+            queued = self._queue(preview, **queue_args)
+        else:
+            queued = self._queue(
+                preview,
+                **queue_args,
+                rebuild_reason=request.rebuild_reason,
+            )
         return ScheduledDigestOutcome(
             "queued",
             len(preview.items),
