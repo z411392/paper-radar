@@ -4,12 +4,13 @@ from datetime import datetime
 
 @dataclass(frozen=True)
 class CrossrefIntegrityEntry:
+    wire_direction: str
     ordinal: int
-    target_doi_raw: str | None
+    counterparty_doi_raw: str | None
     type_raw: str | None
     source_raw: str | None
     label_raw: str | None
-    record_id_raw: str | None
+    record_id_raw_json: str | None
     event_class: str
     updated_value: str | None
     updated_precision: str | None
@@ -26,16 +27,19 @@ class CrossrefIntegrityGap:
 
 @dataclass(frozen=True)
 class CrossrefIntegrityAssertionDraft:
-    source_notice_doi: str
+    record_canonical_doi: str
     provider_revision_id: str
+    wire_direction: str
     update_ordinal: int
-    target_doi_raw: str | None
+    counterparty_doi_raw: str | None
+    counterparty_canonical_doi: str | None
+    counterparty_normalization_state: str
+    notice_canonical_doi: str | None
     target_canonical_doi: str | None
-    target_normalization_state: str
     type_raw: str | None
     source_raw: str | None
     label_raw: str | None
-    record_id_raw: str | None
+    record_id_raw_json: str | None
     event_class: str
     updated_value: str | None
     updated_precision: str | None

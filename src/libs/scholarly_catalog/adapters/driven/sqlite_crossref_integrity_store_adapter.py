@@ -1,6 +1,5 @@
 import hashlib
 import json
-import re
 import sqlite3
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -68,6 +67,23 @@ class SqliteCrossrefIntegrityStoreAdapter:
             ) from None
         return value
 
+    @staticmethod
+    def _canonical_json(value: str, code: str) -> str:
+        try:
+            parsed = json.loads(value)
+            canonical = json.dumps(
+                parsed,
+                sort_keys=True,
+                ensure_ascii=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            )
+        except (json.JSONDecodeError, TypeError, ValueError, RecursionError):
+            raise CrossrefProviderProjectionError(code) from None
+        if canonical != value:
+            raise CrossrefProviderProjectionError(code)
+        return canonical
+
     @contextmanager
     def _transaction(self) -> Iterator[sqlite3.Connection]:
         connection: sqlite3.Connection | None = None
@@ -106,28 +122,10 @@ class SqliteCrossrefIntegrityStoreAdapter:
     @classmethod
     def _assertion_id(cls, draft: CrossrefIntegrityAssertionDraft) -> str:
         return "crossref-integrity:" + cls._hash(
-            draft.source_notice_doi,
+            draft.record_canonical_doi,
+            draft.wire_direction,
             draft.raw_json,
-            draft.target_normalization_state,
-            draft.target_canonical_doi,
         )
-
-    @staticmethod
-    def _canonical_json(value: str, code: str) -> str:
-        try:
-            parsed = json.loads(value)
-            canonical = json.dumps(
-                parsed,
-                sort_keys=True,
-                ensure_ascii=True,
-                separators=(",", ":"),
-                allow_nan=False,
-            )
-        except (json.JSONDecodeError, TypeError, ValueError, RecursionError):
-            raise CrossrefProviderProjectionError(code) from None
-        if canonical != value:
-            raise CrossrefProviderProjectionError(code)
-        return canonical
 
     def register(
         self,
@@ -144,13 +142,23 @@ class SqliteCrossrefIntegrityStoreAdapter:
                     raise CrossrefProviderProjectionError(
                         "invalid_crossref_integrity_assertion"
                     )
-                source_notice = self._text(draft.source_notice_doi, 512)
-                target_raw = self._text(
-                    draft.target_doi_raw,
+                record_doi = self._text(draft.record_canonical_doi, 512)
+                counterparty_raw = self._text(
+                    draft.counterparty_doi_raw,
                     2048,
                     nullable=True,
                 )
-                target_canonical = self._text(
+                counterparty_canonical = self._text(
+                    draft.counterparty_canonical_doi,
+                    512,
+                    nullable=True,
+                )
+                notice_doi = self._text(
+                    draft.notice_canonical_doi,
+                    512,
+                    nullable=True,
+                )
+                target_doi = self._text(
                     draft.target_canonical_doi,
                     512,
                     nullable=True,
@@ -158,11 +166,18 @@ class SqliteCrossrefIntegrityStoreAdapter:
                 type_raw = self._text(draft.type_raw, 256, nullable=True)
                 source_raw = self._text(draft.source_raw, 256, nullable=True)
                 label_raw = self._text(draft.label_raw, 1024, nullable=True)
-                record_id = self._text(draft.record_id_raw, 512, nullable=True)
                 updated_value = self._text(
                     draft.updated_value,
                     128,
                     nullable=True,
+                )
+                record_id = (
+                    None
+                    if draft.record_id_raw_json is None
+                    else self._canonical_json(
+                        draft.record_id_raw_json,
+                        "invalid_crossref_integrity_assertion",
+                    )
                 )
                 updated_raw = (
                     None
@@ -177,9 +192,10 @@ class SqliteCrossrefIntegrityStoreAdapter:
                     "invalid_crossref_integrity_assertion",
                 )
                 if (
-                    type(draft.update_ordinal) is not int
+                    draft.wire_direction not in {"update_to", "updated_by"}
+                    or type(draft.update_ordinal) is not int
                     or draft.update_ordinal < 0
-                    or draft.target_normalization_state
+                    or draft.counterparty_normalization_state
                     not in {"normalized", "invalid", "missing"}
                     or draft.event_class
                     not in {
@@ -195,24 +211,36 @@ class SqliteCrossrefIntegrityStoreAdapter:
                     raise CrossrefProviderProjectionError(
                         "invalid_crossref_integrity_assertion"
                     )
-                if (
-                    draft.target_normalization_state == "normalized"
-                    and (target_raw is None or target_canonical is None)
+                state = draft.counterparty_normalization_state
+                if state == "normalized" and (
+                    counterparty_raw is None or counterparty_canonical is None
                 ):
                     raise CrossrefProviderProjectionError(
                         "invalid_crossref_integrity_assertion"
                     )
-                if (
-                    draft.target_normalization_state == "invalid"
-                    and (target_raw is None or target_canonical is not None)
+                if state == "invalid" and (
+                    counterparty_raw is None or counterparty_canonical is not None
                 ):
                     raise CrossrefProviderProjectionError(
                         "invalid_crossref_integrity_assertion"
                     )
-                if (
-                    draft.target_normalization_state == "missing"
-                    and (target_raw is not None or target_canonical is not None)
+                if state == "missing" and (
+                    counterparty_raw is not None or counterparty_canonical is not None
                 ):
+                    raise CrossrefProviderProjectionError(
+                        "invalid_crossref_integrity_assertion"
+                    )
+                if draft.wire_direction == "update_to":
+                    valid_direction = (
+                        notice_doi == record_doi
+                        and target_doi == counterparty_canonical
+                    )
+                else:
+                    valid_direction = (
+                        target_doi == record_doi
+                        and notice_doi == counterparty_canonical
+                    )
+                if not valid_direction:
                     raise CrossrefProviderProjectionError(
                         "invalid_crossref_integrity_assertion"
                     )
@@ -222,17 +250,20 @@ class SqliteCrossrefIntegrityStoreAdapter:
                     "WHERE id=?",
                     (draft.provider_revision_id,),
                 ).fetchone()
-                if revision is None or revision["canonical_doi"] != source_notice:
+                if revision is None or revision["canonical_doi"] != record_doi:
                     raise CrossrefProviderProjectionError(
                         "crossref_integrity_revision_mismatch"
                     )
                 assertion_id = self._assertion_id(draft)
                 expected = (
                     assertion_id,
-                    source_notice,
-                    target_raw,
-                    target_canonical,
-                    draft.target_normalization_state,
+                    record_doi,
+                    draft.wire_direction,
+                    counterparty_raw,
+                    counterparty_canonical,
+                    state,
+                    notice_doi,
+                    target_doi,
                     type_raw,
                     source_raw,
                     label_raw,
@@ -251,7 +282,7 @@ class SqliteCrossrefIntegrityStoreAdapter:
                 if existing is None:
                     connection.execute(
                         "INSERT INTO crossref_integrity_assertions "
-                        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                         expected,
                     )
                 elif tuple(existing)[:-1] != expected[:-1]:
@@ -262,15 +293,21 @@ class SqliteCrossrefIntegrityStoreAdapter:
                 observation = connection.execute(
                     "SELECT assertion_id FROM "
                     "crossref_integrity_revision_observations "
-                    "WHERE provider_revision_id=? AND update_ordinal=?",
-                    (draft.provider_revision_id, draft.update_ordinal),
+                    "WHERE provider_revision_id=? AND wire_direction=? "
+                    "AND update_ordinal=?",
+                    (
+                        draft.provider_revision_id,
+                        draft.wire_direction,
+                        draft.update_ordinal,
+                    ),
                 ).fetchone()
                 if observation is None:
                     connection.execute(
                         "INSERT INTO crossref_integrity_revision_observations "
-                        "VALUES(?,?,?,?)",
+                        "VALUES(?,?,?,?,?)",
                         (
                             draft.provider_revision_id,
+                            draft.wire_direction,
                             draft.update_ordinal,
                             assertion_id,
                             observed,

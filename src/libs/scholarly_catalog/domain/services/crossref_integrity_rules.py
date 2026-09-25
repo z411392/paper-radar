@@ -67,7 +67,6 @@ class CrossrefIntegrityRules:
         raw = cls._canonical(value)
         if not isinstance(value, dict):
             return None, None, raw, "integrity_updated_invalid"
-
         date_time = value.get("date-time")
         if isinstance(date_time, str):
             try:
@@ -82,7 +81,6 @@ class CrossrefIntegrityRules:
                 )
             except (ValueError, OverflowError):
                 pass
-
         parts = value.get("date-parts")
         if (
             isinstance(parts, list)
@@ -115,26 +113,27 @@ class CrossrefIntegrityRules:
         return None, None, raw, "integrity_updated_invalid"
 
     @classmethod
-    def extract(
+    def _direction(
         cls,
         item: dict[str, object],
-    ) -> tuple[tuple[CrossrefIntegrityEntry, ...], tuple[CrossrefIntegrityGap, ...]]:
-        updates = item.get("update-to")
-        if updates is None:
-            return (), ()
-        if not isinstance(updates, list):
-            return (), (
+        key: str,
+        wire_direction: str,
+    ) -> tuple[list[CrossrefIntegrityEntry], list[CrossrefIntegrityGap]]:
+        raw_updates = item.get(key)
+        if raw_updates is None:
+            return [], []
+        if not isinstance(raw_updates, list):
+            return [], [
                 CrossrefIntegrityGap(
-                    "update-to",
+                    key,
                     "integrity_updates_not_list",
-                    cls._canonical(updates),
-                ),
-            )
-
+                    cls._canonical(raw_updates),
+                )
+            ]
         entries: list[CrossrefIntegrityEntry] = []
         gaps: list[CrossrefIntegrityGap] = []
-        for ordinal, raw in enumerate(updates):
-            path = f"update-to[{ordinal}]"
+        for ordinal, raw in enumerate(raw_updates):
+            path = f"{key}[{ordinal}]"
             if not isinstance(raw, dict):
                 gaps.append(
                     CrossrefIntegrityGap(
@@ -144,37 +143,35 @@ class CrossrefIntegrityRules:
                     )
                 )
                 continue
-
             raw_json = cls._canonical(raw)
-            target = cls._text(raw.get("DOI"), 2048)
+            counterparty = cls._text(raw.get("DOI"), 2048)
             type_raw = cls._text(raw.get("type"), 256)
             source_raw = cls._text(raw.get("source"), 256)
             label_raw = cls._text(raw.get("label"), 1024)
-            record_id_raw = cls._text(raw.get("record-id"), 512)
-
-            if raw.get("DOI") is not None and target is None:
+            record_id_raw_json = (
+                cls._canonical(raw["record-id"]) if "record-id" in raw else None
+            )
+            if raw.get("DOI") is not None and counterparty is None:
                 gaps.append(
                     CrossrefIntegrityGap(
                         path + ".DOI",
-                        "integrity_target_doi_invalid_text",
+                        "integrity_counterparty_doi_invalid_text",
                         cls._canonical(raw.get("DOI")),
                     )
                 )
-            for key, value, parsed in (
+            for field, value, parsed in (
                 ("type", raw.get("type"), type_raw),
                 ("source", raw.get("source"), source_raw),
                 ("label", raw.get("label"), label_raw),
-                ("record-id", raw.get("record-id"), record_id_raw),
             ):
                 if value is not None and parsed is None:
                     gaps.append(
                         CrossrefIntegrityGap(
-                            path + "." + key,
+                            path + "." + field,
                             "integrity_field_invalid",
                             cls._canonical(value),
                         )
                     )
-
             updated, precision, updated_raw, updated_error = cls._updated(
                 raw.get("updated")
             )
@@ -186,15 +183,15 @@ class CrossrefIntegrityRules:
                         updated_raw or "null",
                     )
                 )
-
             entries.append(
                 CrossrefIntegrityEntry(
+                    wire_direction,
                     ordinal,
-                    target,
+                    counterparty,
                     type_raw,
                     source_raw,
                     label_raw,
-                    record_id_raw,
+                    record_id_raw_json,
                     cls._classify(type_raw),
                     updated,
                     precision,
@@ -202,4 +199,20 @@ class CrossrefIntegrityRules:
                     raw_json,
                 )
             )
+        return entries, gaps
+
+    @classmethod
+    def extract(
+        cls,
+        item: dict[str, object],
+    ) -> tuple[tuple[CrossrefIntegrityEntry, ...], tuple[CrossrefIntegrityGap, ...]]:
+        entries: list[CrossrefIntegrityEntry] = []
+        gaps: list[CrossrefIntegrityGap] = []
+        for key, direction in (
+            ("update-to", "update_to"),
+            ("updated-by", "updated_by"),
+        ):
+            part_entries, part_gaps = cls._direction(item, key, direction)
+            entries.extend(part_entries)
+            gaps.extend(part_gaps)
         return tuple(entries), tuple(gaps)
