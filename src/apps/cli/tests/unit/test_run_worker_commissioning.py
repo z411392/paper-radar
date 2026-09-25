@@ -12,6 +12,13 @@ def test_live_master_switch_does_not_implicitly_enable_a_provider() -> None:
     assert value.ncbi_rate_limit_state is None
     assert value.crossref_email is None
     assert value.crossref_rate_limit_dir is None
+    assert value.allow_live_mail is False
+    assert value.recipient_map_file is None
+    assert value.smtp_host is None
+    assert value.smtp_port is None
+    assert value.smtp_sender is None
+    assert value.smtp_username is None
+    assert value.smtp_password_file is None
 
 
 def test_ncbi_commissioning_arguments_are_independent_from_arxiv() -> None:
@@ -51,3 +58,27 @@ def test_crossref_commissioning_arguments_are_independent_from_other_providers()
     assert value.ncbi_email is None
     assert value.crossref_email == "reader@example.com"
     assert value.crossref_rate_limit_dir == "/tmp/crossref-rate"
+
+
+def test_mail_commissioning_is_independent_from_live_sources() -> None:
+    value = parse(
+        "--allow-live-mail",
+        "--recipient-map-file",
+        "/tmp/recipients.json",
+        "--smtp-host",
+        "smtp.example.com",
+        "--smtp-port",
+        "465",
+        "--smtp-sender",
+        "paper-radar@example.com",
+        "--smtp-username",
+        "mailer@example.com",
+        "--smtp-password-file",
+        "/tmp/smtp-password",
+    )
+
+    assert value.allow_live_source is False
+    assert value.allow_live_mail is True
+    assert value.smtp_port == 465
+    assert value.ncbi_email is None
+    assert value.crossref_email is None

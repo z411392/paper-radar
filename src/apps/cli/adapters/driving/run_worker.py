@@ -12,7 +12,11 @@ from uuid import uuid4
 
 from injector import Injector
 
+from apps.cli.exceptions.configuration_file_error import ConfigurationFileError
+from apps.cli.helpers.read_configuration_file import read_configuration_file
+from apps.cli.helpers.read_secret_file import read_secret_file
 from apps.cli.module import WorkerCliModule
+from libs.delivery.exceptions.mail_configuration_error import MailConfigurationError
 from libs.discovery.exceptions.source_fetch_error import SourceFetchError
 from libs.discovery.exceptions.source_query_error import SourceQueryError
 from libs.kernel.exceptions.storage_error import StorageError
@@ -54,6 +58,22 @@ def _parser() -> argparse.ArgumentParser:
         default=300,
     )
     parser.add_argument("--allow-live-source", action="store_true")
+    parser.add_argument("--allow-live-mail", action="store_true")
+    parser.add_argument(
+        "--recipient-map-file",
+        help="Absolute path to local recipient-ref JSON used only when mail is commissioned.",
+    )
+    parser.add_argument("--smtp-host")
+    parser.add_argument(
+        "--smtp-port",
+        type=lambda value: _bounded_integer(value, 65535, "SMTP port"),
+    )
+    parser.add_argument("--smtp-sender")
+    parser.add_argument("--smtp-username")
+    parser.add_argument(
+        "--smtp-password-file",
+        help="Absolute owner-only file containing the SMTP password; never printed.",
+    )
     parser.add_argument(
         "--rate-limit-state",
         help="Absolute path to the shared local arXiv rate-limit state file.",
@@ -189,6 +209,57 @@ def run_worker_cli(argv: list[str]) -> None:
                 "--crossref-rate-limit-dir must be an absolute path without NUL characters"
             )
 
+    mail_values = (
+        arguments.recipient_map_file,
+        arguments.smtp_host,
+        arguments.smtp_port,
+        arguments.smtp_sender,
+        arguments.smtp_username,
+        arguments.smtp_password_file,
+    )
+    if any(value is not None for value in mail_values) and not arguments.allow_live_mail:
+        parser.error("mail options require --allow-live-mail")
+    recipient_map_json = None
+    smtp_password = None
+    if arguments.allow_live_mail:
+        if any(value is None for value in mail_values):
+            parser.error(
+                "--allow-live-mail requires recipient map, SMTP host/port/sender/"
+                "username/password file"
+            )
+        assert arguments.recipient_map_file is not None
+        assert arguments.smtp_password_file is not None
+        for value, label in (
+            (arguments.recipient_map_file, "--recipient-map-file"),
+            (arguments.smtp_password_file, "--smtp-password-file"),
+        ):
+            if "\0" in value or not Path(value).is_absolute():
+                parser.error(f"{label} must be an absolute path without NUL characters")
+        for value, label in (
+            (arguments.smtp_host, "--smtp-host"),
+            (arguments.smtp_sender, "--smtp-sender"),
+            (arguments.smtp_username, "--smtp-username"),
+        ):
+            if (
+                not isinstance(value, str)
+                or not value.strip()
+                or "\0" in value
+                or "\r" in value
+                or "\n" in value
+            ):
+                parser.error(f"{label} must be a non-empty single-line value")
+        try:
+            recipient_map_json = read_configuration_file(
+                arguments.recipient_map_file
+            )
+            smtp_password = read_secret_file(arguments.smtp_password_file)
+        except ConfigurationFileError as exc:
+            _error(str(exc))
+            raise SystemExit(1) from None
+        except OSError:
+            _error("mail_configuration_io_error")
+            raise SystemExit(1) from None
+
     owner_id = "worker:" + uuid4().hex
     try:
         injector = Injector(
@@ -202,6 +273,13 @@ def run_worker_cli(argv: list[str]) -> None:
                     ncbi_rate_limit_state=arguments.ncbi_rate_limit_state,
                     crossref_email=arguments.crossref_email,
                     crossref_rate_limit_dir=arguments.crossref_rate_limit_dir,
+                    allow_live_mail=arguments.allow_live_mail,
+                    recipient_map_json=recipient_map_json,
+                    smtp_host=arguments.smtp_host,
+                    smtp_port=arguments.smtp_port,
+                    smtp_sender=arguments.smtp_sender,
+                    smtp_username=arguments.smtp_username,
+                    smtp_password=smtp_password,
                 )
             ],
             auto_bind=False,
@@ -232,5 +310,8 @@ def run_worker_cli(argv: list[str]) -> None:
         _error(str(exc))
         raise SystemExit(1) from None
     except (SourceQueryError, SourceFetchError) as exc:
+        _error(exc.code)
+        raise SystemExit(1) from None
+    except MailConfigurationError as exc:
         _error(exc.code)
         raise SystemExit(1) from None

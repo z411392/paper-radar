@@ -2,7 +2,11 @@ from pathlib import Path
 
 from injector import Binder, InstanceProvider, Module, singleton
 
+from libs.delivery.adapters.driven.json_recipient_resolver_adapter import (
+    JsonRecipientResolverAdapter,
+)
 from libs.delivery.adapters.driven.kernel_digest_artifact_adapter import KernelDigestArtifactAdapter
+from libs.delivery.adapters.driven.smtp_mail_sender_adapter import SmtpMailSenderAdapter
 from libs.delivery.adapters.driven.sqlite_delivery_store_adapter import SqliteDeliveryStoreAdapter
 from libs.delivery.adapters.driven.sqlite_digest_delivery_context_adapter import (
     SqliteDigestDeliveryContextAdapter,
@@ -10,9 +14,14 @@ from libs.delivery.adapters.driven.sqlite_digest_delivery_context_adapter import
 from libs.delivery.adapters.driven.sqlite_prior_recipient_history_adapter import (
     SqlitePriorRecipientHistoryAdapter,
 )
+from libs.delivery.application.commands.dispatch_digest import DispatchDigest
 from libs.delivery.application.commands.prepare_scheduled_digest import PrepareScheduledDigest
 from libs.delivery.application.commands.queue_digest import QueueDigest
+from libs.delivery.ports.dispatch_digest_port import DispatchDigestPort
+from libs.delivery.ports.mail_sender_port import MailSenderPort
 from libs.delivery.ports.prepare_scheduled_digest_port import PrepareScheduledDigestPort
+from libs.delivery.ports.recipient_resolver_port import RecipientResolverPort
+from libs.delivery.exceptions.mail_configuration_error import MailConfigurationError
 from libs.discovery.adapters.driven.arxiv_atom_parser_adapter import PARSER_VERSION, ArxivAtomParserAdapter
 from libs.discovery.adapters.driven.arxiv_query_compiler_adapter import ArxivQueryCompilerAdapter
 from libs.discovery.adapters.driven.arxiv_source_adapter import ArxivSourceAdapter
@@ -404,6 +413,15 @@ class WorkerCliModule(Module):
         crossref_email: str | None = None,
         crossref_rate_limit_dir: str | None = None,
         crossref_transport: CrossrefHttpTransportPort | None = None,
+        allow_live_mail: bool = False,
+        recipient_map_json: str | None = None,
+        smtp_host: str | None = None,
+        smtp_port: int | None = None,
+        smtp_sender: str | None = None,
+        smtp_username: str | None = None,
+        smtp_password: str | None = None,
+        mail_sender: MailSenderPort | None = None,
+        recipient_resolver: RecipientResolverPort | None = None,
     ) -> None:
         self._workspace = workspace
         self._allow_live_source = allow_live_source
@@ -416,6 +434,15 @@ class WorkerCliModule(Module):
         self._crossref_email = crossref_email
         self._crossref_rate_limit_dir = crossref_rate_limit_dir
         self._crossref_transport = crossref_transport
+        self._allow_live_mail = allow_live_mail
+        self._recipient_map_json = recipient_map_json
+        self._smtp_host = smtp_host
+        self._smtp_port = smtp_port
+        self._smtp_sender = smtp_sender
+        self._smtp_username = smtp_username
+        self._smtp_password = smtp_password
+        self._mail_sender = mail_sender
+        self._recipient_resolver = recipient_resolver
 
     def configure(self, binder: Binder) -> None:
         root = Path(self._workspace)
@@ -424,10 +451,13 @@ class WorkerCliModule(Module):
             and self._crossref_email is not None
             and self._crossref_rate_limit_dir is not None
         )
+        minimum_version = 22 if crossref_requested else 10
+        if self._allow_live_mail:
+            minimum_version = max(minimum_version, 23)
         connection = SqliteSchemaConnectionFactory(
             root,
             load_workspace_migrations(with_runtime=True),
-            minimum_version=22 if crossref_requested else 10,
+            minimum_version=minimum_version,
         )
         profile_store = SqliteWatchProfileStoreAdapter(connection.connect)
         builder = BuildHarvestQueryInput(
@@ -618,11 +648,55 @@ class WorkerCliModule(Module):
             queue=QueueDigest(digest_artifacts, delivery_store),
             prior_recipient=prior_recipient,
         )
+        mail_dispatch = None
+        if self._allow_live_mail:
+            injected = (
+                self._mail_sender is not None
+                or self._recipient_resolver is not None
+            )
+            if injected:
+                if (
+                    self._mail_sender is None
+                    or self._recipient_resolver is None
+                ):
+                    raise MailConfigurationError(
+                        "incomplete_mail_runtime_override"
+                    )
+                sender = self._mail_sender
+                recipients = self._recipient_resolver
+            else:
+                if (
+                    self._recipient_map_json is None
+                    or self._smtp_host is None
+                    or self._smtp_port is None
+                    or self._smtp_sender is None
+                    or self._smtp_username is None
+                    or self._smtp_password is None
+                ):
+                    raise MailConfigurationError(
+                        "incomplete_mail_configuration"
+                    )
+                recipients = JsonRecipientResolverAdapter(
+                    self._recipient_map_json
+                )
+                sender = SmtpMailSenderAdapter(
+                    host=self._smtp_host,
+                    port=self._smtp_port,
+                    sender=self._smtp_sender,
+                    username=self._smtp_username,
+                    password=self._smtp_password,
+                )
+            mail_dispatch = DispatchDigest(
+                store=delivery_store,
+                artifacts=digest_artifacts,
+                recipients=recipients,
+                sender=sender,
+            )
         revision_notice = ProcessRevisionNotice(
             store=delivery_store,
             summaries=current_summaries,
             prior_recipient=prior_recipient,
-            dispatch=None,
+            dispatch=mail_dispatch,
             prepare=scheduled_digest,
             clock=clock.now,
         )
@@ -651,6 +725,8 @@ class WorkerCliModule(Module):
         binder.bind(RunSchedulerTickPort, to=InstanceProvider(scheduler))
         binder.bind(PrepareScheduledDigestPort, to=InstanceProvider(scheduled_digest))
         binder.bind(ProcessRevisionNoticePort, to=InstanceProvider(revision_notice))
+        if mail_dispatch is not None:
+            binder.bind(DispatchDigestPort, to=InstanceProvider(mail_dispatch))
         if pubmed is not None:
             binder.bind(RunPubmedHarvestWindowPort, to=InstanceProvider(pubmed))
         if crossref is not None and crossref_plan is not None:

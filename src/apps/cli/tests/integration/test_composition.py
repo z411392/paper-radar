@@ -47,3 +47,67 @@ def test_worker_composition_exposes_revision_notice_preflight_without_mail_sende
     injector = Injector([WorkerCliModule(str(root))])
 
     assert injector.get(ProcessRevisionNoticePort) is not None
+
+
+def test_worker_mail_override_requires_sender_and_recipient_resolver(
+    tmp_path: Path,
+) -> None:
+    from apps.cli.module import WorkerCliModule
+    from libs.delivery.exceptions.mail_configuration_error import (
+        MailConfigurationError,
+    )
+
+    root = tmp_path / "runtime"
+    SqliteWorkspaceBootstrapAdapter(
+        root,
+        load_workspace_migrations(with_runtime=True),
+    ).initialize()
+
+    with pytest.raises(
+        MailConfigurationError,
+        match="incomplete_mail_runtime_override",
+    ):
+        Injector(
+            [
+                WorkerCliModule(
+                    str(root),
+                    allow_live_mail=True,
+                    mail_sender=object(),
+                )
+            ],
+            auto_bind=False,
+        )
+
+
+def test_worker_mail_override_exposes_dispatch_port_without_network(
+    tmp_path: Path,
+) -> None:
+    from apps.cli.module import WorkerCliModule
+    from libs.delivery.ports.dispatch_digest_port import DispatchDigestPort
+
+    class Sender:
+        def send(self, message):
+            raise AssertionError("composition must not send mail")
+
+    class Recipients:
+        def resolve(self, recipient_ref):
+            return "reader@example.com"
+
+    root = tmp_path / "runtime"
+    SqliteWorkspaceBootstrapAdapter(
+        root,
+        load_workspace_migrations(with_runtime=True),
+    ).initialize()
+    injector = Injector(
+        [
+            WorkerCliModule(
+                str(root),
+                allow_live_mail=True,
+                mail_sender=Sender(),
+                recipient_resolver=Recipients(),
+            )
+        ],
+        auto_bind=False,
+    )
+
+    assert injector.get(DispatchDigestPort) is not None
