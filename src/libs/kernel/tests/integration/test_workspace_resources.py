@@ -51,12 +51,12 @@ def test_sdist_preserves_the_canonical_migration(tmp_path: Path) -> None:
         assert stream.read() == (root / "migrations/0001-object-registry.sql").read_bytes()
 
 
-def test_runtime_bundle_contains_exact_migrations_0001_through_0019() -> None:
+def test_runtime_bundle_contains_exact_migrations_0001_through_0020() -> None:
     from libs.kernel.adapters.driven.bundled_workspace_migrations import load_workspace_migrations
 
     root = Path(__file__).resolve().parents[5]
     selected = load_workspace_migrations(with_runtime=True)
-    assert [migration.version for migration in selected] == list(range(1, 20))
+    assert [migration.version for migration in selected] == list(range(1, 21))
     assert [migration.name for migration in selected] == [
         "0001-object-registry.sql",
         "0002-watch-profiles.sql",
@@ -77,6 +77,7 @@ def test_runtime_bundle_contains_exact_migrations_0001_through_0019() -> None:
         "0017-crossref-provider-revisions.sql",
         "0018-crossref-projection-quarantines.sql",
         "0019-crossref-relation-assertions.sql",
+        "0020-crossref-integrity-assertions.sql",
     ]
     for migration in selected:
         assert migration.sql.encode("utf-8") == (root / "migrations" / migration.name).read_bytes()

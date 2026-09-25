@@ -38,7 +38,7 @@ def test_workspace_info_read_is_exact_and_readonly(tmp_path: Path) -> None:
     assert info.workspace_id == "workspace:test"
     assert info.epoch == 7
     assert info.external_effects_enabled is False
-    assert info.schema_version == 19
+    assert info.schema_version == 20
     connection = sqlite3.connect(path)
     assert connection.total_changes == 0
     connection.close()

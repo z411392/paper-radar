@@ -41,6 +41,7 @@ def test_built_wheel_runs_in_a_clean_noneditable_environment(tmp_path: Path) -> 
         "0017-crossref-provider-revisions.sql",
         "0018-crossref-projection-quarantines.sql",
         "0019-crossref-relation-assertions.sql",
+        "0020-crossref-integrity-assertions.sql",
     ]
     with zipfile.ZipFile(artifacts[0]) as archive:
         names = archive.namelist()
@@ -130,7 +131,7 @@ def test_built_wheel_runs_in_a_clean_noneditable_environment(tmp_path: Path) -> 
         assert initialized.returncode == 0, initialized.stdout + initialized.stderr
         snapshots.append(json.loads(initialized.stdout))
     assert snapshots[0] == snapshots[1]
-    assert snapshots[0]["schema_version"] == 19
+    assert snapshots[0]["schema_version"] == 20
     assert snapshots[0]["external_effects_enabled"] is False
     assert (workspace / "state/app.sqlite3").is_file()
     assert list(cwd.iterdir()) == []
