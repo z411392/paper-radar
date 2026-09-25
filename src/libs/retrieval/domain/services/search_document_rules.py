@@ -5,6 +5,8 @@ import re
 from libs.retrieval.dtos.search_document import (
     PreparedSearchDocument,
     SearchDocumentInput,
+    SearchProjectionDocument,
+    SearchProjectionRow,
 )
 from libs.retrieval.exceptions.search_document_error import SearchDocumentError
 
@@ -106,3 +108,85 @@ class SearchDocumentRules:
         )
         if rebuilt != value:
             raise SearchDocumentError("invalid_search_document")
+
+
+    @classmethod
+    def decode_projection(
+        cls,
+        content: bytes,
+        document: SearchProjectionDocument,
+    ) -> SearchProjectionRow:
+        if (
+            not isinstance(content, bytes)
+            or not 1 <= len(content) <= cls.MAX_CONTENT_BYTES
+            or not isinstance(document, SearchProjectionDocument)
+        ):
+            raise SearchDocumentError("search_document_projection_corrupt")
+
+        def pairs(items):
+            result = {}
+            for key, value in items:
+                if key in result:
+                    raise ValueError("duplicate key")
+                result[key] = value
+            return result
+
+        try:
+            payload = json.loads(
+                content.decode("utf-8"),
+                object_pairs_hook=pairs,
+                parse_constant=lambda _: (_ for _ in ()).throw(
+                    ValueError("nonfinite")
+                ),
+            )
+            if (
+                not isinstance(payload, dict)
+                or set(payload) != {
+                    "format_version",
+                    "work_id",
+                    "revision_id",
+                    "projection_kind",
+                    "title",
+                    "abstract",
+                    "explanation",
+                }
+                or payload["format_version"] != 1
+            ):
+                raise ValueError("shape")
+            rebuilt = cls.prepare(
+                SearchDocumentInput(
+                    payload["work_id"],
+                    payload["revision_id"],
+                    payload["projection_kind"],
+                    payload["title"],
+                    payload["abstract"],
+                    payload["explanation"],
+                )
+            )
+        except (
+            UnicodeDecodeError,
+            json.JSONDecodeError,
+            ValueError,
+            TypeError,
+            KeyError,
+            RecursionError,
+            SearchDocumentError,
+        ) as exc:
+            raise SearchDocumentError("search_document_projection_corrupt") from exc
+
+        if (
+            rebuilt.content_bytes != content
+            or rebuilt.document_id != document.document_id
+            or rebuilt.work_id != document.work_id
+            or rebuilt.revision_id != document.revision_id
+            or rebuilt.projection_kind != document.projection_kind
+            or rebuilt.text_object_id != document.text_object_id
+            or rebuilt.input_fingerprint != document.input_fingerprint
+        ):
+            raise SearchDocumentError("search_document_projection_corrupt")
+        return SearchProjectionRow(
+            document.document_id,
+            rebuilt.title,
+            rebuilt.abstract,
+            rebuilt.explanation,
+        )
