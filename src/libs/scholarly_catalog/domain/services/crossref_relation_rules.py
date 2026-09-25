@@ -118,13 +118,13 @@ class CrossrefRelationRules:
         entries: list[CrossrefRelationEntry] = []
         gaps: list[CrossrefRelationGap] = []
         ordinal = 0
-        for predicate in sorted(relation):
+        for predicate_index, predicate in enumerate(sorted(relation)):
             values = relation[predicate]
             predicate_text = cls._text(predicate, 256)
             if predicate_text is None:
                 gaps.append(
                     CrossrefRelationGap(
-                        "relation",
+                        f"relation[predicate:{predicate_index}]",
                         "relation_predicate_invalid",
                         cls._canonical({predicate: values}),
                     )
