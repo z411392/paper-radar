@@ -1,6 +1,8 @@
 from dataclasses import replace
 from datetime import datetime, timezone
 
+import pytest
+
 from libs.discovery.dtos.arxiv_observation_replay import ArxivObservationReplay
 from libs.discovery.dtos.arxiv_source_record import ArxivSourceRecord
 from libs.scholarly_catalog.application.commands.project_arxiv_observation import (
@@ -9,6 +11,7 @@ from libs.scholarly_catalog.application.commands.project_arxiv_observation impor
 from libs.scholarly_catalog.dtos.paper_identity_resolution import (
     PaperIdentityResolution,
 )
+from libs.scholarly_catalog.exceptions.paper_identity_error import PaperIdentityError
 
 
 NOW = datetime(2026, 9, 25, 12, 0, tzinfo=timezone.utc)
@@ -148,11 +151,6 @@ def test_inconsistent_record_identity_fails_before_resolver_side_effect() -> Non
         _replay(),
         record=replace(_record(), arxiv_id="2501.99999"),
     )
-
-    from libs.scholarly_catalog.exceptions.paper_identity_error import (
-        PaperIdentityError,
-    )
-    import pytest
 
     with pytest.raises(PaperIdentityError, match="invalid_arxiv_projection"):
         project(replay)
