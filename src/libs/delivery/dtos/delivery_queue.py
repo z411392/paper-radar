@@ -12,6 +12,7 @@ class QueueDigestRequest:
     rendered_object_id: str
     workspace_epoch: int
     created_at: datetime
+    rebuild_reason: str | None = None
 
 
 @dataclass(frozen=True)

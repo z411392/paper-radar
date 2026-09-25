@@ -135,7 +135,12 @@ def _preview(event_id: str, *, marker: str) -> DigestPreview:
     )
 
 
-def _request(preview: DigestPreview, object_id: str) -> QueueDigestRequest:
+def _request(
+    preview: DigestPreview,
+    object_id: str,
+    *,
+    rebuild_reason: str | None = None,
+) -> QueueDigestRequest:
     return QueueDigestRequest(
         preview,
         "reader:test",
@@ -143,6 +148,7 @@ def _request(preview: DigestPreview, object_id: str) -> QueueDigestRequest:
         object_id,
         1,
         NOW,
+        rebuild_reason,
     )
 
 
@@ -154,7 +160,11 @@ def test_cancelled_never_dispatched_slot_rebuilds_with_append_only_audit(
     assert store.cancel_pending(first.outbox_id) == "cancelled"
 
     rebuilt = store.queue(
-        _request(_preview("event:correction", marker="second"), second_object)
+        _request(
+            _preview("event:correction", marker="second"),
+            second_object,
+            rebuild_reason="current_input_stale",
+        )
     )
     replay = store.queue(
         _request(_preview("event:correction", marker="second"), second_object)
@@ -198,7 +208,13 @@ def test_rebuild_can_replace_event_without_resurrecting_removed_ledger(
     first = store.queue(_request(_preview("event:correction", marker="first"), first_object))
     store.cancel_pending(first.outbox_id)
 
-    store.queue(_request(_preview("event:retraction", marker="second"), second_object))
+    store.queue(
+        _request(
+            _preview("event:retraction", marker="second"),
+            second_object,
+            rebuild_reason="current_input_stale",
+        )
+    )
 
     connection = schema.connect()
     try:
@@ -240,14 +256,26 @@ def test_cancelled_slot_with_any_delivery_attempt_cannot_rebuild(tmp_path: Path)
         connection.close()
 
     with pytest.raises(DeliveryStoreError, match="digest_rebuild_attempt_exists"):
-        store.queue(_request(_preview("event:correction", marker="second"), second_object))
+        store.queue(
+            _request(
+                _preview("event:correction", marker="second"),
+                second_object,
+                rebuild_reason="current_input_stale",
+            )
+        )
 
 
 def test_rebuild_audit_rows_are_immutable(tmp_path: Path) -> None:
     _, schema, store, first_object, second_object = _setup(tmp_path)
     first = store.queue(_request(_preview("event:correction", marker="first"), first_object))
     store.cancel_pending(first.outbox_id)
-    store.queue(_request(_preview("event:correction", marker="second"), second_object))
+    store.queue(
+        _request(
+            _preview("event:correction", marker="second"),
+            second_object,
+            rebuild_reason="current_input_stale",
+        )
+    )
 
     connection = schema.connect()
     try:
@@ -255,5 +283,31 @@ def test_rebuild_audit_rows_are_immutable(tmp_path: Path) -> None:
             connection.execute(
                 "UPDATE delivery_digest_rebuilds SET reason='forged'"
             )
+    finally:
+        connection.close()
+
+
+def test_cancelled_slot_without_explicit_rebuild_authority_stays_cancelled(
+    tmp_path: Path,
+) -> None:
+    _, schema, store, first_object, second_object = _setup(tmp_path)
+    first = store.queue(
+        _request(_preview("event:correction", marker="first"), first_object)
+    )
+    store.cancel_pending(first.outbox_id)
+
+    with pytest.raises(DeliveryStoreError, match="digest_rebuild_not_authorized"):
+        store.queue(
+            _request(_preview("event:correction", marker="second"), second_object)
+        )
+
+    connection = schema.connect()
+    try:
+        assert connection.execute(
+            "SELECT state FROM delivery_outbox"
+        ).fetchone()[0] == "cancelled"
+        assert connection.execute(
+            "SELECT count(*) FROM delivery_digest_rebuilds"
+        ).fetchone()[0] == 0
     finally:
         connection.close()

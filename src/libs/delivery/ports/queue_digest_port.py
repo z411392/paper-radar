@@ -14,4 +14,5 @@ class QueueDigestPort(Protocol):
         channel: str,
         workspace_epoch: int,
         created_at: datetime,
+        rebuild_reason: str | None = None,
     ) -> QueuedDigest: ...

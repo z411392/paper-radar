@@ -23,6 +23,7 @@ class QueueDigest:
         channel: str,
         workspace_epoch: int,
         created_at: datetime,
+        rebuild_reason: str | None = None,
     ) -> QueuedDigest:
         rendered_object_id = self._artifacts.publish(preview)
         return self._store.queue(
@@ -33,5 +34,6 @@ class QueueDigest:
                 rendered_object_id=rendered_object_id,
                 workspace_epoch=workspace_epoch,
                 created_at=created_at,
+                rebuild_reason=rebuild_reason,
             )
         )

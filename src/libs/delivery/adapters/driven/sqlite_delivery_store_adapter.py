@@ -142,6 +142,14 @@ class SqliteDeliveryStoreAdapter:
                 raise DeliveryStoreError("invalid_digest_items")
         if len({item.event_id for item in preview.items}) != len(preview.items):
             raise DeliveryStoreError("duplicate_digest_event")
+        if request.rebuild_reason is not None:
+            reason = cls._text(
+                request.rebuild_reason,
+                "invalid_digest_rebuild_reason",
+                maximum=128,
+            )
+            if reason != "current_input_stale":
+                raise DeliveryStoreError("invalid_digest_rebuild_reason")
         return preview, cutoff_at, created_at
 
     @classmethod
@@ -193,9 +201,6 @@ class SqliteDeliveryStoreAdapter:
         connection: sqlite3.Connection,
         request: QueueDigestRequest,
         *,
-        digest_id: str,
-        outbox_id: str,
-        idempotency_key: str,
         payload_sha256: str,
         cutoff_at: str,
     ) -> QueuedDigest | None:
@@ -203,19 +208,16 @@ class SqliteDeliveryStoreAdapter:
             "SELECT * FROM digests WHERE subscription_id=? AND period_key=?",
             (request.preview.subscription_id, request.preview.period_key),
         ).fetchone()
-        if digest is None:
+        if digest is None or digest["state"] == "cancelled":
             return None
-        expected_digest = (
-            digest_id,
-            cutoff_at,
-            request.rendered_object_id,
-        )
-        actual_digest = (
-            digest["id"],
+        digest_id = digest["id"]
+        if (
             digest["cutoff_at"],
             digest["rendered_object_id"],
-        )
-        if actual_digest != expected_digest:
+        ) != (
+            cutoff_at,
+            request.rendered_object_id,
+        ):
             raise DeliveryStoreError("digest_period_conflict")
 
         rows = connection.execute(
@@ -227,10 +229,21 @@ class SqliteDeliveryStoreAdapter:
             raise DeliveryStoreError("digest_period_conflict")
 
         outbox = connection.execute(
-            "SELECT id,idempotency_key,payload_sha256 FROM delivery_outbox WHERE digest_id=?",
+            "SELECT id,idempotency_key,payload_sha256 FROM delivery_outbox "
+            "WHERE digest_id=?",
             (digest_id,),
         ).fetchone()
-        if outbox is None or tuple(outbox) != (outbox_id, idempotency_key, payload_sha256):
+        expected_outbox_id = cls._hash("outbox", digest_id)
+        expected_idempotency = cls._hash(
+            "delivery-request",
+            digest_id,
+            payload_sha256,
+        )
+        if outbox is None or tuple(outbox) != (
+            expected_outbox_id,
+            expected_idempotency,
+            payload_sha256,
+        ):
             raise DeliveryStoreError("digest_period_conflict")
 
         ledgers = connection.execute(
@@ -244,10 +257,210 @@ class SqliteDeliveryStoreAdapter:
                 *(item.event_id for item in request.preview.items),
             ),
         ).fetchall()
-        expected_ledger = {(item.event_id, outbox_id) for item in request.preview.items}
-        if {(row["event_id"], row["outbox_id"]) for row in ledgers} != expected_ledger:
+        expected_ledger = {
+            (item.event_id, expected_outbox_id)
+            for item in request.preview.items
+        }
+        if {
+            (row["event_id"], row["outbox_id"])
+            for row in ledgers
+        } != expected_ledger:
             raise DeliveryStoreError("digest_period_conflict")
-        return QueuedDigest(digest_id, outbox_id, idempotency_key, payload_sha256, True)
+        return QueuedDigest(
+            digest_id,
+            expected_outbox_id,
+            expected_idempotency,
+            payload_sha256,
+            True,
+        )
+
+    @classmethod
+    def _rebuild_cancelled(
+        cls,
+        connection: sqlite3.Connection,
+        request: QueueDigestRequest,
+        *,
+        payload_sha256: str,
+        cutoff_at: str,
+        created_at: str,
+    ) -> QueuedDigest | None:
+        digest = connection.execute(
+            "SELECT * FROM digests WHERE subscription_id=? AND period_key=?",
+            (request.preview.subscription_id, request.preview.period_key),
+        ).fetchone()
+        if digest is None:
+            if request.rebuild_reason is not None:
+                raise DeliveryStoreError("digest_rebuild_target_missing")
+            return None
+        if digest["state"] != "cancelled":
+            return None
+        if request.rebuild_reason != "current_input_stale":
+            raise DeliveryStoreError("digest_rebuild_not_authorized")
+
+        digest_id = digest["id"]
+        outbox = connection.execute(
+            "SELECT * FROM delivery_outbox WHERE digest_id=?",
+            (digest_id,),
+        ).fetchone()
+        if outbox is None or outbox["state"] != "cancelled":
+            raise DeliveryStoreError("digest_rebuild_state_conflict")
+        if connection.execute(
+            "SELECT 1 FROM delivery_attempts WHERE outbox_id=? LIMIT 1",
+            (outbox["id"],),
+        ).fetchone() is not None:
+            raise DeliveryStoreError("digest_rebuild_attempt_exists")
+
+        old_items = connection.execute(
+            "SELECT count(*) FROM digest_items WHERE digest_id=?",
+            (digest_id,),
+        ).fetchone()[0]
+        ledgers = connection.execute(
+            "SELECT id,event_id,reader_id,channel,outbox_id,state "
+            "FROM notification_ledger WHERE outbox_id=? ORDER BY event_id",
+            (outbox["id"],),
+        ).fetchall()
+        if (
+            type(old_items) is not int
+            or old_items < 1
+            or len(ledgers) != old_items
+            or any(
+                row["reader_id"] != request.reader_id
+                or row["channel"] != request.channel
+                or row["outbox_id"] != outbox["id"]
+                or row["state"] != "cancelled"
+                for row in ledgers
+            )
+        ):
+            raise DeliveryStoreError("digest_rebuild_ledger_conflict")
+
+        prior_object_id = cls._object_id(digest["rendered_object_id"])
+        prior_payload = cls._require_payload(connection, prior_object_id)
+        if prior_payload != outbox["payload_sha256"]:
+            raise DeliveryStoreError("digest_rebuild_prior_payload_conflict")
+        generation = connection.execute(
+            "SELECT COALESCE(MAX(generation),0)+1 "
+            "FROM delivery_digest_rebuilds WHERE digest_id=?",
+            (digest_id,),
+        ).fetchone()[0]
+        if type(generation) is not int or generation < 1:
+            raise DeliveryStoreError("digest_rebuild_history_corrupt")
+        rebuild_id = cls._hash(
+            "digest-rebuild",
+            digest_id,
+            str(generation),
+            outbox["id"],
+            prior_payload,
+        )
+        connection.execute(
+            "INSERT INTO delivery_digest_rebuilds("
+            "id,digest_id,outbox_id,generation,prior_rendered_object_id,"
+            "prior_payload_sha256,prior_idempotency_key,prior_workspace_epoch,"
+            "prior_cutoff_at,reason,recorded_at"
+            ") VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                rebuild_id,
+                digest_id,
+                outbox["id"],
+                generation,
+                prior_object_id,
+                prior_payload,
+                outbox["idempotency_key"],
+                outbox["workspace_epoch"],
+                digest["cutoff_at"],
+                request.rebuild_reason,
+                created_at,
+            ),
+        )
+
+        new_idempotency = cls._hash(
+            "delivery-request",
+            digest_id,
+            payload_sha256,
+        )
+        connection.execute(
+            "DELETE FROM digest_items WHERE digest_id=?",
+            (digest_id,),
+        )
+        connection.execute(
+            "UPDATE digests SET cutoff_at=?,rendered_object_id=?,state='queued' "
+            "WHERE id=? AND state='cancelled'",
+            (cutoff_at, request.rendered_object_id, digest_id),
+        )
+        connection.execute(
+            "UPDATE delivery_outbox SET idempotency_key=?,payload_sha256=?,"
+            "state='pending',workspace_epoch=?,next_attempt_at=NULL "
+            "WHERE id=? AND state='cancelled'",
+            (
+                new_idempotency,
+                payload_sha256,
+                request.workspace_epoch,
+                outbox["id"],
+            ),
+        )
+
+        for position, item in enumerate(request.preview.items, start=1):
+            connection.execute(
+                "INSERT INTO digest_items("
+                "digest_id,position,event_id,work_id,summary_id,revision_id,item_kind"
+                ") VALUES(?,?,?,?,?,?,?)",
+                (
+                    digest_id,
+                    position,
+                    item.event_id,
+                    item.work_id,
+                    item.summary_id,
+                    item.revision_id,
+                    item.item_kind,
+                ),
+            )
+            prior = connection.execute(
+                "SELECT id,outbox_id,state FROM notification_ledger "
+                "WHERE reader_id=? AND event_id=? AND channel=?",
+                (
+                    request.reader_id,
+                    item.event_id,
+                    request.channel,
+                ),
+            ).fetchone()
+            if prior is None:
+                ledger_id = cls._hash(
+                    "notification",
+                    request.reader_id,
+                    item.event_id,
+                    request.channel,
+                )
+                connection.execute(
+                    "INSERT INTO notification_ledger("
+                    "id,reader_id,event_id,channel,outbox_id,state,created_at"
+                    ") VALUES(?,?,?,?,?,'reserved',?)",
+                    (
+                        ledger_id,
+                        request.reader_id,
+                        item.event_id,
+                        request.channel,
+                        outbox["id"],
+                        created_at,
+                    ),
+                )
+            elif (
+                prior["outbox_id"] == outbox["id"]
+                and prior["state"] == "cancelled"
+            ):
+                connection.execute(
+                    "UPDATE notification_ledger SET state='reserved' "
+                    "WHERE id=? AND state='cancelled'",
+                    (prior["id"],),
+                )
+            else:
+                raise DeliveryStoreError("event_already_notified")
+
+        return QueuedDigest(
+            digest_id,
+            outbox["id"],
+            new_idempotency,
+            payload_sha256,
+            False,
+        )
 
     @staticmethod
     def _reject_notified_events(
@@ -284,14 +497,20 @@ class SqliteDeliveryStoreAdapter:
             replay = self._replay(
                 connection,
                 request,
-                digest_id=digest_id,
-                outbox_id=outbox_id,
-                idempotency_key=idempotency_key,
                 payload_sha256=payload_sha256,
                 cutoff_at=cutoff_at,
             )
             if replay is not None:
                 return replay
+            rebuilt = self._rebuild_cancelled(
+                connection,
+                request,
+                payload_sha256=payload_sha256,
+                cutoff_at=cutoff_at,
+                created_at=created_at,
+            )
+            if rebuilt is not None:
+                return rebuilt
 
             self._reject_notified_events(connection, request)
             connection.execute(
