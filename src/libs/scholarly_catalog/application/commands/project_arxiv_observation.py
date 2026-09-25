@@ -79,6 +79,9 @@ class ProjectArxivObservation:
             "arxiv",
             record.source_record_id,
         )
+        expected_version = (
+            None if record.version is None else str(record.version)
+        )
         if (
             normalized.normalized_value != record.arxiv_id
             or normalized.native_version != expected_version
@@ -99,9 +102,6 @@ class ProjectArxivObservation:
             published_at=record.published_at,
         )
         resolution = self._resolve(observation)
-        expected_version = (
-            None if record.version is None else str(record.version)
-        )
         if (
             resolution.identifier_namespace != "arxiv"
             or resolution.normalized_identifier != record.arxiv_id
