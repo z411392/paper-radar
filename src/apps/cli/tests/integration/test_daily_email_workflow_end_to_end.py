@@ -285,6 +285,16 @@ def test_formal_workflow_waits_for_effects_then_sends_exactly_once(
     assert attempts == []
     assert ledger == [(NOTICE_EVENT, "reserved")]
 
+    clock.advance(timedelta(minutes=1))
+    early = _run(cycle, "worker:too-early")
+    assert early.processed_jobs == 0
+    assert sender.calls == 0
+
+    clock.advance(timedelta(minutes=29))
+    still_early = _run(cycle, "worker:still-too-early")
+    assert still_early.processed_jobs == 0
+    assert sender.calls == 0
+
     enabled = SetWorkspaceExternalEffects(
         SqliteWorkspaceExternalEffectsAdapter(schema.connect)
     )(True)
@@ -292,7 +302,7 @@ def test_formal_workflow_waits_for_effects_then_sends_exactly_once(
     assert enabled.epoch == info.epoch
     assert enabled.external_effects_enabled is True
 
-    clock.advance(timedelta(hours=1))
+    clock.advance(timedelta(minutes=30))
     sent = _run(cycle, "worker:dispatch-on")
     assert any(
         job.job_kind == "dispatch_digest" and job.state == "succeeded"

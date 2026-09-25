@@ -2,9 +2,12 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
+
 from libs.research_workflow.adapters.driven.sqlite_scheduler_input_adapter import (
     SqliteSchedulerInputAdapter,
 )
+from libs.research_workflow.exceptions.workflow_job_error import WorkflowJobError
 
 
 NOW = datetime(2026, 9, 24, 0, 0, tzinfo=timezone.utc)
@@ -247,3 +250,71 @@ def test_pending_queued_outbox_is_exposed_to_scheduler(tmp_path: Path) -> None:
     snapshot = adapter.read(NOW)
 
     assert snapshot.pending_delivery_outboxes == ("outbox:pending",)
+
+
+def test_existing_retryable_dispatch_job_suppresses_duplicate_scheduler_enqueue(
+    tmp_path: Path,
+) -> None:
+    path, adapter = _setup(tmp_path)
+    connection = sqlite3.connect(path)
+    connection.execute(
+        "INSERT INTO digests VALUES(?,?,?,'queued')",
+        ("digest:pending", "subscription:daily", "2026-09-24"),
+    )
+    connection.execute(
+        "INSERT INTO delivery_outbox VALUES(?,?,'pending')",
+        ("outbox:pending", "digest:pending"),
+    )
+    connection.execute(
+        "INSERT INTO workflow_jobs VALUES(?,?,?,?,?,'awaiting_external',?,NULL,NULL,1,1,?)",
+        (
+            "job:dispatch",
+            "dispatch_digest",
+            "dispatch:outbox:pending",
+            '{"outbox_id":"outbox:pending","prepare_digest":null}',
+            "e" * 64,
+            (NOW.replace(hour=1)).isoformat(),
+            NOW.isoformat(),
+        ),
+    )
+    connection.commit()
+    connection.close()
+
+    snapshot = adapter.read(NOW)
+
+    assert snapshot.pending_delivery_outboxes == ()
+
+
+def test_terminal_dispatch_job_with_pending_outbox_is_visible_corruption(
+    tmp_path: Path,
+) -> None:
+    path, adapter = _setup(tmp_path)
+    connection = sqlite3.connect(path)
+    connection.execute(
+        "INSERT INTO digests VALUES(?,?,?,'queued')",
+        ("digest:pending", "subscription:daily", "2026-09-24"),
+    )
+    connection.execute(
+        "INSERT INTO delivery_outbox VALUES(?,?,'pending')",
+        ("outbox:pending", "digest:pending"),
+    )
+    connection.execute(
+        "INSERT INTO workflow_jobs VALUES(?,?,?,?,?,'succeeded',?,NULL,NULL,1,1,?)",
+        (
+            "job:dispatch",
+            "dispatch_digest",
+            "dispatch:outbox:pending",
+            '{"outbox_id":"outbox:pending","prepare_digest":null}',
+            "f" * 64,
+            NOW.isoformat(),
+            NOW.isoformat(),
+        ),
+    )
+    connection.commit()
+    connection.close()
+
+    with pytest.raises(
+        WorkflowJobError,
+        match="delivery_dispatch_job_state_corrupt",
+    ):
+        adapter.read(NOW)

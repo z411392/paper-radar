@@ -251,7 +251,10 @@ class SqliteSchedulerInputAdapter:
             "(SELECT w.input_json FROM workflow_jobs w "
             "WHERE w.job_kind='prepare_digest' "
             "AND w.business_key=('digest:'||d.subscription_id||':'||d.period_key) "
-            "LIMIT 1) AS prepare_input_json "
+            "LIMIT 1) AS prepare_input_json,"
+            "(SELECT w.state FROM workflow_jobs w "
+            "WHERE w.job_kind='dispatch_digest' "
+            "AND w.business_key=('dispatch:'||o.id) LIMIT 1) AS dispatch_job_state "
             "FROM delivery_outbox o "
             "LEFT JOIN digests d ON d.id=o.digest_id "
             "WHERE o.state='pending' ORDER BY o.id"
@@ -265,6 +268,16 @@ class SqliteSchedulerInputAdapter:
                 or row["digest_state"] != "queued"
             ):
                 raise WorkflowJobError("delivery_outbox_state_corrupt")
+            dispatch_state = row["dispatch_job_state"]
+            if dispatch_state is not None:
+                if dispatch_state in {
+                    "pending",
+                    "running",
+                    "failed",
+                    "awaiting_external",
+                }:
+                    continue
+                raise WorkflowJobError("delivery_dispatch_job_state_corrupt")
             prepare_input = row["prepare_input_json"]
             canonical = None
             if prepare_input is not None:
