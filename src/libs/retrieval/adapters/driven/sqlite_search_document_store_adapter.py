@@ -6,6 +6,7 @@ from libs.retrieval.domain.services.search_document_rules import SearchDocumentR
 from libs.retrieval.dtos.search_document import (
     PersistedSearchDocument,
     PreparedSearchDocument,
+    SearchProjectionDocument,
 )
 from libs.retrieval.exceptions.search_document_error import SearchDocumentError
 
@@ -234,3 +235,52 @@ class SqliteSearchDocumentStoreAdapter:
             if actual != expected:
                 raise SearchDocumentError("search_document_state_corrupt")
             return self._result(row, replayed=False)
+
+
+    def current_documents(self) -> tuple[SearchProjectionDocument, ...]:
+        with self._transaction(write=False) as connection:
+            rows = connection.execute(
+                "SELECT d.*,o.content_sha256,o.kind,o.media_type,o.byte_size,"
+                "o.state,o.retention_policy "
+                "FROM search_documents d "
+                "JOIN object_registry o ON o.object_id=d.text_object_id "
+                "WHERE d.is_current=1 "
+                "ORDER BY d.sequence_no,d.id"
+            ).fetchall()
+            documents = []
+            seen = set()
+            for row in rows:
+                if (
+                    row["id"] in seen
+                    or not isinstance(row["id"], str)
+                    or not isinstance(row["work_id"], str)
+                    or not isinstance(row["revision_id"], str)
+                    or not isinstance(row["projection_kind"], str)
+                    or not isinstance(row["text_object_id"], str)
+                    or not isinstance(row["input_fingerprint"], str)
+                    or type(row["sequence_no"]) is not int
+                    or row["sequence_no"] < 1
+                    or row["text_object_id"]
+                    != "extracted:" + row["input_fingerprint"]
+                    or row["content_sha256"] != row["input_fingerprint"]
+                    or row["kind"] != "extracted"
+                    or row["media_type"] != "application/json; charset=utf-8"
+                    or type(row["byte_size"]) is not int
+                    or not 1 <= row["byte_size"] <= SearchDocumentRules.MAX_CONTENT_BYTES
+                    or row["state"] != "available"
+                    or row["retention_policy"] != "search-document-v1"
+                ):
+                    raise SearchDocumentError("search_document_state_corrupt")
+                seen.add(row["id"])
+                documents.append(
+                    SearchProjectionDocument(
+                        row["id"],
+                        row["work_id"],
+                        row["revision_id"],
+                        row["projection_kind"],
+                        row["text_object_id"],
+                        row["input_fingerprint"],
+                        row["sequence_no"],
+                    )
+                )
+            return tuple(documents)
