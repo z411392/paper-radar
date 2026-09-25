@@ -10,8 +10,12 @@ from libs.delivery.dtos.scheduled_digest import (
     ScheduledDigestRequest,
 )
 from libs.delivery.exceptions.delivery_store_error import DeliveryStoreError
+from libs.delivery.exceptions.prior_recipient_error import PriorRecipientError
 from libs.delivery.exceptions.scheduled_digest_error import ScheduledDigestError
 from libs.delivery.ports.digest_delivery_context_port import DigestDeliveryContextPort
+from libs.delivery.ports.prior_recipient_history_port import (
+    PriorRecipientHistoryPort,
+)
 from libs.delivery.ports.queue_digest_port import QueueDigestPort
 from libs.kernel.exceptions.storage_error import StorageError
 from libs.paper_explanations.exceptions.digest_summary_read_error import DigestSummaryReadError
@@ -35,12 +39,14 @@ class PrepareScheduledDigest:
         relevance: ReadDigestRelevancePort,
         context: DigestDeliveryContextPort,
         queue: QueueDigestPort,
+        prior_recipient: PriorRecipientHistoryPort | None = None,
     ) -> None:
         self._events = events
         self._summaries = summaries
         self._relevance = relevance
         self._context = context
         self._queue = queue
+        self._prior_recipient = prior_recipient
         self._prepare = PrepareDigest()
 
     @staticmethod
@@ -95,17 +101,21 @@ class PrepareScheduledDigest:
             raise ScheduledDigestError("unsupported_digest_channel")
 
         period_events = self._events(period_start, cutoff)
-        latest_by_work = {}
+        latest_paper_by_work = {}
+        status_events = []
         for event in period_events:
-            current = latest_by_work.get(event.work_id)
+            if event.event_kind in {"correction", "retraction"}:
+                status_events.append(event)
+                continue
+            current = latest_paper_by_work.get(event.work_id)
             if current is None or (event.observed_at, event.event_id) > (
                 current.observed_at,
                 current.event_id,
             ):
-                latest_by_work[event.work_id] = event
+                latest_paper_by_work[event.work_id] = event
         events = tuple(
             sorted(
-                latest_by_work.values(),
+                (*latest_paper_by_work.values(), *status_events),
                 key=lambda item: (item.observed_at, item.event_id),
             )
         )
@@ -119,6 +129,49 @@ class PrepareScheduledDigest:
         for event in events:
             if event.event_id in notified:
                 continue
+            if event.event_kind in {"correction", "retraction"}:
+                if self._prior_recipient is None:
+                    raise ScheduledDigestError(
+                        "prior_recipient_check_unavailable"
+                    )
+                if not self._prior_recipient.contains(
+                    context.reader_id,
+                    context.channel,
+                    event.work_id,
+                ):
+                    continue
+                if event.event_kind == "correction":
+                    plain_language = (
+                        "來源目前回報這篇研究有更正紀錄，請以來源提供的更正內容為準。",
+                    )
+                else:
+                    plain_language = (
+                        "來源目前回報這篇研究有撤稿紀錄，出版狀態已變更。",
+                        "這不代表 Paper Radar 自行判定研究結論錯誤。",
+                    )
+                candidates.append(
+                    DigestCandidate(
+                        event_id=event.event_id,
+                        work_id=event.work_id,
+                        summary_id=None,
+                        revision_id=None,
+                        current_summary_id=None,
+                        current_revision_id=None,
+                        qa_state="not_applicable",
+                        event_at=event.observed_at,
+                        priority=100,
+                        domains=(),
+                        title=event.title,
+                        source_url=event.source_url,
+                        plain_language=plain_language,
+                        item_kind="status_notice",
+                        event_kind=event.event_kind,
+                    )
+                )
+                continue
+
+            if event.revision_id is None:
+                raise ScheduledDigestError("digest_event_corrupt")
             summary = self._summaries(event.work_id, event.revision_id)
             if summary is None or not summary.plain_language:
                 continue
@@ -146,6 +199,7 @@ class PrepareScheduledDigest:
                     title=event.title,
                     source_url=event.source_url,
                     plain_language=summary.plain_language,
+                    event_kind=event.event_kind,
                 )
             )
 
@@ -196,5 +250,6 @@ class PrepareScheduledDigest:
             DigestSelectionError,
             DigestArtifactError,
             DeliveryStoreError,
+            PriorRecipientError,
         ) as exc:
             raise self._translate(exc) from exc

@@ -7,6 +7,9 @@ from libs.delivery.adapters.driven.sqlite_delivery_store_adapter import SqliteDe
 from libs.delivery.adapters.driven.sqlite_digest_delivery_context_adapter import (
     SqliteDigestDeliveryContextAdapter,
 )
+from libs.delivery.adapters.driven.sqlite_prior_recipient_history_adapter import (
+    SqlitePriorRecipientHistoryAdapter,
+)
 from libs.delivery.application.commands.prepare_scheduled_digest import PrepareScheduledDigest
 from libs.delivery.application.commands.queue_digest import QueueDigest
 from libs.delivery.ports.prepare_scheduled_digest_port import PrepareScheduledDigestPort
@@ -600,6 +603,9 @@ class WorkerCliModule(Module):
             relevance=SqliteDigestRelevanceAdapter(connection.connect),
             context=SqliteDigestDeliveryContextAdapter(connection.connect),
             queue=QueueDigest(digest_artifacts, delivery_store),
+            prior_recipient=SqlitePriorRecipientHistoryAdapter(
+                connection.connect
+            ),
         )
 
         jobs = SqliteWorkflowJobStoreAdapter(connection.connect)

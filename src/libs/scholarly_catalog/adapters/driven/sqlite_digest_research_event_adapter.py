@@ -7,12 +7,14 @@ from libs.scholarly_catalog.exceptions.digest_event_read_error import DigestEven
 
 
 class SqliteDigestResearchEventAdapter:
-    _KINDS = (
+    _PAPER_KINDS = (
         "new_work",
         "late_discovery",
         "revision_available",
         "newly_accessible",
     )
+    _STATUS_KINDS = ("correction", "retraction")
+    _KINDS = _PAPER_KINDS + _STATUS_KINDS
 
     def __init__(self, connect: Callable[[], sqlite3.Connection]) -> None:
         self._connect = connect
@@ -52,12 +54,17 @@ class SqliteDigestResearchEventAdapter:
             placeholders = ",".join("?" for _ in self._KINDS)
             rows = connection.execute(
                 "SELECT e.id AS event_id,e.work_id,e.revision_id,e.event_kind,"
-                "e.observed_at,r.title,m.landing_url "
+                "e.observed_at,COALESCE(r.title,w.canonical_title) AS title,"
+                "COALESCE(m.landing_url,("
+                "SELECT pm.landing_url FROM paper_manifestations pm "
+                "WHERE pm.work_id=e.work_id ORDER BY pm.created_at,pm.id LIMIT 1"
+                ")) AS landing_url "
                 "FROM research_events e "
-                "JOIN paper_revisions r ON r.id=e.revision_id AND r.work_id=e.work_id "
-                "JOIN paper_manifestations m ON m.id=r.manifestation_id "
-                "WHERE e.revision_id IS NOT NULL "
-                "AND julianday(e.observed_at)>julianday(?) "
+                "JOIN paper_works w ON w.id=e.work_id "
+                "LEFT JOIN paper_revisions r "
+                "ON r.id=e.revision_id AND r.work_id=e.work_id "
+                "LEFT JOIN paper_manifestations m ON m.id=r.manifestation_id "
+                "WHERE julianday(e.observed_at)>julianday(?) "
                 "AND julianday(e.observed_at)<=julianday(?) "
                 f"AND e.event_kind IN ({placeholders}) "
                 "ORDER BY e.observed_at,e.id",
@@ -66,27 +73,43 @@ class SqliteDigestResearchEventAdapter:
             connection.commit()
             result = []
             for row in rows:
+                common = ("event_id", "work_id", "event_kind", "title")
                 if not all(
                     isinstance(row[key], str) and row[key]
-                    for key in (
-                        "event_id",
-                        "work_id",
-                        "revision_id",
-                        "event_kind",
-                        "title",
-                        "landing_url",
-                    )
+                    for key in common
                 ):
+                    raise DigestEventReadError("digest_event_corrupt")
+                kind = row["event_kind"]
+                revision_id = row["revision_id"]
+                source_url = row["landing_url"]
+                if kind in self._PAPER_KINDS:
+                    if (
+                        not isinstance(revision_id, str)
+                        or not revision_id
+                        or not isinstance(source_url, str)
+                        or not source_url
+                    ):
+                        raise DigestEventReadError("digest_event_corrupt")
+                elif kind in self._STATUS_KINDS:
+                    if revision_id is not None and (
+                        not isinstance(revision_id, str) or not revision_id
+                    ):
+                        raise DigestEventReadError("digest_event_corrupt")
+                    if source_url is not None and (
+                        not isinstance(source_url, str) or not source_url
+                    ):
+                        raise DigestEventReadError("digest_event_corrupt")
+                else:
                     raise DigestEventReadError("digest_event_corrupt")
                 result.append(
                     DigestResearchEvent(
                         row["event_id"],
                         row["work_id"],
-                        row["revision_id"],
-                        row["event_kind"],
+                        revision_id,
+                        kind,
                         self._instant(row["observed_at"], "digest_event_corrupt"),
                         row["title"],
-                        row["landing_url"],
+                        source_url,
                     )
                 )
             return tuple(result)

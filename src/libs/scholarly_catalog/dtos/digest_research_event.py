@@ -6,8 +6,8 @@ from datetime import datetime
 class DigestResearchEvent:
     event_id: str
     work_id: str
-    revision_id: str
+    revision_id: str | None
     event_kind: str
     observed_at: datetime
     title: str
-    source_url: str
+    source_url: str | None
