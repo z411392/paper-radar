@@ -129,7 +129,6 @@ class ProcessEvidenceExplanation:
             if (
                 assessment.profile_revision != request.profile_revision
                 or assessment.domain_revision != request.domain_revision
-                or assessment.execution_state == "stale"
             ):
                 return EvidenceExplanationResult(
                     "cancelled",
@@ -140,11 +139,19 @@ class ProcessEvidenceExplanation:
                 assessment,
                 assessed_at=self._clock.now(),
             )
-            if assessment.execution_state == "failed":
+            if assessment.execution_state == "stale":
                 return EvidenceExplanationResult(
-                    "failed",
+                    "cancelled",
                     relevance_assessment_id=persisted_relevance.assessment_id,
-                    error_code=assessment.error_code or "relevance_assessment_failed",
+                    error_code="scheduled_input_stale",
+                )
+            if assessment.execution_state == "failed":
+                code = assessment.error_code or "relevance_assessment_failed"
+                failure = self._failure(code)
+                return EvidenceExplanationResult(
+                    failure.state,
+                    relevance_assessment_id=persisted_relevance.assessment_id,
+                    error_code=code,
                 )
             if (
                 assessment.execution_state != "succeeded"
