@@ -72,6 +72,15 @@ class CrossrefHarvestJournalPort(Protocol):
         processed_at: datetime,
     ) -> bool: ...
 
+    def mark_projection_quarantined(
+        self,
+        page_id: str,
+        ordinal: int,
+        *,
+        error_code: str,
+        quarantined_at: datetime,
+    ) -> bool: ...
+
     def commit_page(
         self,
         pass_id: str,
