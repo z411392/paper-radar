@@ -1,5 +1,8 @@
 from datetime import datetime
 
+from libs.scholarly_catalog.application.commands.record_paper_revision import (
+    RecordPaperRevision,
+)
 from libs.scholarly_catalog.dtos.crossref_integrity_assertion import (
     CrossrefIntegrityAssertionRef,
 )
@@ -9,9 +12,6 @@ from libs.scholarly_catalog.exceptions.crossref_provider_projection_error import
 from libs.scholarly_catalog.exceptions.paper_identity_error import PaperIdentityError
 from libs.scholarly_catalog.ports.read_crossref_integrity_event_source_port import (
     ReadCrossrefIntegrityEventSourcePort,
-)
-from libs.scholarly_catalog.application.commands.record_paper_revision import (
-    RecordPaperRevision,
 )
 
 
