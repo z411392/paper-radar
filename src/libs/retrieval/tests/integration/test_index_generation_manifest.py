@@ -14,6 +14,7 @@ from libs.retrieval.adapters.driven.sqlite_index_generation_store_adapter import
     SqliteIndexGenerationStoreAdapter,
 )
 from libs.retrieval.domain.services.index_generation_rules import IndexGenerationRules
+from libs.retrieval.dtos.embedding_batch import EmbeddingBatchInput
 from libs.retrieval.dtos.index_generation import IndexGenerationInput
 from libs.retrieval.exceptions.index_generation_error import IndexGenerationError
 from libs.retrieval.tests.integration.test_embedding_batch_persistence import (
@@ -25,7 +26,6 @@ from libs.retrieval.tests.integration.test_embedding_batch_persistence import (
 from libs.retrieval.tests.integration.test_search_document_persistence import (
     _document,
 )
-from libs.retrieval.dtos.embedding_batch import EmbeddingBatchInput
 
 
 NOW = datetime(2026, 9, 26, 0, 0, tzinfo=timezone.utc)
