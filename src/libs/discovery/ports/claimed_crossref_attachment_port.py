@@ -18,6 +18,11 @@ class ClaimedCrossrefAttachmentPort(Protocol):
         decision: CrossrefRateDecision, *, attached_at: datetime,
     ) -> CrossrefAttachment: ...
 
+    def recover(
+        self, claim: CrossrefCaptureClaim, stored: CrossrefStoredCapture,
+        decision: CrossrefRateDecision, *, recovered_at: datetime,
+    ) -> CrossrefAttachment: ...
+
     def resolve(
         self, claim: CrossrefCaptureClaim, stored: CrossrefStoredCapture, *,
         resolved_at: datetime,
