@@ -1,7 +1,7 @@
 from collections.abc import Callable
 from datetime import datetime, timezone
 
-from libs.delivery.application.commands.dispatch_digest import DispatchDigest
+from libs.delivery.ports.dispatch_digest_port import DispatchDigestPort
 from libs.delivery.exceptions.delivery_store_error import DeliveryStoreError
 from libs.delivery.exceptions.prior_recipient_error import PriorRecipientError
 from libs.delivery.ports.delivery_dispatch_store_port import DeliveryDispatchStorePort
@@ -22,7 +22,7 @@ class ProcessRevisionNotice:
         store: DeliveryDispatchStorePort,
         summaries: ReadDigestCurrentSummaryPort,
         prior_recipient: PriorRecipientHistoryPort,
-        dispatch: DispatchDigest,
+        dispatch: DispatchDigestPort,
         clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
     ) -> None:
         self._store = store
