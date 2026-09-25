@@ -13,6 +13,7 @@ class QueueDigestRequest:
     workspace_epoch: int
     created_at: datetime
     rebuild_reason: str | None = None
+    rebuild_outbox_id: str | None = None
 
 
 @dataclass(frozen=True)

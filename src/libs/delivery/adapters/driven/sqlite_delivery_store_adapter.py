@@ -142,7 +142,10 @@ class SqliteDeliveryStoreAdapter:
                 raise DeliveryStoreError("invalid_digest_items")
         if len({item.event_id for item in preview.items}) != len(preview.items):
             raise DeliveryStoreError("duplicate_digest_event")
-        if request.rebuild_reason is not None:
+        if request.rebuild_reason is None:
+            if request.rebuild_outbox_id is not None:
+                raise DeliveryStoreError("invalid_digest_rebuild_target")
+        else:
             reason = cls._text(
                 request.rebuild_reason,
                 "invalid_digest_rebuild_reason",
@@ -150,6 +153,11 @@ class SqliteDeliveryStoreAdapter:
             )
             if reason != "current_input_stale":
                 raise DeliveryStoreError("invalid_digest_rebuild_reason")
+            cls._text(
+                request.rebuild_outbox_id,
+                "invalid_digest_rebuild_target",
+                maximum=256,
+            )
         return preview, cutoff_at, created_at
 
     @classmethod
@@ -304,6 +312,8 @@ class SqliteDeliveryStoreAdapter:
         ).fetchone()
         if outbox is None or outbox["state"] != "cancelled":
             raise DeliveryStoreError("digest_rebuild_state_conflict")
+        if outbox["id"] != request.rebuild_outbox_id:
+            raise DeliveryStoreError("digest_rebuild_target_mismatch")
         if connection.execute(
             "SELECT 1 FROM delivery_attempts WHERE outbox_id=? LIMIT 1",
             (outbox["id"],),

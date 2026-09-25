@@ -140,6 +140,7 @@ def _request(
     object_id: str,
     *,
     rebuild_reason: str | None = None,
+    rebuild_outbox_id: str | None = None,
 ) -> QueueDigestRequest:
     return QueueDigestRequest(
         preview,
@@ -149,6 +150,7 @@ def _request(
         1,
         NOW,
         rebuild_reason,
+        rebuild_outbox_id,
     )
 
 
@@ -164,6 +166,7 @@ def test_cancelled_never_dispatched_slot_rebuilds_with_append_only_audit(
             _preview("event:correction", marker="second"),
             second_object,
             rebuild_reason="current_input_stale",
+            rebuild_outbox_id=first.outbox_id,
         )
     )
     replay = store.queue(
@@ -213,6 +216,7 @@ def test_rebuild_can_replace_event_without_resurrecting_removed_ledger(
             _preview("event:retraction", marker="second"),
             second_object,
             rebuild_reason="current_input_stale",
+            rebuild_outbox_id=first.outbox_id,
         )
     )
 
@@ -274,6 +278,7 @@ def test_rebuild_audit_rows_are_immutable(tmp_path: Path) -> None:
             _preview("event:correction", marker="second"),
             second_object,
             rebuild_reason="current_input_stale",
+            rebuild_outbox_id=first.outbox_id,
         )
     )
 
@@ -311,3 +316,34 @@ def test_cancelled_slot_without_explicit_rebuild_authority_stays_cancelled(
         ).fetchone()[0] == 0
     finally:
         connection.close()
+
+
+def test_rebuild_requires_exact_cancelled_outbox_authority(tmp_path: Path) -> None:
+    _, _, store, first_object, second_object = _setup(tmp_path)
+    first = store.queue(
+        _request(_preview("event:correction", marker="first"), first_object)
+    )
+    store.cancel_pending(first.outbox_id)
+
+    with pytest.raises(DeliveryStoreError, match="digest_rebuild_target_mismatch"):
+        store.queue(
+            _request(
+                _preview("event:correction", marker="second"),
+                second_object,
+                rebuild_reason="current_input_stale",
+                rebuild_outbox_id="outbox:wrong",
+            )
+        )
+
+
+def test_rebuild_outbox_without_reason_is_rejected(tmp_path: Path) -> None:
+    _, _, store, first_object, _ = _setup(tmp_path)
+
+    with pytest.raises(DeliveryStoreError, match="invalid_digest_rebuild_target"):
+        store.queue(
+            _request(
+                _preview("event:correction", marker="first"),
+                first_object,
+                rebuild_outbox_id="outbox:unexpected",
+            )
+        )

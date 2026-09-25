@@ -249,6 +249,7 @@ class PrepareScheduledDigest:
                 preview,
                 **queue_args,
                 rebuild_reason=request.rebuild_reason,
+                rebuild_outbox_id=request.rebuild_outbox_id,
             )
         return ScheduledDigestOutcome(
             "queued",
