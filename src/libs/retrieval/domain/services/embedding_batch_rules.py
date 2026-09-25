@@ -140,13 +140,24 @@ class EmbeddingBatchRules:
             or not value.rows
         ):
             raise EmbeddingBatchError("invalid_embedding_batch")
+        if any(not isinstance(row, PreparedEmbeddingRow) for row in value.rows):
+            raise EmbeddingBatchError("invalid_embedding_batch")
+        document_ids = tuple(row.document_id for row in value.rows)
+        if (
+            document_ids != tuple(sorted(document_ids))
+            or len(set(document_ids)) != len(document_ids)
+        ):
+            raise EmbeddingBatchError("invalid_embedding_batch")
+
         decoded = NpyFloat32BatchCodec.decode(value.content_bytes)
-        if len(decoded) != len(value.rows):
+        if (
+            len(decoded) != len(value.rows)
+            or len(decoded[0]) != value.dimension
+        ):
             raise EmbeddingBatchError("invalid_embedding_batch")
         for expected_offset, row in enumerate(value.rows):
             if (
-                not isinstance(row, PreparedEmbeddingRow)
-                or cls._DOCUMENT.fullmatch(row.document_id) is None
+                cls._DOCUMENT.fullmatch(row.document_id) is None
                 or not re.fullmatch(r"[0-9a-f]{64}", row.input_fingerprint)
                 or row.row_offset != expected_offset
                 or row.input_fingerprint

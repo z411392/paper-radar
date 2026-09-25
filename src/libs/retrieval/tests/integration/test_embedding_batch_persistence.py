@@ -36,12 +36,15 @@ from libs.retrieval.application.commands.persist_embedding_batch import (
 from libs.retrieval.application.commands.register_embedding_space import (
     RegisterEmbeddingSpace,
 )
+from libs.retrieval.domain.services.embedding_batch_rules import EmbeddingBatchRules
 from libs.retrieval.domain.services.npy_float32_batch_codec import (
     NpyFloat32BatchCodec,
 )
 from libs.retrieval.dtos.embedding_batch import (
     EmbeddingBatchInput,
     EmbeddingVectorEntry,
+    PreparedEmbeddingBatch,
+    PreparedEmbeddingRow,
 )
 from libs.retrieval.dtos.embedding_space import EmbeddingSpaceInput
 from libs.retrieval.exceptions.embedding_batch_error import EmbeddingBatchError
@@ -317,3 +320,69 @@ def test_naive_clock_is_rejected_before_publication(tmp_path: Path) -> None:
         ).fetchone()[0] == 0
     finally:
         connection.close()
+
+
+def test_prepared_batch_rejects_dimension_mismatch() -> None:
+    content = NpyFloat32BatchCodec.encode(
+        ((1.0, 0.0, 0.0, 0.0),),
+        dimension=4,
+    )
+    digest = __import__("hashlib").sha256(content).hexdigest()
+    document_id = "searchdoc:" + "a" * 64
+    batch = PreparedEmbeddingBatch(
+        "embspace:" + "b" * 64,
+        "c" * 64,
+        3,
+        "embedding:" + digest,
+        content,
+        (
+            PreparedEmbeddingRow(
+                document_id,
+                EmbeddingBatchRules._input_fingerprint(
+                    document_id,
+                    "embspace:" + "b" * 64,
+                ),
+                0,
+            ),
+        ),
+    )
+
+    with pytest.raises(EmbeddingBatchError, match="invalid_embedding_batch"):
+        EmbeddingBatchRules.validate_prepared(batch)
+
+
+def test_prepared_batch_rejects_noncanonical_or_duplicate_document_order() -> None:
+    content = NpyFloat32BatchCodec.encode(
+        (
+            (1.0, 0.0),
+            (0.0, 1.0),
+        ),
+        dimension=2,
+    )
+    digest = __import__("hashlib").sha256(content).hexdigest()
+    space_id = "embspace:" + "b" * 64
+    first = "searchdoc:" + "a" * 64
+    second = "searchdoc:" + "9" * 64
+
+    for document_ids in ((first, second), (first, first)):
+        rows = tuple(
+            PreparedEmbeddingRow(
+                document_id,
+                EmbeddingBatchRules._input_fingerprint(document_id, space_id),
+                offset,
+            )
+            for offset, document_id in enumerate(document_ids)
+        )
+        batch = PreparedEmbeddingBatch(
+            space_id,
+            "c" * 64,
+            2,
+            "embedding:" + digest,
+            content,
+            rows,
+        )
+        with pytest.raises(
+            EmbeddingBatchError,
+            match="invalid_embedding_batch",
+        ):
+            EmbeddingBatchRules.validate_prepared(batch)
