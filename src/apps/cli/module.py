@@ -360,7 +360,7 @@ class WorkerCliModule(Module):
         connection = SqliteSchemaConnectionFactory(
             root,
             load_workspace_migrations(with_runtime=True),
-            minimum_version=17 if crossref_requested else 10,
+            minimum_version=18 if crossref_requested else 10,
         )
         profile_store = SqliteWatchProfileStoreAdapter(connection.connect)
         builder = BuildHarvestQueryInput(
