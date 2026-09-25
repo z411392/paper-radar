@@ -1,6 +1,8 @@
+import json
 from datetime import datetime, timezone
 
 from libs.delivery.application.commands.prepare_digest import PrepareDigest
+from libs.delivery.domain.services.digest_artifact_rules import DigestArtifactRules
 from libs.delivery.dtos.digest_preview import DigestCandidate, PrepareDigestRequest
 
 
@@ -150,3 +152,57 @@ def test_status_candidate_shape_cannot_be_forged_as_regular_event() -> None:
 
     with pytest.raises(DigestSelectionError, match="invalid_event_kind"):
         PrepareDigest()(request((forged,)))
+
+
+def test_status_artifact_is_v2_and_keeps_notice_identity() -> None:
+    preview = PrepareDigest()(request((status_item("event:status", "correction"),)))
+
+    content = DigestArtifactRules.serialize(preview)
+    payload = json.loads(content)
+
+    assert payload["schema_version"] == 2
+    assert payload["items"] == [
+        {
+            "position": 1,
+            "event_id": "event:status",
+            "work_id": "work:status",
+            "summary_id": None,
+            "revision_id": None,
+            "item_kind": "status_notice",
+            "event_kind": "correction",
+        }
+    ]
+    parsed = DigestArtifactRules.parse(content)
+    assert parsed.content_fingerprint == preview.content_fingerprint
+
+
+def test_v1_digest_artifact_remains_readable() -> None:
+    content = json.dumps(
+        {
+            "schema_version": 1,
+            "subscription_id": "subscription:test",
+            "period_key": "2026-09-23",
+            "cutoff_at": NOW.isoformat(),
+            "content_fingerprint": "a" * 64,
+            "subject": "subject",
+            "text_body": "text",
+            "html_body": "<p>html</p>",
+            "items": [
+                {
+                    "position": 1,
+                    "event_id": "event:old",
+                    "work_id": "work:old",
+                    "summary_id": "summary:old",
+                    "revision_id": "revision:old",
+                }
+            ],
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
+
+    parsed = DigestArtifactRules.parse(content)
+
+    assert parsed.subscription_id == "subscription:test"
+    assert parsed.period_key == "2026-09-23"
+    assert parsed.content_fingerprint == "a" * 64
