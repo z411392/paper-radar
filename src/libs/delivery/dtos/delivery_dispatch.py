@@ -53,3 +53,26 @@ class DispatchOutcome:
 class ReconciliationOutcome:
     state: str
     reason: str | None = None
+
+
+@dataclass(frozen=True)
+class DeliveryPreflightItem:
+    event_id: str
+    work_id: str
+    summary_id: str | None
+    revision_id: str | None
+    item_kind: str
+    event_kind: str
+
+
+@dataclass(frozen=True)
+class DeliveryPreflightSnapshot:
+    outbox_id: str
+    digest_id: str
+    subscription_id: str
+    reader_id: str
+    channel: str
+    enabled: bool
+    outbox_state: str
+    digest_state: str
+    items: tuple[DeliveryPreflightItem, ...]

@@ -5,7 +5,13 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
-from libs.delivery.dtos.delivery_dispatch import DeliveryClaim, DeliveryDispatchCandidate, MailSendResult
+from libs.delivery.dtos.delivery_dispatch import (
+    DeliveryClaim,
+    DeliveryDispatchCandidate,
+    DeliveryPreflightItem,
+    DeliveryPreflightSnapshot,
+    MailSendResult,
+)
 from libs.delivery.dtos.delivery_queue import QueueDigestRequest, QueuedDigest
 from libs.delivery.dtos.digest_preview import DigestPreview, SelectedDigestItem
 from libs.delivery.exceptions.delivery_store_error import DeliveryStoreError
@@ -353,6 +359,161 @@ class SqliteDeliveryStoreAdapter:
             return QueuedDigest(digest_id, outbox_id, idempotency_key, payload_sha256, False)
 
 
+    def load_preflight(self, outbox_id: str) -> DeliveryPreflightSnapshot:
+        outbox_id = self._text(outbox_id, "invalid_outbox_id")
+        with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT o.id AS outbox_id,o.digest_id,o.state AS outbox_state,"
+                "d.subscription_id,d.state AS digest_state,s.reader_id,s.channel,"
+                "s.enabled FROM delivery_outbox o "
+                "JOIN digests d ON d.id=o.digest_id "
+                "JOIN delivery_subscriptions s ON s.id=d.subscription_id "
+                "WHERE o.id=?",
+                (outbox_id,),
+            ).fetchone()
+            if row is None:
+                raise DeliveryStoreError("delivery_outbox_missing")
+            items = connection.execute(
+                "SELECT i.event_id,i.work_id,i.summary_id,i.revision_id,"
+                "i.item_kind,e.event_kind "
+                "FROM digest_items i "
+                "JOIN research_events e ON e.id=i.event_id AND e.work_id=i.work_id "
+                "WHERE i.digest_id=? ORDER BY i.position",
+                (row["digest_id"],),
+            ).fetchall()
+            if not items:
+                raise DeliveryStoreError("delivery_digest_empty")
+            result = []
+            for item in items:
+                event_id = self._text(item["event_id"], "delivery_digest_corrupt")
+                work_id = self._text(item["work_id"], "delivery_digest_corrupt")
+                event_kind = self._text(
+                    item["event_kind"],
+                    "delivery_digest_corrupt",
+                    maximum=64,
+                )
+                item_kind = item["item_kind"]
+                if item_kind == "paper":
+                    if (
+                        not isinstance(item["summary_id"], str)
+                        or not item["summary_id"]
+                        or not isinstance(item["revision_id"], str)
+                        or not item["revision_id"]
+                    ):
+                        raise DeliveryStoreError("delivery_digest_corrupt")
+                elif item_kind == "status_notice":
+                    if (
+                        item["summary_id"] is not None
+                        or item["revision_id"] is not None
+                        or event_kind not in {"correction", "retraction"}
+                    ):
+                        raise DeliveryStoreError("delivery_digest_corrupt")
+                else:
+                    raise DeliveryStoreError("delivery_digest_corrupt")
+                result.append(
+                    DeliveryPreflightItem(
+                        event_id,
+                        work_id,
+                        item["summary_id"],
+                        item["revision_id"],
+                        item_kind,
+                        event_kind,
+                    )
+                )
+            return DeliveryPreflightSnapshot(
+                row["outbox_id"],
+                row["digest_id"],
+                row["subscription_id"],
+                row["reader_id"],
+                row["channel"],
+                bool(row["enabled"]),
+                row["outbox_state"],
+                row["digest_state"],
+                tuple(result),
+            )
+
+    def cancel_pending(self, outbox_id: str) -> str:
+        outbox_id = self._text(outbox_id, "invalid_outbox_id")
+        with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT o.state AS outbox_state,o.digest_id,d.state AS digest_state "
+                "FROM delivery_outbox o JOIN digests d ON d.id=o.digest_id "
+                "WHERE o.id=?",
+                (outbox_id,),
+            ).fetchone()
+            if row is None:
+                raise DeliveryStoreError("delivery_outbox_missing")
+            if row["outbox_state"] == "cancelled":
+                return "cancelled"
+            if row["outbox_state"] != "pending" or row["digest_state"] != "queued":
+                return row["outbox_state"]
+            attempt = connection.execute(
+                "SELECT 1 FROM delivery_attempts WHERE outbox_id=? LIMIT 1",
+                (outbox_id,),
+            ).fetchone()
+            if attempt is not None:
+                raise DeliveryStoreError("delivery_cancel_attempt_exists")
+            states = connection.execute(
+                "SELECT DISTINCT state FROM notification_ledger WHERE outbox_id=?",
+                (outbox_id,),
+            ).fetchall()
+            if not states or any(item["state"] != "reserved" for item in states):
+                raise DeliveryStoreError("delivery_cancel_ledger_conflict")
+            connection.execute(
+                "UPDATE delivery_outbox SET state='cancelled' "
+                "WHERE id=? AND state='pending'",
+                (outbox_id,),
+            )
+            connection.execute(
+                "UPDATE digests SET state='cancelled' WHERE id=? AND state='queued'",
+                (row["digest_id"],),
+            )
+            connection.execute(
+                "UPDATE notification_ledger SET state='cancelled' "
+                "WHERE outbox_id=? AND state='reserved'",
+                (outbox_id,),
+            )
+            return "cancelled"
+
+    @staticmethod
+    def _paper_inputs_current(
+        connection: sqlite3.Connection,
+        digest_id: str,
+    ) -> bool:
+        rows = connection.execute(
+            "SELECT i.work_id,i.summary_id,i.revision_id "
+            "FROM digest_items i WHERE i.digest_id=? AND i.item_kind='paper'",
+            (digest_id,),
+        ).fetchall()
+        for item in rows:
+            current = connection.execute(
+                "SELECT c.summary_id,c.revision_id,s.qa_state,"
+                "c.expected_input_fingerprint,s.generation_fingerprint,"
+                "m.state AS generation_state,m.input_fingerprint "
+                "FROM current_summaries c "
+                "JOIN summary_revisions s "
+                "ON s.id=c.summary_id AND s.revision_id=c.revision_id "
+                "AND s.work_id=c.work_id "
+                "JOIN model_runs m ON m.id=s.generation_run_id "
+                "WHERE c.work_id=? AND c.revision_id=? "
+                "AND c.language='zh-TW' "
+                "AND c.explanation_profile='plain-zh-TW-v1'",
+                (item["work_id"], item["revision_id"]),
+            ).fetchone()
+            if (
+                current is None
+                or current["summary_id"] != item["summary_id"]
+                or current["revision_id"] != item["revision_id"]
+                or current["qa_state"] != "passed"
+                or current["expected_input_fingerprint"]
+                != current["generation_fingerprint"]
+                or current["generation_state"] != "succeeded"
+                or current["input_fingerprint"]
+                != current["generation_fingerprint"]
+            ):
+                return False
+        return True
+
     def load_dispatch(self, outbox_id: str) -> DeliveryDispatchCandidate:
         outbox_id = self._text(outbox_id, "invalid_outbox_id")
         with self._transaction() as connection:
@@ -422,6 +583,30 @@ class SqliteDeliveryStoreAdapter:
                 )
                 connection.execute(
                     "UPDATE notification_ledger SET state='cancelled' WHERE outbox_id=?",
+                    (outbox_id,),
+                )
+                return DeliveryClaim("cancelled")
+
+            if not self._paper_inputs_current(connection, row["digest_id"]):
+                attempt = connection.execute(
+                    "SELECT 1 FROM delivery_attempts WHERE outbox_id=? LIMIT 1",
+                    (outbox_id,),
+                ).fetchone()
+                if attempt is not None:
+                    raise DeliveryStoreError("delivery_state_corrupt")
+                connection.execute(
+                    "UPDATE delivery_outbox SET state='cancelled' "
+                    "WHERE id=? AND state='pending'",
+                    (outbox_id,),
+                )
+                connection.execute(
+                    "UPDATE digests SET state='cancelled' "
+                    "WHERE id=? AND state='queued'",
+                    (row["digest_id"],),
+                )
+                connection.execute(
+                    "UPDATE notification_ledger SET state='cancelled' "
+                    "WHERE outbox_id=? AND state='reserved'",
                     (outbox_id,),
                 )
                 return DeliveryClaim("cancelled")
