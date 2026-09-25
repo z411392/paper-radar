@@ -160,3 +160,78 @@ def test_effects_never_creates_missing_workspace(tmp_path: Path) -> None:
 
     assert result.returncode == 1
     assert not workspace.exists()
+
+
+def test_run_worker_live_composition_never_enables_workspace_master_gate(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "runtime"
+    initialized = _run(
+        "init",
+        "--workspace",
+        str(workspace),
+        "--with-runtime",
+    )
+    assert initialized.returncode == 0
+    rate_dir = tmp_path / "crossref-rate"
+    rate_dir.mkdir(mode=0o700)
+
+    worker = _run(
+        "run-worker",
+        "--workspace",
+        str(workspace),
+        "--once",
+        "--allow-live-source",
+        "--crossref-email",
+        "fixture@example.invalid",
+        "--crossref-rate-limit-dir",
+        str(rate_dir),
+    )
+
+    assert worker.returncode == 0, worker.stdout + worker.stderr
+    connection = SqliteSchemaConnectionFactory(
+        workspace,
+        load_workspace_migrations(with_runtime=True),
+        minimum_version=17,
+    ).connect()
+    try:
+        enabled = connection.execute(
+            "SELECT external_effects_enabled FROM workspace_metadata "
+            "WHERE singleton=1"
+        ).fetchone()[0]
+        assert enabled == 0
+    finally:
+        connection.close()
+
+
+def test_commissioned_crossref_worker_rejects_runtime_v16_before_provider_io(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "runtime-v16"
+    current = load_workspace_migrations(with_runtime=True)
+    assert len(current) == 17
+    info = SqliteWorkspaceBootstrapAdapter(
+        workspace,
+        current[:-1],
+    ).initialize()
+    assert info.schema_version == 16
+    rate_dir = tmp_path / "crossref-rate"
+    rate_dir.mkdir(mode=0o700)
+
+    worker = _run(
+        "run-worker",
+        "--workspace",
+        str(workspace),
+        "--once",
+        "--allow-live-source",
+        "--crossref-email",
+        "fixture@example.invalid",
+        "--crossref-rate-limit-dir",
+        str(rate_dir),
+    )
+
+    assert worker.returncode == 1
+    error = json.loads(worker.stderr)["error"]
+    assert error["code"] == "schema_upgrade_required"
+    assert "--with-runtime" in error["hint"]
+    assert list(rate_dir.iterdir()) == []
