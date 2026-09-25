@@ -123,6 +123,26 @@ class RunProjectedCrossrefHarvestWindow:
             if result.page_id is not None:
                 touched_pages.add(result.page_id)
             if result.state == "projection_required":
+                if result.page_id is None:
+                    return CrossrefHarvestStepResult(
+                        "projection_failed",
+                        result.window_id,
+                        result.pass_id,
+                        None,
+                        result.receipt_id,
+                        0,
+                        "crossref_projection_page_missing",
+                    )
+                if not self._journal.pending_items(result.page_id):
+                    return CrossrefHarvestStepResult(
+                        "projection_failed",
+                        result.window_id,
+                        result.pass_id,
+                        result.page_id,
+                        result.receipt_id,
+                        0,
+                        "crossref_projection_no_progress",
+                    )
                 failed = self._project_page(result)
                 if failed is not None:
                     return failed

@@ -254,5 +254,6 @@ def test_projection_never_fabricates_page_commit_when_harvest_does_not_commit() 
         lease_seconds=60,
     )
 
-    assert outcome.state == "projection_required"
+    assert outcome.state == "projection_failed"
+    assert outcome.error_code == "crossref_projection_no_progress"
     assert harvest.calls == 2
