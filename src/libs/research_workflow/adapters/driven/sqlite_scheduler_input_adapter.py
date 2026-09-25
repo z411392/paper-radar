@@ -10,6 +10,7 @@ from libs.research_workflow.dtos.scheduler import (
     DeliverySchedule,
     HarvestBindingSchedule,
     KnownWorkflowJob,
+    PendingDeliveryDispatch,
     SchedulerSnapshot,
 )
 from libs.research_workflow.exceptions.workflow_job_error import WorkflowJobError
@@ -239,12 +240,18 @@ class SqliteSchedulerInputAdapter:
             )
         return schedules
 
-    @staticmethod
+    @classmethod
     def _pending_delivery_outboxes(
+        cls,
         connection: sqlite3.Connection,
-    ) -> tuple[str, ...]:
+    ) -> tuple[PendingDeliveryDispatch, ...]:
         rows = connection.execute(
-            "SELECT o.id AS outbox_id,d.state AS digest_state "
+            "SELECT o.id AS outbox_id,d.state AS digest_state,"
+            "d.subscription_id,d.period_key,"
+            "(SELECT w.input_json FROM workflow_jobs w "
+            "WHERE w.job_kind='prepare_digest' "
+            "AND w.business_key=('digest:'||d.subscription_id||':'||d.period_key) "
+            "LIMIT 1) AS prepare_input_json "
             "FROM delivery_outbox o "
             "LEFT JOIN digests d ON d.id=o.digest_id "
             "WHERE o.state='pending' ORDER BY o.id"
@@ -258,7 +265,35 @@ class SqliteSchedulerInputAdapter:
                 or row["digest_state"] != "queued"
             ):
                 raise WorkflowJobError("delivery_outbox_state_corrupt")
-            result.append(outbox_id)
+            prepare_input = row["prepare_input_json"]
+            canonical = None
+            if prepare_input is not None:
+                data = cls._strict_json(
+                    prepare_input,
+                    "corrupt_scheduler_job",
+                )
+                required = {
+                    "subscription_id",
+                    "period_key",
+                    "period_start",
+                    "cutoff_at",
+                    "coverage_gaps",
+                }
+                if (
+                    not isinstance(data, dict)
+                    or set(data) != required
+                    or data["subscription_id"] != row["subscription_id"]
+                    or data["period_key"] != row["period_key"]
+                ):
+                    raise WorkflowJobError("corrupt_scheduler_job")
+                canonical = json.dumps(
+                    data,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    allow_nan=False,
+                )
+            result.append(PendingDeliveryDispatch(outbox_id, canonical))
         return tuple(result)
 
     def read(self, now: datetime) -> SchedulerSnapshot:

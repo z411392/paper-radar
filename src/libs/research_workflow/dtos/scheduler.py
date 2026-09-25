@@ -31,6 +31,12 @@ class KnownWorkflowJob:
 
 
 @dataclass(frozen=True)
+class PendingDeliveryDispatch:
+    outbox_id: str
+    prepare_input_json: str | None
+
+
+@dataclass(frozen=True)
 class CoverageGap:
     kind: str
     identity: str
@@ -43,7 +49,7 @@ class SchedulerSnapshot:
     delivery_schedules: tuple[DeliverySchedule, ...]
     known_jobs: tuple[KnownWorkflowJob, ...]
     input_gaps: tuple[CoverageGap, ...]
-    pending_delivery_outboxes: tuple[str, ...] = ()
+    pending_delivery_outboxes: tuple[PendingDeliveryDispatch, ...] = ()
 
 
 @dataclass(frozen=True)

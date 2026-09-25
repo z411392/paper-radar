@@ -8,6 +8,7 @@ from libs.research_workflow.dtos.scheduler import (
     CoverageGap,
     DeliverySchedule,
     HarvestBindingSchedule,
+    PendingDeliveryDispatch,
     SchedulerPlan,
     SchedulerSnapshot,
 )
@@ -169,10 +170,13 @@ class PlanCatchupJobs:
     @classmethod
     def _dispatch_job(
         cls,
-        outbox_id: str,
+        schedule: PendingDeliveryDispatch,
         *,
         now: datetime,
     ) -> EnqueueWorkflowJob:
+        if not isinstance(schedule, PendingDeliveryDispatch):
+            raise WorkflowJobError("invalid_delivery_outbox")
+        outbox_id = schedule.outbox_id
         if (
             not isinstance(outbox_id, str)
             or not outbox_id.strip()
@@ -180,11 +184,17 @@ class PlanCatchupJobs:
             or "\0" in outbox_id
         ):
             raise WorkflowJobError("invalid_delivery_outbox")
+        prepare_input = None
+        if schedule.prepare_input_json is not None:
+            prepare_input = cls.decode(schedule.prepare_input_json)
         current = cls._instant(now, "invalid_scheduler_time")
         return cls._job(
             job_kind="dispatch_digest",
             business_key="dispatch:" + outbox_id,
-            payload={"outbox_id": outbox_id},
+            payload={
+                "outbox_id": outbox_id,
+                "prepare_digest": prepare_input,
+            },
             due_at=current,
             created_at=current,
         )
@@ -234,8 +244,11 @@ class PlanCatchupJobs:
             active_by_binding[item.binding_key] = item
         gaps = list(snapshot.input_gaps)
         jobs: list[EnqueueWorkflowJob] = [
-            self._dispatch_job(outbox_id, now=current)
-            for outbox_id in sorted(snapshot.pending_delivery_outboxes)
+            self._dispatch_job(schedule, now=current)
+            for schedule in sorted(
+                snapshot.pending_delivery_outboxes,
+                key=lambda item: item.outbox_id,
+            )
         ]
         blocks_digest = False
 
