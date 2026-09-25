@@ -476,6 +476,29 @@ class SqliteDeliveryStoreAdapter:
             return "cancelled"
 
     @staticmethod
+    def _runtime_guard_available(connection: sqlite3.Connection) -> bool:
+        versioned = connection.execute(
+            "SELECT 1 FROM sqlite_master "
+            "WHERE type='table' AND name='schema_migrations'"
+        ).fetchone()
+        required = {
+            "digest_items",
+            "current_summaries",
+            "summary_revisions",
+            "model_runs",
+        }
+        rows = connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' "
+            "AND name IN ('digest_items','current_summaries','summary_revisions','model_runs')"
+        ).fetchall()
+        found = {row["name"] for row in rows}
+        if versioned is None:
+            return required <= found
+        if found != required:
+            raise DeliveryStoreError("delivery_schema_corrupt")
+        return True
+
+    @staticmethod
     def _paper_inputs_current(
         connection: sqlite3.Connection,
         digest_id: str,
@@ -587,7 +610,10 @@ class SqliteDeliveryStoreAdapter:
                 )
                 return DeliveryClaim("cancelled")
 
-            if not self._paper_inputs_current(connection, row["digest_id"]):
+            if (
+                self._runtime_guard_available(connection)
+                and not self._paper_inputs_current(connection, row["digest_id"])
+            ):
                 attempt = connection.execute(
                     "SELECT 1 FROM delivery_attempts WHERE outbox_id=? LIMIT 1",
                     (outbox_id,),
