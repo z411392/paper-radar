@@ -350,3 +350,75 @@ def test_binding_store_rejects_existing_but_noncanonical_work_snapshot(
                 NOW,
             )
         )
+
+
+class FailAfterFirstBindingStore:
+    def __init__(self, delegate) -> None:
+        self.delegate = delegate
+        self.failed = False
+
+    def register(self, draft) -> None:
+        self.delegate.register(draft)
+        if not self.failed:
+            self.failed = True
+            raise CrossrefProviderProjectionError(
+                "injected_binding_after_commit"
+            )
+
+
+def test_partial_binding_commit_replays_and_completes_missing_role(
+    tmp_path: Path,
+) -> None:
+    path, identity_store, resolve_identity, _ = _setup(tmp_path)
+    _identity(resolve_identity, "10.1000/NOTICE", key="notice", kind="notice")
+    _identity(resolve_identity, "10.1000/TARGET", key="target")
+    connect = _connect(path)
+    normalize = NormalizePaperIdentifier()
+    binding_store = FailAfterFirstBindingStore(
+        SqliteCrossrefIntegrityWorkBindingStoreAdapter(connect)
+    )
+    bindings = BindCrossrefIntegrityWorks(
+        ReadPaperIdentity(normalize, identity_store),
+        binding_store,
+    )
+    project = ProjectCrossrefPendingItem(
+        normalize,
+        SqliteCrossrefProviderRevisionStoreAdapter(connect),
+        SqliteCrossrefRelationStoreAdapter(connect),
+        SqliteCrossrefIntegrityStoreAdapter(connect),
+        bindings,
+    )
+    pending = _item(
+        {
+            "DOI": "10.1000/NOTICE",
+            "update-to": [_update()],
+        }
+    )
+
+    with pytest.raises(
+        CrossrefProviderProjectionError,
+        match="injected_binding_after_commit",
+    ):
+        project(pending, observed_at=NOW)
+
+    first_roles = _rows(
+        path,
+        "SELECT role FROM crossref_integrity_work_bindings ORDER BY role",
+    )
+    assert [row["role"] for row in first_roles] == ["notice"]
+    assert len(_rows(path, "SELECT * FROM crossref_provider_revisions")) == 1
+    assert len(_rows(path, "SELECT * FROM crossref_integrity_assertions")) == 1
+
+    result = project(
+        pending,
+        observed_at=NOW.replace(hour=NOW.hour + 1),
+    )
+
+    assert result.replayed is True
+    final_roles = _rows(
+        path,
+        "SELECT role FROM crossref_integrity_work_bindings ORDER BY role",
+    )
+    assert [row["role"] for row in final_roles] == ["notice", "target"]
+    assert len(_rows(path, "SELECT * FROM crossref_provider_revisions")) == 1
+    assert len(_rows(path, "SELECT * FROM crossref_integrity_assertions")) == 1
