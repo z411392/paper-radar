@@ -19,6 +19,7 @@ from libs.research_workflow.ports.build_crossref_window_plan_port import (
     BuildCrossrefWindowPlanPort,
 )
 from libs.research_workflow.dtos.harvest_query_request import HarvestQueryRequest
+from libs.research_workflow.dtos.revision_notice import RevisionNoticeRequest
 from libs.research_workflow.dtos.worker import WorkflowJobProcessResult
 from libs.research_workflow.dtos.workflow_job import CompleteWorkflowJob
 from libs.research_workflow.exceptions.harvest_workflow_error import HarvestWorkflowError
@@ -473,9 +474,39 @@ class ProcessWorkflowJob:
                 state="awaiting_external",
             )
         data = self._payload(lease.input_json)
-        if set(data) != {"outbox_id"} or not isinstance(data["outbox_id"], str):
+        if set(data) != {"outbox_id", "prepare_digest"}:
             raise WorkflowJobError("invalid_job_payload")
-        outcome = notice(data["outbox_id"])
+        if not isinstance(data["outbox_id"], str):
+            raise WorkflowJobError("invalid_job_payload")
+        rebuild = data["prepare_digest"]
+        rebuild_request = None
+        if rebuild is not None:
+            if not isinstance(rebuild, dict) or set(rebuild) != {
+                "subscription_id",
+                "period_key",
+                "period_start",
+                "cutoff_at",
+                "coverage_gaps",
+            }:
+                raise WorkflowJobError("invalid_job_payload")
+            if (
+                not isinstance(rebuild["subscription_id"], str)
+                or not isinstance(rebuild["period_key"], str)
+            ):
+                raise WorkflowJobError("invalid_job_payload")
+            rebuild_request = ScheduledDigestRequest(
+                subscription_id=rebuild["subscription_id"],
+                period_key=rebuild["period_key"],
+                period_start=self._instant(rebuild["period_start"]),
+                cutoff_at=self._instant(rebuild["cutoff_at"]),
+                coverage_gaps=self._coverage(rebuild["coverage_gaps"]),
+            )
+        outcome = notice(
+            RevisionNoticeRequest(
+                data["outbox_id"],
+                rebuild_request,
+            )
+        )
         if outcome.state == "succeeded":
             return self._complete(
                 lease,
