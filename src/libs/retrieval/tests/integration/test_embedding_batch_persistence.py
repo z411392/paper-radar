@@ -386,3 +386,107 @@ def test_prepared_batch_rejects_noncanonical_or_duplicate_document_order() -> No
             match="invalid_embedding_batch",
         ):
             EmbeddingBatchRules.validate_prepared(batch)
+
+
+def test_partial_existing_batch_rows_fail_closed_before_republication(
+    tmp_path: Path,
+) -> None:
+    _, raw, prepare, register, persist = _commands(tmp_path)
+    space = register(_space_input())
+    first, second = _documents(prepare)
+    initial = persist(
+        EmbeddingBatchInput(
+            space.space_id,
+            (
+                _entry(first.document_id, (1.0, 0.0, 0.0, 0.0)),
+                _entry(second.document_id, (0.0, 1.0, 0.0, 0.0)),
+            ),
+        )
+    )
+
+    connection = raw.connect()
+    try:
+        connection.execute(
+            "DELETE FROM embeddings WHERE id=?",
+            (initial.embeddings[1].embedding_id,),
+        )
+        connection.commit()
+        before_objects = connection.execute(
+            "SELECT count(*) FROM object_registry WHERE kind='embedding'"
+        ).fetchone()[0]
+    finally:
+        connection.close()
+
+    with pytest.raises(EmbeddingBatchError, match="embedding_row_conflict"):
+        persist(
+            EmbeddingBatchInput(
+                space.space_id,
+                (
+                    _entry(first.document_id, (1.0, 0.0, 0.0, 0.0)),
+                    _entry(second.document_id, (0.0, 1.0, 0.0, 0.0)),
+                ),
+            )
+        )
+
+    connection = raw.connect()
+    try:
+        assert connection.execute(
+            "SELECT count(*) FROM object_registry WHERE kind='embedding'"
+        ).fetchone()[0] == before_objects
+        assert connection.execute(
+            "SELECT count(*) FROM embeddings"
+        ).fetchone()[0] == 1
+    finally:
+        connection.close()
+
+
+def test_embedding_sql_rollback_leaves_exact_object_replayable(
+    tmp_path: Path,
+) -> None:
+    _, raw, prepare, register, persist = _commands(tmp_path)
+    space = register(_space_input())
+    first, second = _documents(prepare)
+    batch = EmbeddingBatchInput(
+        space.space_id,
+        (
+            _entry(first.document_id, (1.0, 0.0, 0.0, 0.0)),
+            _entry(second.document_id, (0.0, 1.0, 0.0, 0.0)),
+        ),
+    )
+
+    connection = raw.connect()
+    try:
+        connection.execute(
+            "CREATE TRIGGER fail_embedding_insert "
+            "BEFORE INSERT ON embeddings "
+            "BEGIN SELECT RAISE(ABORT,'injected'); END"
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    with pytest.raises(EmbeddingBatchError):
+        persist(batch)
+
+    connection = raw.connect()
+    try:
+        objects = connection.execute(
+            "SELECT object_id FROM object_registry "
+            "WHERE kind='embedding'"
+        ).fetchall()
+        assert len(objects) == 1
+        orphan_object_id = objects[0]["object_id"]
+        assert connection.execute(
+            "SELECT count(*) FROM embeddings"
+        ).fetchone()[0] == 0
+        connection.execute("DROP TRIGGER fail_embedding_insert")
+        connection.commit()
+    finally:
+        connection.close()
+
+    replay = persist(batch)
+
+    assert replay.object_id == orphan_object_id
+    assert len(replay.embeddings) == 2
+    assert all(item.embedding_id > 0 for item in replay.embeddings)
+    assert all(item.replayed is False for item in replay.embeddings)
