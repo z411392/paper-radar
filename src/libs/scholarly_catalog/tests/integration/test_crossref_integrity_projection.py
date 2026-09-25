@@ -41,6 +41,8 @@ def _setup(tmp_path: Path):
     connection = sqlite3.connect(path)
     connection.execute("PRAGMA foreign_keys=ON")
     for name in (
+        "0001-object-registry.sql",
+        "0003-scholarly-catalog.sql",
         "0017-crossref-provider-revisions.sql",
         "0019-crossref-relation-assertions.sql",
         "0020-crossref-integrity-assertions.sql",
@@ -413,3 +415,27 @@ def test_integrity_projection_does_not_create_synthetic_relation(tmp_path: Path)
         observed_at=NOW,
     )
     assert _rows(path, "SELECT * FROM crossref_relation_assertions") == []
+
+
+def test_integrity_assertion_does_not_mutate_work_status_or_research_events(
+    tmp_path: Path,
+) -> None:
+    path, project = _setup(tmp_path)
+    project(
+        _item(
+            {
+                "DOI": "10.1000/NOTICE",
+                "update-to": [
+                    _update(
+                        counterparty="10.1000/ORIGINAL",
+                        kind="retraction",
+                        source="publisher",
+                    )
+                ],
+            }
+        ),
+        observed_at=NOW,
+    )
+
+    assert _rows(path, "SELECT * FROM paper_works") == []
+    assert _rows(path, "SELECT * FROM research_events") == []
