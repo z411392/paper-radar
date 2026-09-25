@@ -7,12 +7,21 @@ from libs.delivery.adapters.driven.sqlite_delivery_store_adapter import SqliteDe
 from libs.delivery.adapters.driven.sqlite_digest_delivery_context_adapter import (
     SqliteDigestDeliveryContextAdapter,
 )
+from libs.delivery.adapters.driven.sqlite_local_delivery_history_adapter import (
+    SqliteLocalDeliveryHistoryAdapter,
+)
 from libs.delivery.adapters.driven.sqlite_prior_recipient_history_adapter import (
     SqlitePriorRecipientHistoryAdapter,
 )
 from libs.delivery.application.commands.prepare_scheduled_digest import PrepareScheduledDigest
 from libs.delivery.application.commands.queue_digest import QueueDigest
+from libs.delivery.application.queries.read_local_reading_history import (
+    ReadLocalReadingHistory,
+)
 from libs.delivery.ports.prepare_scheduled_digest_port import PrepareScheduledDigestPort
+from libs.delivery.ports.read_local_reading_history_port import (
+    ReadLocalReadingHistoryPort,
+)
 from libs.discovery.adapters.driven.arxiv_atom_parser_adapter import PARSER_VERSION, ArxivAtomParserAdapter
 from libs.discovery.adapters.driven.arxiv_query_compiler_adapter import ArxivQueryCompilerAdapter
 from libs.discovery.adapters.driven.arxiv_source_adapter import ArxivSourceAdapter
@@ -166,6 +175,9 @@ from libs.scholarly_catalog.adapters.driven.sqlite_research_event_store_adapter 
 from libs.scholarly_catalog.adapters.driven.sqlite_paper_identity_store_adapter import (
     SqlitePaperIdentityStoreAdapter,
 )
+from libs.scholarly_catalog.adapters.driven.sqlite_local_paper_history_adapter import (
+    SqliteLocalPaperHistoryAdapter,
+)
 from libs.scholarly_catalog.application.commands.bind_crossref_integrity_works import (
     BindCrossrefIntegrityWorks,
 )
@@ -178,7 +190,13 @@ from libs.scholarly_catalog.application.commands.promote_crossref_integrity_even
 from libs.scholarly_catalog.application.commands.record_paper_revision import (
     RecordPaperRevision,
 )
+from libs.scholarly_catalog.application.queries.read_local_paper_record import (
+    ReadLocalPaperRecord,
+)
 from libs.scholarly_catalog.application.queries.read_paper_identity import ReadPaperIdentity
+from libs.scholarly_catalog.ports.read_local_paper_record_port import (
+    ReadLocalPaperRecordPort,
+)
 from libs.scholarly_catalog.domain.services.normalize_paper_identifier import (
     NormalizePaperIdentifier,
 )
@@ -252,6 +270,35 @@ class WorkspaceEffectsCliModule(Module):
             SetWorkspaceExternalEffectsPort,
             to=InstanceProvider(command),
         )
+
+class ReadingHistoryCliModule(Module):
+    """Read exact local paper and delivery history without external I/O."""
+
+    def __init__(self, workspace: str) -> None:
+        self._workspace = workspace
+
+    def configure(self, binder: Binder) -> None:
+        connection = SqliteSchemaConnectionFactory(
+            Path(self._workspace),
+            load_workspace_migrations(with_runtime=True),
+            minimum_version=7,
+        )
+        paper = ReadLocalPaperRecord(
+            SqliteLocalPaperHistoryAdapter(connection.connect)
+        )
+        history = ReadLocalReadingHistory(
+            paper,
+            SqliteLocalDeliveryHistoryAdapter(connection.connect),
+        )
+        binder.bind(
+            ReadLocalPaperRecordPort,
+            to=InstanceProvider(paper),
+        )
+        binder.bind(
+            ReadLocalReadingHistoryPort,
+            to=InstanceProvider(history),
+        )
+
 
 class WatchProfileCliModule(Module):
     """Assemble profile ports without bootstrapping or opening a database."""

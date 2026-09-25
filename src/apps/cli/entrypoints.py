@@ -7,6 +7,9 @@ from injector import Injector
 
 from apps.cli.adapters.driving.initialize_workspace import initialize_workspace
 from apps.cli.adapters.driving.manage_harvest import run_harvest_cli
+from apps.cli.adapters.driving.manage_reading_history import (
+    run_reading_history_cli,
+)
 from apps.cli.adapters.driving.manage_watch_profiles import run_watch_cli
 from apps.cli.adapters.driving.manage_workspace_effects import (
     run_workspace_effects_cli,
@@ -29,6 +32,7 @@ def run() -> None:
                 "harvest",
                 "effects",
                 "run-worker",
+                "reading",
             ),
             nargs="?",
         )
@@ -72,6 +76,9 @@ def run() -> None:
         return
     if sys.argv[1:2] == ["run-worker"]:
         run_worker_cli(sys.argv[1:])
+        return
+    if sys.argv[1:2] == ["reading"]:
+        run_reading_history_cli(sys.argv[1:])
         return
     injector = Injector([CliModule()], auto_bind=False)
     Fire({"version": partial(show_version, injector)})
