@@ -41,7 +41,7 @@ class Fixture:
         self.root = root
         migrations = load_workspace_migrations(with_runtime=True)
         self.info = SqliteWorkspaceBootstrapAdapter(root, migrations).initialize()
-        assert self.info.schema_version == 17
+        assert self.info.schema_version == 18
         self.connection = SqliteSchemaConnectionFactory(root, migrations, minimum_version=15)
         self.connect = self.connection.connect
         self.sql('UPDATE workspace_metadata SET external_effects_enabled=1')
