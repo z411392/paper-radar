@@ -1,4 +1,4 @@
-"""Real runtime-v15 claims, inbox and kernel files/registry, without provider HTTP.
+"""Real current-runtime claims, inbox and kernel files/registry, without provider HTTP.
 
 Process-exit fault injection is not a physical power-loss test. Fixture SQL seeds
 only the window/pass; reserve, dispatch, staging and publication use production code.
@@ -60,7 +60,7 @@ class Runtime:
         bundle = load_workspace_migrations(with_runtime=True)
         if initialize:
             info = SqliteWorkspaceBootstrapAdapter(root, bundle).initialize()
-            assert info.schema_version == 17 and not info.external_effects_enabled
+            assert info.schema_version == 22 and not info.external_effects_enabled
         self.raw = SqliteConnectionFactory(root)
         self.schema = SqliteSchemaConnectionFactory(root, bundle, minimum_version=15)
         self.files = FilesystemObjectBytesAdapter(root)

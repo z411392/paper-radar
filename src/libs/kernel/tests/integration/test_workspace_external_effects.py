@@ -38,13 +38,13 @@ def test_external_effects_toggle_is_idempotent_and_preserves_identity(tmp_path: 
     root = tmp_path / "runtime"
     migrations = load_workspace_migrations(with_runtime=True)
     original = SqliteWorkspaceBootstrapAdapter(root, migrations).initialize()
-    assert original.schema_version == 17
+    assert original.schema_version == 22
     assert original.external_effects_enabled is False
 
     connection = SqliteSchemaConnectionFactory(
         root,
         migrations,
-        minimum_version=17,
+        minimum_version=22,
     )
     adapter = SqliteWorkspaceExternalEffectsAdapter(connection.connect)
 
@@ -57,7 +57,7 @@ def test_external_effects_toggle_is_idempotent_and_preserves_identity(tmp_path: 
     assert disabled.external_effects_enabled is False
     assert disabled.workspace_id == original.workspace_id
     assert disabled.epoch == original.epoch
-    assert disabled.schema_version == 17
+    assert disabled.schema_version == 22
 
 
 def test_external_effects_rejects_non_boolean_state(tmp_path: Path) -> None:
@@ -204,17 +204,17 @@ def test_run_worker_live_composition_never_enables_workspace_master_gate(
         connection.close()
 
 
-def test_commissioned_crossref_worker_rejects_runtime_v16_before_provider_io(
+def test_commissioned_crossref_worker_rejects_previous_runtime_before_provider_io(
     tmp_path: Path,
 ) -> None:
-    workspace = tmp_path / "runtime-v16"
+    workspace = tmp_path / "runtime-v21"
     current = load_workspace_migrations(with_runtime=True)
-    assert len(current) == 17
+    assert len(current) == 22
     info = SqliteWorkspaceBootstrapAdapter(
         workspace,
         current[:-1],
     ).initialize()
-    assert info.schema_version == 16
+    assert info.schema_version == 21
     rate_dir = tmp_path / "crossref-rate"
     rate_dir.mkdir(mode=0o700)
 

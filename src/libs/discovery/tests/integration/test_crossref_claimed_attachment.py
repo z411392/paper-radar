@@ -1,4 +1,4 @@
-"""Real v15 bootstrap/claim/inbox, disk object-port fixture; no provider I/O."""
+"""Real current-runtime bootstrap/claim/inbox, disk object-port fixture; no provider I/O."""
 import hashlib
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
@@ -41,8 +41,8 @@ class Fixture:
         self.root = root
         migrations = load_workspace_migrations(with_runtime=True)
         self.info = SqliteWorkspaceBootstrapAdapter(root, migrations).initialize()
-        assert self.info.schema_version == 17
-        self.connection = SqliteSchemaConnectionFactory(root, migrations, minimum_version=17)
+        assert self.info.schema_version == 22
+        self.connection = SqliteSchemaConnectionFactory(root, migrations, minimum_version=22)
         self.connect = self.connection.connect
         self.sql('UPDATE workspace_metadata SET external_effects_enabled=1')
         source = CrossrefSourceAdapter()

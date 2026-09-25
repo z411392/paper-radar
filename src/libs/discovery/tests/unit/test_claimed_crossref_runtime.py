@@ -303,7 +303,7 @@ def test_claimed_runner_stops_at_projection_without_advancing_cursor():
         lambda plan, claim: None,
         lambda plan, claim: None,
         lambda plan, request, receipt_id: object(),
-        lambda: WorkspaceInfo("workspace:test", 1, True, 17),
+        lambda: WorkspaceInfo("workspace:test", 1, True, 22),
         clock=lambda: NOW,
     )
 
@@ -340,7 +340,7 @@ def test_claimed_runner_master_off_never_reserves_or_captures_new_http():
         lambda plan, claim: None,
         lambda plan, claim: None,
         lambda plan, request, receipt_id: object(),
-        lambda: WorkspaceInfo("workspace:test", 1, False, 17),
+        lambda: WorkspaceInfo("workspace:test", 1, False, 22),
         clock=lambda: NOW,
     )
 

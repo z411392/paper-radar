@@ -1,4 +1,4 @@
-"""Author tests: real SQLite v16, production claims/inbox, disk object-port fixture.
+"""Author tests: real SQLite v22, production claims/inbox, disk object-port fixture.
 
 No provider transport. Completed evidence is not itself a send authorization.
 """
@@ -25,8 +25,8 @@ from libs.discovery.tests.integration.test_crossref_claimed_attachment import Fi
 @pytest.fixture
 def f(tmp_path):
     fixture = Fixture(tmp_path / 'runtime')
-    assert fixture.info.schema_version == 17
-    assert fixture.sql('SELECT MAX(version) FROM schema_migrations')[0][0] == 17
+    assert fixture.info.schema_version == 22
+    assert fixture.sql('SELECT MAX(version) FROM schema_migrations')[0][0] == 22
     return fixture
 
 
