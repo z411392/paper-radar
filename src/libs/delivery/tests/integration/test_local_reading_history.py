@@ -246,7 +246,7 @@ def _setup(tmp_path: Path) -> Path:
         ),
     )
     connection.execute(
-        "INSERT INTO research_events VALUES(?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO research_events VALUES(?,?,?,?,?,?,?,?)",
         (
             "event:correction",
             "work:canonical",
