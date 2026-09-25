@@ -1,9 +1,11 @@
 import hashlib
+import math
 import smtplib
 import ssl
 from email.message import EmailMessage
 
 from libs.delivery.dtos.delivery_dispatch import MailMessage, MailSendResult
+from libs.delivery.exceptions.mail_configuration_error import MailConfigurationError
 
 
 class SmtpMailSenderAdapter:
@@ -17,12 +19,43 @@ class SmtpMailSenderAdapter:
         password: str,
         timeout_seconds: float = 20.0,
     ) -> None:
+        if (
+            not isinstance(host, str)
+            or not host
+            or host != host.strip()
+            or len(host) > 253
+            or "://" in host
+            or any(char.isspace() or ord(char) < 33 or ord(char) == 127 for char in host)
+            or type(port) is not int
+            or not 1 <= port <= 65535
+            or not isinstance(username, str)
+            or not username
+            or len(username) > 320
+            or "\r" in username
+            or "\n" in username
+            or "\0" in username
+            or not isinstance(password, str)
+            or not password
+            or len(password.encode("utf-8")) > 8192
+            or "\r" in password
+            or "\n" in password
+            or "\0" in password
+            or isinstance(timeout_seconds, bool)
+            or not isinstance(timeout_seconds, (int, float))
+            or not math.isfinite(timeout_seconds)
+            or not 0 < timeout_seconds <= 120
+        ):
+            raise MailConfigurationError("invalid_smtp_configuration")
+        try:
+            self._safe_address(sender)
+        except ValueError as exc:
+            raise MailConfigurationError("invalid_smtp_configuration") from exc
         self._host = host
         self._port = port
         self._sender = sender
         self._username = username
         self._password = password
-        self._timeout = timeout_seconds
+        self._timeout = float(timeout_seconds)
 
     @staticmethod
     def _safe_address(value: object) -> str:
