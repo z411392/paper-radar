@@ -35,6 +35,7 @@ class Journal:
         self.pending = {key: list(value) for key, value in pending.items()}
         self.processed = []
         self.errors = []
+        self.quarantined = []
 
     def pending_items(self, page_id):
         return tuple(self.pending.get(page_id, ()))
@@ -50,6 +51,24 @@ class Journal:
     ):
         self.processed.append(
             (page_id, ordinal, canonical_doi, outcome_ref, processed_at)
+        )
+        self.pending[page_id] = [
+            item
+            for item in self.pending[page_id]
+            if item.ordinal != ordinal
+        ]
+        return False
+
+    def mark_projection_quarantined(
+        self,
+        page_id,
+        ordinal,
+        *,
+        error_code,
+        quarantined_at,
+    ):
+        self.quarantined.append(
+            (page_id, ordinal, error_code, quarantined_at)
         )
         self.pending[page_id] = [
             item
@@ -136,8 +155,14 @@ def test_projection_marks_item_then_runner_can_complete() -> None:
     ]
 
 
-def test_projection_failure_stays_pending_and_records_page_error() -> None:
-    harvest = Harvest([result("projection_required")])
+def test_invalid_doi_is_durably_quarantined_and_does_not_block_page() -> None:
+    harvest = Harvest(
+        [
+            result("projection_required"),
+            result("page_committed", pending=0, error="crossref_page_budget"),
+            result("pass_completed", pending=0, error=None),
+        ]
+    )
     journal = Journal({"crossref-page:1": [item()]})
     project = Project(error="crossref_provider_doi_invalid")
     runner = RunProjectedCrossrefHarvestWindow(
@@ -149,12 +174,39 @@ def test_projection_failure_stays_pending_and_records_page_error() -> None:
 
     outcome = runner(object(), owner_id="worker:test", max_pages=2, lease_seconds=60)
 
+    assert outcome.state == "pass_completed"
+    assert journal.processed == []
+    assert journal.errors == []
+    assert journal.quarantined == [
+        (
+            "crossref-page:1",
+            0,
+            "crossref_provider_doi_invalid",
+            NOW,
+        )
+    ]
+
+
+def test_projection_system_failure_stays_pending_and_records_page_error() -> None:
+    harvest = Harvest([result("projection_required")])
+    journal = Journal({"crossref-page:1": [item()]})
+    project = Project(error="crossref_provider_database_error")
+    runner = RunProjectedCrossrefHarvestWindow(
+        harvest,
+        journal,
+        project,
+        clock=lambda: NOW,
+    )
+
+    outcome = runner(object(), owner_id="worker:test", max_pages=2, lease_seconds=60)
+
     assert outcome.state == "projection_failed"
-    assert outcome.error_code == "crossref_provider_doi_invalid"
+    assert outcome.error_code == "crossref_provider_database_error"
     assert outcome.pending_item_count == 1
     assert journal.processed == []
+    assert journal.quarantined == []
     assert journal.errors == [
-        ("crossref-page:1", "crossref_provider_doi_invalid")
+        ("crossref-page:1", "crossref_provider_database_error")
     ]
 
 
