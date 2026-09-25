@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from libs.discovery.dtos.harvest_unit_context import HarvestUnitContext
 from libs.discovery.dtos.source_observation_page import SourceObservationPage
 from libs.research_workflow.application.commands.project_source_catalog_unit import (
     ProjectSourceCatalogUnit,
@@ -185,3 +186,100 @@ def test_completed_projection_replay_is_read_only() -> None:
 
     assert result.state == "succeeded"
     assert result.processed_in_call == 0
+
+
+class Context:
+    def __call__(self, unit_id, source):
+        return HarvestUnitContext(
+            unit_id,
+            source,
+            "personal",
+            3,
+            "statistics",
+            1,
+        )
+
+
+class Jobs:
+    def __init__(self):
+        self.requests = []
+
+    def enqueue(self, request):
+        self.requests.append(request)
+        return SimpleNamespace(job_id="job:test", replayed=False)
+
+
+def replay_with_time(observation_id):
+    return SimpleNamespace(
+        observation_id=observation_id,
+        unit_id=UNIT,
+        observed_at=NOW,
+    )
+
+
+def project_with_evidence(value):
+    return SimpleNamespace(
+        observation_id=value.observation_id,
+        work_id="work:" + "a" * 64,
+        revision_id="revision:" + "b" * 64,
+        evidence_state="available",
+        evidence_snapshot_id="snapshot:" + "c" * 64,
+    )
+
+
+def test_explanation_job_is_enqueued_before_projection_cursor_advance() -> None:
+    jobs = Jobs()
+
+    class FailingAdvance(Store):
+        def advance(self, *args, **kwargs):
+            assert len(jobs.requests) == 1
+            raise RuntimeError("checkpoint crash")
+
+    usecase = ProjectSourceCatalogUnit(
+        ListPage((O1,)),
+        FailingAdvance(),
+        replay_with_time,
+        project_with_evidence,
+        replay_with_time,
+        project_with_evidence,
+        Context(),
+        jobs,
+    )
+
+    with pytest.raises(RuntimeError, match="checkpoint crash"):
+        usecase("arxiv", UNIT, max_observations=2, projected_at=NOW)
+
+    job = jobs.requests[0]
+    assert job.job_kind == "explain_snapshot"
+    assert job.due_at == NOW
+    assert job.created_at == NOW
+    assert job.business_key == f"explain:{O1}:personal:3:statistics:1"
+
+
+def test_unavailable_abstract_does_not_enqueue_explanation_job() -> None:
+    jobs = Jobs()
+
+    def unavailable(value):
+        return SimpleNamespace(
+            observation_id=value.observation_id,
+            work_id="work:" + "a" * 64,
+            revision_id="revision:" + "b" * 64,
+            evidence_state="unavailable",
+            evidence_snapshot_id=None,
+        )
+
+    usecase = ProjectSourceCatalogUnit(
+        ListPage((O1,)),
+        Store(),
+        replay_with_time,
+        unavailable,
+        replay_with_time,
+        unavailable,
+        Context(),
+        jobs,
+    )
+
+    result = usecase("arxiv", UNIT, max_observations=2, projected_at=NOW)
+
+    assert result.state == "succeeded"
+    assert jobs.requests == []

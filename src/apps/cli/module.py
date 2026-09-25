@@ -56,6 +56,9 @@ from libs.discovery.adapters.driven.sqlite_crossref_harvest_journal_adapter impo
     SqliteCrossrefHarvestJournalAdapter,
 )
 from libs.discovery.adapters.driven.sqlite_harvest_processing_adapter import SqliteHarvestProcessingAdapter
+from libs.discovery.adapters.driven.sqlite_harvest_unit_context_adapter import (
+    SqliteHarvestUnitContextAdapter,
+)
 from libs.discovery.adapters.driven.sqlite_harvest_resume_adapter import SqliteHarvestResumeAdapter
 from libs.discovery.adapters.driven.sqlite_harvest_store_adapter import SqliteHarvestStoreAdapter
 from libs.discovery.adapters.driven.sqlite_arxiv_observation_replay_adapter import (
@@ -525,6 +528,7 @@ class WorkerCliModule(Module):
         publish_object = PublishObject(files, objects)
 
         clock = SystemWorkflowClockAdapter()
+        jobs = SqliteWorkflowJobStoreAdapter(connection.connect)
 
         harvest = None
         if self._allow_live_source and self._rate_limit_state is not None:
@@ -604,6 +608,8 @@ class WorkerCliModule(Module):
                     record_revision,
                     abstract_evidence,
                 ),
+                SqliteHarvestUnitContextAdapter(connection.connect),
+                jobs,
             )
 
         crossref_plan = None
@@ -797,7 +803,6 @@ class WorkerCliModule(Module):
             clock=clock.now,
         )
 
-        jobs = SqliteWorkflowJobStoreAdapter(connection.connect)
         scheduler = RunSchedulerTick(
             SqliteSchedulerInputAdapter(connection.connect),
             jobs,
