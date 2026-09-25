@@ -51,7 +51,7 @@ def run() -> None:
         schema.add_argument(
             "--with-runtime",
             action="store_true",
-            help="Explicitly install schemas 0001 through 0008",
+            help="Explicitly install the current runtime schema bundle",
         )
         arguments = parser.parse_args(sys.argv[2:])
         initialize_workspace(
