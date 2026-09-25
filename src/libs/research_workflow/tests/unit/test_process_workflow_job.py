@@ -297,7 +297,12 @@ def test_pubmed_job_without_pubmed_runtime_is_awaiting_not_arxiv_fallback() -> N
 
 
 def test_dispatch_digest_without_revision_notice_runtime_is_awaiting_external() -> None:
-    store = Store(lease("dispatch_digest", '{"outbox_id":"outbox:test"}'))
+    store = Store(
+        lease(
+            "dispatch_digest",
+            '{"outbox_id":"outbox:test","prepare_digest":null}',
+        )
+    )
     command = ProcessWorkflowJob(
         store=store,
         builder=Mock(),
@@ -313,7 +318,12 @@ def test_dispatch_digest_without_revision_notice_runtime_is_awaiting_external() 
 
 
 def test_dispatch_digest_uses_formal_revision_notice_port() -> None:
-    store = Store(lease("dispatch_digest", '{"outbox_id":"outbox:test"}'))
+    store = Store(
+        lease(
+            "dispatch_digest",
+            '{"outbox_id":"outbox:test","prepare_digest":null}',
+        )
+    )
     notice = Mock(return_value=Mock(state="succeeded", error_code=None))
     command = ProcessWorkflowJob(
         store=store,
@@ -327,6 +337,41 @@ def test_dispatch_digest_uses_formal_revision_notice_port() -> None:
     result = command("worker:test", lease_seconds=60)
 
     notice.assert_called_once()
-    assert notice.call_args.args == ("outbox:test",)
+    request = notice.call_args.args[0]
+    assert request.outbox_id == "outbox:test"
+    assert request.rebuild_request is None
     assert result.state == "succeeded"
     assert store.completed[0].state == "succeeded"
+
+
+def test_dispatch_digest_preserves_exact_prepare_context_for_rebuild() -> None:
+    payload = (
+        '{"outbox_id":"outbox:test","prepare_digest":{'
+        '"subscription_id":"subscription:daily",'
+        '"period_key":"2026-09-25",'
+        '"period_start":"2026-09-23T00:00:00+00:00",'
+        '"cutoff_at":"2026-09-25T00:00:00+00:00",'
+        '"coverage_gaps":[{"kind":"harvest","identity":"x","reason":"gap"}]}}'
+    )
+    store = Store(lease("dispatch_digest", payload))
+    notice = Mock(return_value=Mock(state="succeeded", error_code=None))
+    command = ProcessWorkflowJob(
+        store=store,
+        builder=Mock(),
+        harvest=None,
+        clock=Clock(),
+        live_source_enabled=False,
+        revision_notice=notice,
+    )
+
+    result = command("worker:test", lease_seconds=60)
+
+    request = notice.call_args.args[0]
+    assert request.outbox_id == "outbox:test"
+    assert request.rebuild_request is not None
+    assert request.rebuild_request.subscription_id == "subscription:daily"
+    assert request.rebuild_request.period_key == "2026-09-25"
+    assert request.rebuild_request.period_start == NOW - timedelta(days=2)
+    assert request.rebuild_request.cutoff_at == NOW
+    assert request.rebuild_request.coverage_gaps[0].reason == "gap"
+    assert result.state == "succeeded"

@@ -6,11 +6,11 @@ from libs.delivery.dtos.delivery_dispatch import (
     DeliveryPreflightSnapshot,
     DispatchOutcome,
 )
-from libs.paper_explanations.dtos.digest_current_summary import DigestCurrentSummary
 from libs.delivery.dtos.scheduled_digest import (
     ScheduledDigestOutcome,
     ScheduledDigestRequest,
 )
+from libs.paper_explanations.dtos.digest_current_summary import DigestCurrentSummary
 from libs.research_workflow.application.commands.process_revision_notice import (
     ProcessRevisionNotice,
 )
