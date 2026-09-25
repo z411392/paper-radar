@@ -55,8 +55,8 @@ class AssessTrackedPaperRelevance:
             code = "profile_changed" if state == "stale" else exc.code
             return TrackedRelevanceAssessment(
                 RelevanceRules.failure(request, state, code),
-                None,
-                None,
+                exc.run_id,
+                exc.generation_fingerprint,
             )
         if self._profiles(profile_id) != profile:
             return TrackedRelevanceAssessment(

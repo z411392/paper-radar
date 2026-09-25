@@ -131,9 +131,16 @@ def test_budget_block_and_same_identity_in_progress_never_call_provider(tmp_path
     db, _, _, ledger = setup(tmp_path)
     model = Mock(return_value=result())
     RunBudgetedGeneration(model, ledger, Clock(), policy(period_limit_micros=1_000))(request())
-    with pytest.raises(ModelGatewayError, match="budget_blocked"):
-        RunBudgetedGeneration(model, ledger, Clock(AT + timedelta(minutes=1)),
-                              policy(period_limit_micros=1_000))(request(payload_json='{"other":true}'))
+    with pytest.raises(ModelGatewayError, match="budget_blocked") as raised:
+        RunBudgetedGeneration(
+            model,
+            ledger,
+            Clock(AT + timedelta(minutes=1)),
+            policy(period_limit_micros=1_000),
+        )(request(payload_json='{"other":true}'))
+    blocked = [row for row in rows(db, "model_runs") if row["state"] == "budget_blocked"][0]
+    assert raised.value.run_id == blocked["id"]
+    assert raised.value.generation_fingerprint == blocked["input_fingerprint"]
     active = GenerationExecutionRules.identity(request(payload_json='{"active":true}'), policy())
     ledger.reserve(active, AT + timedelta(minutes=2))
     before = model.call_count
@@ -148,10 +155,17 @@ def test_budget_block_and_same_identity_in_progress_never_call_provider(tmp_path
 def test_failed_known_cost_is_not_cache_but_exact_receipt_is_preserved(tmp_path: Path) -> None:
     db, objects, _, ledger = setup(tmp_path)
     failed = receipt(cost_usd="0.0001000001", finish_reason=None)
-    with pytest.raises(ModelGatewayError, match="provider_unavailable"):
-        RunBudgetedGeneration(Mock(side_effect=ModelGatewayError("provider_unavailable", failed)),
-                              ledger, Clock(), policy())(request())
+    with pytest.raises(ModelGatewayError, match="provider_unavailable") as raised:
+        RunBudgetedGeneration(
+            Mock(side_effect=ModelGatewayError("provider_unavailable", failed)),
+            ledger,
+            Clock(),
+            policy(),
+        )(request())
     run = rows(db, "model_runs")[0]
+    assert raised.value.run_id == run["id"]
+    assert raised.value.generation_fingerprint == run["input_fingerprint"]
+    assert raised.value.receipt == failed
     assert run["state"] == "failed" and run["actual_cost_micros"] == 101
     assert rows(db, "usage_reservations")[0]["state"] == "settled"
     assert '"cost_usd":"0.0001000001"' in objects.read(run["output_object_id"]).decode()

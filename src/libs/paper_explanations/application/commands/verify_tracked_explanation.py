@@ -45,7 +45,7 @@ class VerifyTrackedExplanation:
             execution = self._generation.execute(
                 SupportGenerationRules.request(support_request)
             )
-        except ModelGatewayError:
+        except ModelGatewayError as exc:
             return TrackedExplanationVerification(
                 ExplanationVerificationResult(
                     deterministic,
@@ -53,8 +53,8 @@ class VerifyTrackedExplanation:
                     "pending",
                     "failed",
                 ),
-                None,
-                None,
+                exc.run_id,
+                exc.generation_fingerprint,
             )
         candidate = SupportGenerationRules.parse(
             support_request,

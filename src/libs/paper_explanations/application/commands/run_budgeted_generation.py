@@ -45,7 +45,13 @@ class RunBudgetedGeneration:
                 True,
             )
         if reservation.state == "budget_blocked":
-            raise ModelGatewayError("budget_blocked")
+            if reservation.run_id is None:
+                raise GenerationLedgerError("generation_ledger_corrupt")
+            raise ModelGatewayError(
+                "budget_blocked",
+                run_id=reservation.run_id,
+                generation_fingerprint=identity.generation_fingerprint,
+            )
         if reservation.state == "in_progress":
             raise GenerationLedgerError("generation_in_progress")
         if reservation.state != "reserved" or reservation.run_id is None:
@@ -64,7 +70,12 @@ class RunBudgetedGeneration:
                 no_charge=GenerationExecutionRules.is_known_no_charge(exc.code),
                 finished_at=self._clock(),
             )
-            raise
+            raise ModelGatewayError(
+                exc.code,
+                exc.receipt,
+                run_id=run_id,
+                generation_fingerprint=identity.generation_fingerprint,
+            ) from exc
         except Exception:
             self._ledger.complete_failure(
                 run_id,
