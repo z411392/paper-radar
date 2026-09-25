@@ -127,6 +127,9 @@ from libs.research_workflow.ports.workflow_job_store_port import WorkflowJobStor
 from libs.scholarly_catalog.adapters.driven.sqlite_crossref_provider_revision_store_adapter import (
     SqliteCrossrefProviderRevisionStoreAdapter,
 )
+from libs.scholarly_catalog.adapters.driven.sqlite_crossref_relation_store_adapter import (
+    SqliteCrossrefRelationStoreAdapter,
+)
 from libs.scholarly_catalog.adapters.driven.sqlite_digest_research_event_adapter import (
     SqliteDigestResearchEventAdapter,
 )
@@ -360,7 +363,7 @@ class WorkerCliModule(Module):
         connection = SqliteSchemaConnectionFactory(
             root,
             load_workspace_migrations(with_runtime=True),
-            minimum_version=18 if crossref_requested else 10,
+            minimum_version=19 if crossref_requested else 10,
         )
         profile_store = SqliteWatchProfileStoreAdapter(connection.connect)
         builder = BuildHarvestQueryInput(
@@ -494,6 +497,7 @@ class WorkerCliModule(Module):
                 ProjectCrossrefPendingItem(
                     NormalizePaperIdentifier(),
                     SqliteCrossrefProviderRevisionStoreAdapter(connection.connect),
+                    SqliteCrossrefRelationStoreAdapter(connection.connect),
                 ),
                 clock=clock.now,
             )
