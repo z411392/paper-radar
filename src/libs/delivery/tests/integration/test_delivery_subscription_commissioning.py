@@ -151,3 +151,34 @@ def test_invalid_configuration_has_zero_mutation(
         ).fetchone()[0] == 0
     finally:
         connection.close()
+
+
+def test_read_detects_noncanonical_schedule_state(tmp_path: Path) -> None:
+    schema, _, store = _setup(tmp_path)
+    configured = store.configure(_request(), now=NOW)
+    connection = schema.connect()
+    try:
+        connection.execute(
+            "UPDATE delivery_subscriptions SET schedule_json=? WHERE id=?",
+            ('{"local_time":"08:00","kind":"daily"}', configured.subscription_id),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    with pytest.raises(
+        DeliverySubscriptionError,
+        match="delivery_subscription_state_corrupt",
+    ):
+        store.read("reader:local")
+
+
+def test_read_is_a_query_not_a_configure_replay(tmp_path: Path) -> None:
+    _, _, store = _setup(tmp_path)
+    configured = store.configure(_request(), now=NOW)
+
+    read = store.read("reader:local")
+
+    assert read is not None
+    assert read.subscription_id == configured.subscription_id
+    assert read.replayed is False

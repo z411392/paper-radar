@@ -74,7 +74,8 @@ class SqliteDeliverySubscriptionStoreAdapter:
             )
             normalized = Rules.normalize(request)
             if (
-                row["channel"] != "email"
+                row["schedule_json"] != normalized[2]
+                or row["channel"] != "email"
                 or type(row["enabled"]) is not int
                 or row["enabled"] not in {0, 1}
                 or type(row["policy_version"]) is not int
@@ -210,4 +211,4 @@ class SqliteDeliverySubscriptionStoreAdapter:
                 "WHERE reader_id=? AND channel='email'",
                 (normalized,),
             ).fetchone()
-            return None if row is None else self._decode(row, replayed=True)
+            return None if row is None else self._decode(row, replayed=False)
