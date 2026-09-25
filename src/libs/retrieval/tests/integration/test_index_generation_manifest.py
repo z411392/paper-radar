@@ -22,6 +22,9 @@ from libs.retrieval.tests.integration.test_embedding_batch_persistence import (
     _entry,
     _space_input,
 )
+from libs.retrieval.tests.integration.test_search_document_persistence import (
+    _document,
+)
 from libs.retrieval.dtos.embedding_batch import EmbeddingBatchInput
 
 
@@ -153,13 +156,8 @@ def test_missing_current_document_embedding_rejects_partial_generation(
     _, _, prepare, space, _, store, _ = _generation(tmp_path)
 
     prepare(
-        __import__(
-            "libs.retrieval.tests.integration.test_search_document_persistence",
-            fromlist=["_document"],
-        )._document(
-            work_id="work:3",
-            revision_id="revision:3",
-            projection_kind="paper_abstract",
+        _document(
+            projection_kind="paper_reading",
             title="Missing vector",
         )
     )
