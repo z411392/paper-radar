@@ -2,8 +2,8 @@ import math
 import re
 
 from libs.retrieval.domain.services.hybrid_rank_rules import HybridRankRules
-from libs.retrieval.dtos.active_index_artifact import ActiveIndexArtifacts
 from libs.retrieval.domain.services.search_query_rules import SearchQueryRules
+from libs.retrieval.dtos.active_index_artifact import ActiveIndexArtifacts
 from libs.retrieval.dtos.search_hybrid import (
     SearchHybridQuery,
     SearchHybridResult,
