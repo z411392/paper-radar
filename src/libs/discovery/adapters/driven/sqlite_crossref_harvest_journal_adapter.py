@@ -356,21 +356,38 @@ class SqliteCrossrefHarvestJournalAdapter:
                 return self._pass_state(row)
             if row["state"] != "running":
                 raise CrossrefHarvestJournalError("crossref_pass_conflict")
-            connection.execute(
+            changed = connection.execute(
                 "UPDATE crossref_harvest_passes SET state='failed',error_code=?,"
                 "finished_at=? WHERE id=? AND state='running'",
                 (error, finished, pass_id),
-            )
-            connection.execute(
+            ).rowcount
+            if changed != 1:
+                raise CrossrefHarvestJournalError("crossref_pass_conflict")
+            changed = connection.execute(
                 "UPDATE crossref_harvest_windows SET state='failed',updated_at=? "
-                "WHERE id=?",
+                "WHERE id=? AND state='running'",
                 (finished, row["window_id"]),
-            )
+            ).rowcount
+            if changed != 1:
+                raise CrossrefHarvestJournalError("crossref_pass_conflict")
             updated = connection.execute(
                 "SELECT * FROM crossref_harvest_passes WHERE id=?",
                 (pass_id,),
             ).fetchone()
-            assert updated is not None
+            written_window = connection.execute(
+                "SELECT state,updated_at FROM crossref_harvest_windows "
+                "WHERE id=?",
+                (row["window_id"],),
+            ).fetchone()
+            if (
+                updated is None
+                or updated["state"] != "failed"
+                or updated["error_code"] != error
+                or updated["finished_at"] != finished
+                or written_window is None
+                or tuple(written_window) != ("failed", finished)
+            ):
+                raise CrossrefHarvestJournalError("crossref_pass_conflict")
             return self._pass_state(updated)
 
     def begin_page(
