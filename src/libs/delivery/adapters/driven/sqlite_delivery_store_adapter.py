@@ -13,6 +13,7 @@ from libs.delivery.dtos.delivery_dispatch import (
     MailSendResult,
 )
 from libs.delivery.dtos.delivery_queue import QueueDigestRequest, QueuedDigest
+from libs.delivery.dtos.reader_feedback import ReaderFeedbackRequest, RecordedFeedback
 from libs.delivery.dtos.digest_preview import DigestPreview, SelectedDigestItem
 from libs.delivery.exceptions.delivery_store_error import DeliveryStoreError
 
@@ -970,3 +971,96 @@ class SqliteDeliveryStoreAdapter:
                 (ledger_state, row["outbox_id"]),
             )
             return outbox_state
+
+    def record_feedback(self, request: ReaderFeedbackRequest) -> RecordedFeedback:
+        if not isinstance(request, ReaderFeedbackRequest):
+            raise DeliveryStoreError("invalid_feedback_request")
+        feedback_id = self._text(
+            request.feedback_id,
+            "invalid_feedback_id",
+            maximum=256,
+        )
+        reader_id = self._text(
+            request.reader_id,
+            "invalid_feedback_reader_id",
+            maximum=256,
+        )
+        work_id = self._text(
+            request.work_id,
+            "invalid_feedback_work_id",
+            maximum=256,
+        )
+        action = self._text(
+            request.action,
+            "invalid_feedback_action",
+            maximum=64,
+        )
+        if action not in {
+            "useful",
+            "relevant_not_urgent",
+            "irrelevant",
+            "read",
+            "saved",
+            "unsaved",
+        }:
+            raise DeliveryStoreError("invalid_feedback_action")
+        profile_id = request.profile_id
+        if profile_id is not None:
+            profile_id = self._text(
+                profile_id,
+                "invalid_feedback_profile_id",
+                maximum=256,
+            )
+        created_at = self._time(
+            request.created_at,
+            "invalid_feedback_created_at",
+        )
+        expected = (
+            reader_id,
+            work_id,
+            action,
+            profile_id,
+            created_at,
+        )
+
+        with self._transaction() as connection:
+            existing = connection.execute(
+                "SELECT reader_id,work_id,action,profile_id,created_at "
+                "FROM reader_feedback WHERE id=?",
+                (feedback_id,),
+            ).fetchone()
+            if existing is not None:
+                if tuple(existing) != expected:
+                    raise DeliveryStoreError("reader_feedback_conflict")
+                return RecordedFeedback(feedback_id, True)
+
+            work = connection.execute(
+                "SELECT 1 FROM paper_works WHERE id=?",
+                (work_id,),
+            ).fetchone()
+            if work is None:
+                raise DeliveryStoreError("reader_feedback_work_missing")
+
+            if profile_id is not None:
+                profile = connection.execute(
+                    "SELECT 1 FROM watch_profiles WHERE id=?",
+                    (profile_id,),
+                ).fetchone()
+                if profile is None:
+                    raise DeliveryStoreError("reader_feedback_profile_missing")
+
+            connection.execute(
+                "INSERT INTO reader_feedback("
+                "id,reader_id,work_id,action,profile_id,created_at"
+                ") VALUES(?,?,?,?,?,?)",
+                (
+                    feedback_id,
+                    reader_id,
+                    work_id,
+                    action,
+                    profile_id,
+                    created_at,
+                ),
+            )
+            return RecordedFeedback(feedback_id, False)
+
