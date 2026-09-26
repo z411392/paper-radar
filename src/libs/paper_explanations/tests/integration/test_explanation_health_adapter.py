@@ -1,15 +1,9 @@
 import sqlite3
 from pathlib import Path
 
-import pytest
-
 from libs.paper_explanations.adapters.driven.sqlite_explanation_health_adapter import (
     SqliteExplanationHealthAdapter,
 )
-from libs.research_workflow.exceptions.operational_health_error import (
-    OperationalHealthError,
-)
-
 
 ROOT = Path(__file__).resolve().parents[5]
 
