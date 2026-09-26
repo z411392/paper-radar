@@ -870,11 +870,11 @@ class SqliteDeliveryStoreAdapter:
             workspace = connection.execute(
                 "SELECT epoch,external_effects_enabled FROM workspace_metadata WHERE singleton=1"
             ).fetchone()
-            if (
-                workspace is None
-                or not bool(workspace["external_effects_enabled"])
-                or workspace["epoch"] != row["workspace_epoch"]
-            ):
+            if workspace is None:
+                return DeliveryClaim("effects_disabled")
+            if workspace["epoch"] != row["workspace_epoch"]:
+                return DeliveryClaim("reconciliation_required")
+            if not bool(workspace["external_effects_enabled"]):
                 return DeliveryClaim("effects_disabled")
 
             changed = connection.execute(

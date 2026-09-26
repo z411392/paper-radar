@@ -105,9 +105,16 @@ class ProcessRevisionNotice:
             return RevisionNoticeOutcome("succeeded")
         if dispatched.state == "cancelled":
             return RevisionNoticeOutcome("cancelled", "delivery_cancelled")
-        if dispatched.state in {"unknown", "sending", "effects_disabled"}:
+        if dispatched.state in {
+            "unknown",
+            "sending",
+            "effects_disabled",
+            "reconciliation_required",
+        }:
             code = (
-                "delivery_effects_disabled"
+                "delivery_restore_reconciliation_required"
+                if dispatched.state == "reconciliation_required"
+                else "delivery_effects_disabled"
                 if dispatched.state == "effects_disabled"
                 else "delivery_unknown_no_provider_lookup"
                 if dispatched.state == "unknown"
