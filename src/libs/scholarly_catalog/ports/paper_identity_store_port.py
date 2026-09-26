@@ -16,6 +16,13 @@ class PaperIdentityStorePort(Protocol):
         identifier: NormalizedIdentifier,
     ) -> PaperIdentityResolution: ...
 
+    def bind_identifier(
+        self,
+        manifestation_id: str,
+        identifier: NormalizedIdentifier,
+        source_evidence_id: str,
+    ) -> None: ...
+
     def read(self, identifier: NormalizedIdentifier) -> PaperIdentityView: ...
 
     def merge_alias(

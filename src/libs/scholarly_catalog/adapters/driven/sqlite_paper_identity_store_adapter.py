@@ -424,6 +424,83 @@ class SqlitePaperIdentityStoreAdapter:
                 created_revision,
             )
 
+    @staticmethod
+    def _binding_text(value: object, *, maximum_bytes: int) -> str:
+        if not isinstance(value, str):
+            raise PaperIdentityError("invalid_identifier_binding")
+        try:
+            size = len(value.encode("utf-8"))
+        except UnicodeEncodeError as exc:
+            raise PaperIdentityError("invalid_identifier_binding") from exc
+        if (
+            not value
+            or value != value.strip()
+            or size > maximum_bytes
+            or any(ord(char) < 32 or ord(char) == 127 for char in value)
+        ):
+            raise PaperIdentityError("invalid_identifier_binding")
+        return value
+
+    def bind_identifier(
+        self,
+        manifestation_id: str,
+        identifier: NormalizedIdentifier,
+        source_evidence_id: str,
+    ) -> None:
+        manifestation_id = self._binding_text(
+            manifestation_id,
+            maximum_bytes=128,
+        )
+        if re.fullmatch(r"manifestation:[0-9a-f]{64}", manifestation_id) is None:
+            raise PaperIdentityError("invalid_identifier_binding")
+        if not isinstance(identifier, NormalizedIdentifier):
+            raise PaperIdentityError("invalid_identifier_binding")
+        namespace = self._binding_text(identifier.namespace, maximum_bytes=64)
+        normalized_value = self._binding_text(
+            identifier.normalized_value,
+            maximum_bytes=512,
+        )
+        if identifier.native_version is not None:
+            raise PaperIdentityError(
+                "versioned_identifier_not_manifestation_identity"
+            )
+        source_evidence_id = self._binding_text(
+            source_evidence_id,
+            maximum_bytes=256,
+        )
+
+        with self._transaction(write=True) as connection:
+            manifestation = connection.execute(
+                "SELECT 1 FROM paper_manifestations WHERE id=?",
+                (manifestation_id,),
+            ).fetchone()
+            if manifestation is None:
+                raise PaperIdentityError("manifestation_missing")
+            existing = connection.execute(
+                "SELECT manifestation_id,source_evidence_id "
+                "FROM external_identifiers "
+                "WHERE namespace=? AND normalized_value=?",
+                (namespace, normalized_value),
+            ).fetchone()
+            if existing is not None:
+                if (
+                    existing["manifestation_id"] == manifestation_id
+                    and existing["source_evidence_id"] == source_evidence_id
+                ):
+                    return
+                raise PaperIdentityError("identifier_binding_conflict")
+            connection.execute(
+                "INSERT INTO external_identifiers("
+                "namespace,normalized_value,manifestation_id,source_evidence_id"
+                ") VALUES(?,?,?,?)",
+                (
+                    namespace,
+                    normalized_value,
+                    manifestation_id,
+                    source_evidence_id,
+                ),
+            )
+
     def read(self, identifier: NormalizedIdentifier) -> PaperIdentityView:
         if not isinstance(identifier, NormalizedIdentifier):
             raise PaperIdentityError("invalid_identifier")
