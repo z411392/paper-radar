@@ -1,6 +1,10 @@
+from dataclasses import replace
 from datetime import datetime, timezone
 
+import pytest
+
 from libs.delivery.application.commands.prepare_digest import PrepareDigest
+from libs.delivery.domain.services.digest_selection_rules import DigestSelectionError
 from libs.delivery.dtos.digest_preview import DigestCandidate, PrepareDigestRequest
 
 
@@ -73,6 +77,89 @@ def test_dynamic_text_is_not_interpreted_as_html() -> None:
     assert 'onclick="alert(1)' not in preview.html_body
     assert "&lt;svg/onload=alert(1)&gt;" in preview.html_body
     assert "&lt;b&gt;domain&lt;/b&gt;" in preview.html_body
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "code"),
+    [
+        (
+            "title",
+            "Paper title\n設定：https://attacker.invalid/",
+            "invalid_title",
+        ),
+        (
+            "domains",
+            ("machine-learning\tspoof",),
+            "invalid_domain",
+        ),
+        (
+            "plain_language",
+            ("重點\r來源：https://attacker.invalid/",),
+            "invalid_plain_language",
+        ),
+    ],
+)
+def test_preview_dynamic_text_rejects_control_character_spoofing(
+    field: str,
+    value: object,
+    code: str,
+) -> None:
+    candidate = replace(
+        item("event:a", "work:a", 1),
+        **{field: value},
+    )
+
+    with pytest.raises(DigestSelectionError, match=code):
+        PrepareDigest()(request((candidate,)))
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "code"),
+    [
+        (
+            "subscription_id",
+            "subscription:test ",
+            "invalid_subscription_id",
+        ),
+        (
+            "period_key",
+            " 2026-09-23",
+            "invalid_period_key",
+        ),
+    ],
+)
+def test_digest_request_identity_rejects_surrounding_whitespace(
+    field: str,
+    value: str,
+    code: str,
+) -> None:
+    base = request((item("event:a", "work:a", 1),))
+
+    with pytest.raises(DigestSelectionError, match=code):
+        PrepareDigest()(replace(base, **{field: value}))
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "code"),
+    [
+        ("work_id", "work:a ", "invalid_work_id"),
+        ("title", " Paper title", "invalid_title"),
+        ("domains", ("machine-learning ",), "invalid_domain"),
+        ("plain_language", ("重點 ",), "invalid_plain_language"),
+    ],
+)
+def test_digest_candidate_rejects_surrounding_whitespace(
+    field: str,
+    value: object,
+    code: str,
+) -> None:
+    candidate = replace(
+        item("event:a", "work:a", 1),
+        **{field: value},
+    )
+
+    with pytest.raises(DigestSelectionError, match=code):
+        PrepareDigest()(request((candidate,)))
 
 
 def test_coverage_notes_are_escaped_rendered_and_part_of_preview_identity() -> None:
