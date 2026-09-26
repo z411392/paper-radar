@@ -623,3 +623,72 @@ def test_projection_quarantine_rejects_silently_ignored_insert(
     finally:
         connection.close()
     assert count == 0
+
+
+def test_commit_page_rejects_silently_ignored_window_checkpoint(
+    tmp_path: Path,
+) -> None:
+    path, store = _setup(tmp_path)
+    _, plan = _plan()
+    window, current, request, page = _start(store, plan)
+    receipt_id = _register_raw(path, b"ignored window checkpoint")
+    store.record_attempt(
+        page.page_id,
+        receipt_id,
+        action="accept",
+        failure_code=None,
+        recorded_at=NOW,
+    )
+    store.save_decoded(
+        page.page_id,
+        _decoded(
+            request,
+            receipt_id=receipt_id,
+            cursor_out=None,
+            total=1,
+            items=(_item(0, "10.1234/A"),),
+            end=True,
+        ),
+        NOW,
+    )
+    store.mark_processed(
+        page.page_id,
+        0,
+        canonical_doi="10.1234/a",
+        outcome_ref="provider-revision:test",
+        processed_at=NOW,
+    )
+
+    connection = sqlite3.connect(path)
+    connection.execute(
+        "CREATE TRIGGER ignore_window_checkpoint "
+        "BEFORE UPDATE OF state ON crossref_harvest_windows "
+        "WHEN OLD.state='running' AND NEW.state='traversed' "
+        "BEGIN SELECT RAISE(IGNORE); END"
+    )
+    connection.commit()
+    connection.close()
+
+    with pytest.raises(
+        CrossrefHarvestJournalError,
+        match="crossref_checkpoint_conflict",
+    ):
+        store.commit_page(current.pass_id, page.page_id, NOW)
+
+    persisted_pass = store.read_pass(current.pass_id)
+    persisted_window = store.read_window(window.window_id)
+    assert persisted_pass.state == "running"
+    assert persisted_pass.current_cursor == "*"
+    assert persisted_pass.next_page_no == 0
+    assert persisted_window.state == "running"
+
+    connection = sqlite3.connect(path)
+    try:
+        page_state = connection.execute(
+            "SELECT state,committed_at FROM crossref_harvest_pages "
+            "WHERE id=?",
+            (page.page_id,),
+        ).fetchone()
+    finally:
+        connection.close()
+    assert page_state == ("decoded", None)
