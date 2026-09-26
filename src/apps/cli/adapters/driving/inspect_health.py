@@ -6,6 +6,7 @@ from dataclasses import asdict
 from injector import Injector
 
 from apps.cli.module import OperationalHealthCliModule
+from libs.discovery.exceptions.harvest_coverage_error import HarvestCoverageError
 from libs.kernel.exceptions.storage_error import StorageError
 from libs.research_workflow.exceptions.operational_health_error import (
     OperationalHealthError,
@@ -30,7 +31,12 @@ def run_health_cli(argv: list[str]) -> None:
             auto_bind=False,
         )
         result = injector.get(InspectHealthPort)()
-    except (StorageError, OperationalHealthError, WorkflowJobError) as exc:
+    except (
+        HarvestCoverageError,
+        StorageError,
+        OperationalHealthError,
+        WorkflowJobError,
+    ) as exc:
         code = getattr(exc, "code", str(exc))
         print(
             json.dumps({"error": {"code": code}}, ensure_ascii=False),
