@@ -12,6 +12,7 @@ from libs.retrieval.dtos.index_generation import (
     IndexGenerationSnapshot,
     PersistedIndexGeneration,
     PreparedIndexGeneration,
+    PreparedIndexManifest,
 )
 from libs.retrieval.exceptions.embedding_space_error import EmbeddingSpaceError
 from libs.retrieval.exceptions.index_generation_error import IndexGenerationError
@@ -355,3 +356,129 @@ class SqliteIndexGenerationStoreAdapter:
             if self._existing(connection, generation) is None:
                 raise IndexGenerationError("index_generation_state_corrupt")
             return self._result(row, replayed=False)
+
+
+    @staticmethod
+    def _manifest_matches(
+        generation: PreparedIndexGeneration,
+        manifest: PreparedIndexManifest,
+        index_sha256: str,
+    ) -> None:
+        if not isinstance(manifest, PreparedIndexManifest):
+            raise IndexGenerationError("invalid_index_generation_manifest")
+        expected = IndexGenerationRules.manifest(
+            generation,
+            index_sha256=index_sha256,
+        )
+        if manifest != expected:
+            raise IndexGenerationError("invalid_index_generation_manifest")
+
+    @classmethod
+    def _require_snapshot(
+        cls,
+        connection: sqlite3.Connection,
+        generation: PreparedIndexGeneration,
+    ) -> None:
+        current = cls._snapshot(connection, generation.space_id)
+        expected = IndexGenerationSnapshot(
+            generation.space_id,
+            generation.space_configuration_fingerprint,
+            generation.dimension,
+            generation.dtype,
+            generation.metric,
+            generation.document_high_watermark,
+            generation.vector_count,
+            generation.members,
+        )
+        if current != expected:
+            raise IndexGenerationError("index_generation_snapshot_changed")
+
+    def mark_ready(
+        self,
+        generation: PreparedIndexGeneration,
+        manifest: PreparedIndexManifest,
+        *,
+        index_sha256: str,
+        verified_at: datetime,
+    ) -> PersistedIndexGeneration:
+        IndexGenerationRules.validate_prepared(generation)
+        verified = IndexGenerationRules.instant(verified_at)
+        self._manifest_matches(generation, manifest, index_sha256)
+        with self._transaction(write=True) as connection:
+            row = self._existing(connection, generation)
+            if row is None:
+                raise IndexGenerationError("index_generation_missing")
+            if row["state"] == "ready":
+                if (
+                    row["index_sha256"] != index_sha256
+                    or row["manifest_sha256"] != manifest.manifest_sha256
+                    or row["verified_at"] != verified.isoformat()
+                ):
+                    raise IndexGenerationError("index_generation_conflict")
+                return self._result(row, replayed=True)
+            if row["state"] != "building":
+                raise IndexGenerationError("index_generation_conflict")
+            self._require_snapshot(connection, generation)
+            changed = connection.execute(
+                "UPDATE index_generations SET state='ready',"
+                "manifest_sha256=?,index_sha256=?,verified_at=? "
+                "WHERE id=? AND state='building' "
+                "AND manifest_sha256 IS NULL AND index_sha256 IS NULL "
+                "AND verified_at IS NULL",
+                (
+                    manifest.manifest_sha256,
+                    index_sha256,
+                    verified.isoformat(),
+                    generation.generation_id,
+                ),
+            ).rowcount
+            if changed != 1:
+                raise IndexGenerationError("index_generation_conflict")
+            written = connection.execute(
+                "SELECT * FROM index_generations WHERE id=?",
+                (generation.generation_id,),
+            ).fetchone()
+            if written is None:
+                raise IndexGenerationError("index_generation_state_corrupt")
+            if (
+                written["state"] != "ready"
+                or written["manifest_sha256"] != manifest.manifest_sha256
+                or written["index_sha256"] != index_sha256
+                or written["verified_at"] != verified.isoformat()
+                or self._existing(connection, generation) is None
+            ):
+                raise IndexGenerationError("index_generation_state_corrupt")
+            return self._result(written, replayed=False)
+
+    def mark_failed(
+        self,
+        generation: PreparedIndexGeneration,
+        *,
+        failed_at: datetime,
+    ) -> PersistedIndexGeneration:
+        IndexGenerationRules.validate_prepared(generation)
+        IndexGenerationRules.instant(failed_at)
+        with self._transaction(write=True) as connection:
+            row = self._existing(connection, generation)
+            if row is None:
+                raise IndexGenerationError("index_generation_missing")
+            if row["state"] == "failed":
+                return self._result(row, replayed=True)
+            if row["state"] != "building":
+                raise IndexGenerationError("index_generation_conflict")
+            changed = connection.execute(
+                "UPDATE index_generations SET state='failed' "
+                "WHERE id=? AND state='building' "
+                "AND manifest_sha256 IS NULL AND index_sha256 IS NULL "
+                "AND verified_at IS NULL",
+                (generation.generation_id,),
+            ).rowcount
+            if changed != 1:
+                raise IndexGenerationError("index_generation_conflict")
+            written = connection.execute(
+                "SELECT * FROM index_generations WHERE id=?",
+                (generation.generation_id,),
+            ).fetchone()
+            if written is None or written["state"] != "failed":
+                raise IndexGenerationError("index_generation_state_corrupt")
+            return self._result(written, replayed=False)
