@@ -1,5 +1,5 @@
-from dataclasses import replace
 import json
+from dataclasses import replace
 from datetime import datetime, timezone
 
 import pytest
