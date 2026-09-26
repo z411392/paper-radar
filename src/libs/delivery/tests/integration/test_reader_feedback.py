@@ -280,3 +280,50 @@ def test_profile_is_optional_for_private_feedback(tmp_path: Path) -> None:
     assert result.replayed is False
     assert _feedback_rows(schema)[0][4] is None
 
+
+def _install_forbidden_write_guards(
+    schema: SqliteSchemaConnectionFactory,
+) -> None:
+    guarded_tables = (
+        "paper_works",
+        "paper_manifestations",
+        "paper_revisions",
+        "research_events",
+        "paper_claims",
+        "relevance_assessments",
+        "model_runs",
+        "summary_revisions",
+        "current_summaries",
+    )
+    connection = schema.connect()
+    try:
+        for table in guarded_tables:
+            for verb in ("INSERT", "UPDATE", "DELETE"):
+                trigger = f"guard_feedback_{table}_{verb.lower()}"
+                connection.execute(
+                    f"CREATE TRIGGER {trigger} BEFORE {verb} ON {table} "
+                    "BEGIN SELECT RAISE(ABORT, 'feedback_forbidden_write'); END"
+                )
+        connection.commit()
+    finally:
+        connection.close()
+
+
+def test_feedback_write_path_is_confined_to_reader_feedback(
+    tmp_path: Path,
+) -> None:
+    schema = _schema(tmp_path)
+    _install_forbidden_write_guards(schema)
+
+    result = _record(
+        _command(schema),
+        "feedback:isolated",
+        "useful",
+        profile_id=None,
+    )
+
+    assert result.replayed is False
+    assert [(row[0], row[3]) for row in _feedback_rows(schema)] == [
+        ("feedback:isolated", "useful")
+    ]
+
