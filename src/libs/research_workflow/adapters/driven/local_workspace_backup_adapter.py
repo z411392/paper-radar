@@ -12,10 +12,13 @@ from libs.kernel.adapters.driven.sqlite_connection_factory import (
     SqliteConnectionFactory,
 )
 from libs.kernel.adapters.driven.workspace_paths import WorkspacePaths
+from libs.kernel.dtos.migration import Migration
 from libs.kernel.dtos.object_ref import ObjectRef
 from libs.kernel.exceptions.storage_error import StorageError
 from libs.research_workflow.dtos.workspace_backup import WorkspaceBackupResult
+from libs.research_workflow.dtos.workspace_restore import WorkspaceRestoreResult
 from libs.research_workflow.exceptions.workspace_backup_error import WorkspaceBackupError
+from libs.research_workflow.exceptions.workspace_restore_error import WorkspaceRestoreError
 
 
 class LocalWorkspaceBackupAdapter:
@@ -498,3 +501,280 @@ class LocalWorkspaceBackupAdapter:
                 self._record_failed(run_id)
                 self._best_effort_remove_pin(run_id)
             raise WorkspaceBackupError("backup_file_io") from exc
+
+class LocalWorkspaceRestoreAdapter:
+    _MANIFEST_LIMIT = 4 * 1024 * 1024
+    _HEX = re.compile(r"[0-9a-f]{64}\\Z")
+
+    def __init__(self, migrations: tuple[Migration, ...]) -> None:
+        if (
+            not migrations
+            or [migration.version for migration in migrations]
+            != list(range(1, len(migrations) + 1))
+        ):
+            raise WorkspaceRestoreError("restore_migrations_invalid")
+        self._migrations = migrations
+        self._expected_migrations = tuple(
+            (migration.version, migration.name, migration.sha256)
+            for migration in migrations
+        )
+
+    @staticmethod
+    def _input_path(value: object, code: str) -> Path:
+        if not isinstance(value, Path) or ".." in value.parts:
+            raise WorkspaceRestoreError(code)
+        return value
+
+    def _validate_paths(
+        self,
+        backup_directory: Path,
+        target: Path,
+    ) -> tuple[Path, Path]:
+        backup_directory = self._input_path(
+            backup_directory,
+            "restore_source_invalid",
+        )
+        target = self._input_path(target, "restore_target_unsafe")
+        if (
+            backup_directory.is_symlink()
+            or not backup_directory.is_dir()
+        ):
+            raise WorkspaceRestoreError("restore_source_invalid")
+        if target.is_symlink():
+            raise WorkspaceRestoreError("restore_target_unsafe")
+        if not target.parent.is_dir() or target.parent.is_symlink():
+            raise WorkspaceRestoreError("restore_target_unsafe")
+
+        source_resolved = backup_directory.resolve()
+        target_resolved = target.resolve(strict=False)
+        if (
+            source_resolved == target_resolved
+            or target_resolved.is_relative_to(source_resolved)
+            or source_resolved.is_relative_to(target_resolved)
+        ):
+            raise WorkspaceRestoreError("restore_path_overlap")
+
+        if target.exists():
+            if not target.is_dir():
+                raise WorkspaceRestoreError("restore_target_not_empty")
+            try:
+                next(target.iterdir())
+            except StopIteration:
+                pass
+            else:
+                raise WorkspaceRestoreError("restore_target_not_empty")
+        return backup_directory, target
+
+    @classmethod
+    def _hash_file(cls, path: Path, code: str) -> str:
+        digest = hashlib.sha256()
+        try:
+            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        except FileNotFoundError as exc:
+            raise WorkspaceRestoreError(code) from exc
+        except OSError as exc:
+            raise WorkspaceRestoreError("restore_file_io") from exc
+        try:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                raise WorkspaceRestoreError("restore_source_unsafe")
+            with os.fdopen(fd, "rb", closefd=False) as stream:
+                while chunk := stream.read(1024 * 1024):
+                    digest.update(chunk)
+        finally:
+            os.close(fd)
+        return digest.hexdigest()
+
+    def _read_manifest(
+        self,
+        backup_directory: Path,
+    ) -> dict[str, object]:
+        paths = WorkspacePaths(backup_directory)
+        try:
+            content = paths.read_regular(
+                paths.path("manifest.json"),
+                self._MANIFEST_LIMIT + 1,
+            )
+        except FileNotFoundError as exc:
+            raise WorkspaceRestoreError("restore_manifest_missing") from exc
+        except (OSError, StorageError) as exc:
+            raise WorkspaceRestoreError("restore_manifest_invalid") from exc
+        if len(content) > self._MANIFEST_LIMIT:
+            raise WorkspaceRestoreError("restore_manifest_invalid")
+        try:
+            payload = json.loads(content.decode("utf-8"))
+        except (UnicodeError, json.JSONDecodeError) as exc:
+            raise WorkspaceRestoreError("restore_manifest_invalid") from exc
+        if not isinstance(payload, dict):
+            raise WorkspaceRestoreError("restore_manifest_invalid")
+        required = {
+            "format_version",
+            "run_id",
+            "workspace_id",
+            "created_at",
+            "state",
+            "database",
+            "object_count",
+            "objects",
+            "integrity",
+        }
+        if set(payload) != required:
+            raise WorkspaceRestoreError("restore_manifest_invalid")
+        if (
+            payload["format_version"] != 1
+            or payload["state"] != "verified"
+            or not isinstance(payload["run_id"], str)
+            or not payload["run_id"]
+            or not isinstance(payload["workspace_id"], str)
+            or not payload["workspace_id"]
+            or not isinstance(payload["created_at"], str)
+            or not payload["created_at"]
+        ):
+            raise WorkspaceRestoreError("restore_manifest_invalid")
+        integrity = payload["integrity"]
+        if integrity != {
+            "database": "ok",
+            "objects": "ok",
+            "hash_algorithm": "sha256",
+        }:
+            raise WorkspaceRestoreError("restore_manifest_invalid")
+        database = payload["database"]
+        if (
+            not isinstance(database, dict)
+            or set(database) != {"relative_path", "sha256"}
+            or database["relative_path"] != "state/app.sqlite3"
+            or not isinstance(database["sha256"], str)
+            or self._HEX.fullmatch(database["sha256"]) is None
+        ):
+            raise WorkspaceRestoreError("restore_manifest_invalid")
+        objects = payload["objects"]
+        count = payload["object_count"]
+        if (
+            not isinstance(objects, list)
+            or type(count) is not int
+            or count < 0
+            or count != len(objects)
+        ):
+            raise WorkspaceRestoreError("restore_manifest_invalid")
+        return payload
+
+    @staticmethod
+    def _manifest_object(ref: ObjectRef) -> dict[str, object]:
+        return {
+            "object_id": ref.object_id,
+            "content_sha256": ref.content_sha256,
+            "relative_path": ref.relative_path,
+            "kind": ref.kind,
+            "media_type": ref.media_type,
+            "byte_size": ref.byte_size,
+            "retention_policy": ref.retention_policy,
+        }
+
+    def _validate_snapshot(
+        self,
+        backup_directory: Path,
+        manifest: dict[str, object],
+    ) -> tuple[Path, str, int, tuple[ObjectRef, ...]]:
+        paths = WorkspacePaths(backup_directory)
+        database = paths.path("state/app.sqlite3")
+        database_spec = manifest["database"]
+        if not isinstance(database_spec, dict):
+            raise WorkspaceRestoreError("restore_manifest_invalid")
+        expected_hash = database_spec["sha256"]
+        if self._hash_file(database, "restore_database_missing") != expected_hash:
+            raise WorkspaceRestoreError("restore_database_corrupt")
+
+        connection: sqlite3.Connection | None = None
+        try:
+            connection = sqlite3.connect(
+                f"{database.as_uri()}?mode=ro",
+                uri=True,
+            )
+            connection.row_factory = sqlite3.Row
+            if connection.execute("PRAGMA application_id").fetchone()[0] != APPLICATION_ID:
+                raise WorkspaceRestoreError("restore_database_invalid")
+            if connection.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                raise WorkspaceRestoreError("restore_database_corrupt")
+            if connection.execute("PRAGMA foreign_key_check").fetchall():
+                raise WorkspaceRestoreError("restore_foreign_key_violation")
+
+            migrations = tuple(
+                tuple(row)
+                for row in connection.execute(
+                    "SELECT version,name,sha256 "
+                    "FROM schema_migrations ORDER BY version"
+                ).fetchall()
+            )
+            if migrations != self._expected_migrations:
+                raise WorkspaceRestoreError("restore_migration_drift")
+
+            workspace = connection.execute(
+                "SELECT workspace_id,epoch "
+                "FROM workspace_metadata WHERE singleton=1"
+            ).fetchone()
+            if (
+                workspace is None
+                or not workspace["workspace_id"]
+                or type(workspace["epoch"]) is not int
+                or workspace["epoch"] < 1
+            ):
+                raise WorkspaceRestoreError("restore_database_invalid")
+            if workspace["workspace_id"] != manifest["workspace_id"]:
+                raise WorkspaceRestoreError("restore_manifest_mismatch")
+
+            rows = connection.execute(
+                "SELECT * FROM object_registry ORDER BY object_id"
+            ).fetchall()
+            refs = tuple(
+                ObjectRef(
+                    row["object_id"],
+                    row["content_sha256"],
+                    row["relative_path"],
+                    row["kind"],
+                    row["media_type"],
+                    row["byte_size"],
+                    row["created_at"],
+                    row["retention_policy"],
+                    row["state"],
+                )
+                for row in rows
+            )
+            if any(ref.state != "available" for ref in refs):
+                raise WorkspaceRestoreError("restore_object_unavailable")
+            expected_objects = [
+                self._manifest_object(ref)
+                for ref in refs
+            ]
+            if (
+                manifest["objects"] != expected_objects
+                or manifest["object_count"] != len(refs)
+            ):
+                raise WorkspaceRestoreError("restore_manifest_mismatch")
+            return (
+                database,
+                str(workspace["workspace_id"]),
+                int(workspace["epoch"]),
+                refs,
+            )
+        except WorkspaceRestoreError:
+            raise
+        except StorageError as exc:
+            raise WorkspaceRestoreError("restore_manifest_mismatch") from exc
+        except sqlite3.Error as exc:
+            raise WorkspaceRestoreError("restore_database_invalid") from exc
+        finally:
+            if connection is not None:
+                connection.close()
+
+    def restore(
+        self,
+        backup_directory: Path,
+        target: Path,
+    ) -> WorkspaceRestoreResult:
+        backup_directory, target = self._validate_paths(
+            backup_directory,
+            target,
+        )
+        manifest = self._read_manifest(backup_directory)
+        self._validate_snapshot(backup_directory, manifest)
+        raise WorkspaceRestoreError("restore_copy_pending")
+
