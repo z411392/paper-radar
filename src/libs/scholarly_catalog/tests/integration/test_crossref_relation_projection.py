@@ -330,3 +330,131 @@ def test_malformed_relation_entry_becomes_parse_gap_not_item_loss(
         ("relation.references[0]", "relation_target_missing"),
         ("relation.references[1]", "relation_entry_not_object"),
     ]
+
+
+def _lifecycle_projector(
+    path: Path,
+    *,
+    snapshot_complete: bool,
+):
+    connect = _connect(path)
+    relation_store = SqliteCrossrefRelationStoreAdapter(connect)
+    return (
+        ProjectCrossrefPendingItem(
+            NormalizePaperIdentifier(),
+            SqliteCrossrefProviderRevisionStoreAdapter(connect),
+            relation_store,
+            relation_snapshot_complete=snapshot_complete,
+        ),
+        relation_store,
+    )
+
+
+def test_complete_snapshot_absence_marks_relation_no_longer_observed(
+    tmp_path: Path,
+) -> None:
+    path, _ = _setup(tmp_path)
+    complete, relations = _lifecycle_projector(
+        path,
+        snapshot_complete=True,
+    )
+    first = complete(
+        _item(
+            {
+                "DOI": "10.1000/A",
+                "reference-count": 1,
+                "relation": {
+                    "references": [
+                        {
+                            "id-type": "doi",
+                            "id": "10.1000/B",
+                            "asserted-by": "subject",
+                        }
+                    ]
+                },
+            }
+        ),
+        observed_at=NOW,
+    )
+    second = complete(
+        _item(
+            {
+                "DOI": "10.1000/A",
+                "reference-count": 2,
+            },
+            page="crossref-page:two",
+        ),
+        observed_at=NOW,
+    )
+
+    lifecycle = relations.lifecycle("10.1000/a")
+
+    assert len(lifecycle) == 1
+    assert lifecycle[0].state == "no_longer_observed"
+    assert lifecycle[0].last_observed_provider_revision_id == (
+        first.provider_revision_id
+    )
+    assert lifecycle[0].no_longer_observed_provider_revision_id == (
+        second.provider_revision_id
+    )
+
+
+def test_partial_snapshot_absence_does_not_withdraw_relation(
+    tmp_path: Path,
+) -> None:
+    path, _ = _setup(tmp_path)
+    complete, relations = _lifecycle_projector(
+        path,
+        snapshot_complete=True,
+    )
+    partial, _ = _lifecycle_projector(
+        path,
+        snapshot_complete=False,
+    )
+    first = complete(
+        _item(
+            {
+                "DOI": "10.1000/A",
+                "reference-count": 1,
+                "relation": {
+                    "references": [
+                        {
+                            "id-type": "doi",
+                            "id": "10.1000/B",
+                            "asserted-by": "subject",
+                        }
+                    ]
+                },
+            }
+        ),
+        observed_at=NOW,
+    )
+    second = partial(
+        _item(
+            {
+                "DOI": "10.1000/A",
+                "reference-count": 2,
+            },
+            page="crossref-page:two",
+        ),
+        observed_at=NOW,
+    )
+
+    lifecycle = relations.lifecycle("10.1000/a")
+
+    assert len(lifecycle) == 1
+    assert lifecycle[0].state == "observed"
+    assert lifecycle[0].last_observed_provider_revision_id == (
+        first.provider_revision_id
+    )
+    assert lifecycle[0].no_longer_observed_provider_revision_id is None
+    gaps = _rows(
+        path,
+        "SELECT error_code FROM crossref_relation_parse_gaps "
+        "WHERE provider_revision_id='"
+        + second.provider_revision_id
+        + "'",
+    )
+    assert [row["error_code"] for row in gaps] == [
+        "relation_snapshot_incomplete"
+    ]
