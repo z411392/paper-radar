@@ -96,7 +96,29 @@ def test_request_identity_binds_glossary_but_has_no_private_profile():
     assert base.input_fingerprint != changed.input_fingerprint
     assert base == ReadingCardRules.request(claims, evidence)
     data = json.loads(base.payload_json)
-    assert not {'profile_id', 'scope_text', 'recommendation_reason', 'recipient'} & data.keys()
+    assert set(data) == {
+        'snapshot_id',
+        'revision_id',
+        'work_id',
+        'evidence_fingerprint',
+        'evidence_level',
+        'source_text',
+        'anchors',
+        'claims',
+        'not_reported_in_read_evidence',
+        'glossary',
+        'output_profile',
+    }
+    assert not {
+        'profile_id',
+        'scope_text',
+        'recommendation_reason',
+        'recipient',
+        'recipient_ref',
+        'reader_id',
+        'api_key',
+        'tools',
+    } & data.keys()
     assert data['source_text'] == SOURCE
     assert base.model_name == MODEL_NAME
 

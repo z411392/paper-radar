@@ -9,19 +9,34 @@ from libs.delivery.adapters.driven.kernel_digest_artifact_adapter import KernelD
 from libs.delivery.adapters.driven.smtp_mail_sender_adapter import SmtpMailSenderAdapter
 from libs.delivery.adapters.driven.sqlite_delivery_health_adapter import SqliteDeliveryHealthAdapter
 from libs.delivery.adapters.driven.sqlite_delivery_store_adapter import SqliteDeliveryStoreAdapter
+from libs.delivery.adapters.driven.sqlite_delivery_subscription_store_adapter import (
+    SqliteDeliverySubscriptionStoreAdapter,
+)
 from libs.delivery.adapters.driven.sqlite_digest_delivery_context_adapter import (
     SqliteDigestDeliveryContextAdapter,
 )
 from libs.delivery.adapters.driven.sqlite_prior_recipient_history_adapter import (
     SqlitePriorRecipientHistoryAdapter,
 )
+from libs.delivery.application.commands.configure_delivery_subscription import (
+    ConfigureDeliverySubscription,
+)
 from libs.delivery.application.commands.dispatch_digest import DispatchDigest
 from libs.delivery.application.commands.prepare_scheduled_digest import PrepareScheduledDigest
 from libs.delivery.application.commands.queue_digest import QueueDigest
+from libs.delivery.application.queries.read_delivery_subscription import (
+    ReadDeliverySubscription,
+)
 from libs.delivery.exceptions.mail_configuration_error import MailConfigurationError
+from libs.delivery.ports.configure_delivery_subscription_port import (
+    ConfigureDeliverySubscriptionPort,
+)
 from libs.delivery.ports.dispatch_digest_port import DispatchDigestPort
 from libs.delivery.ports.mail_sender_port import MailSenderPort
 from libs.delivery.ports.prepare_scheduled_digest_port import PrepareScheduledDigestPort
+from libs.delivery.ports.read_delivery_subscription_port import (
+    ReadDeliverySubscriptionPort,
+)
 from libs.delivery.ports.recipient_resolver_port import RecipientResolverPort
 from libs.discovery.adapters.driven.arxiv_atom_parser_adapter import PARSER_VERSION, ArxivAtomParserAdapter
 from libs.discovery.adapters.driven.arxiv_query_compiler_adapter import ArxivQueryCompilerAdapter
@@ -351,6 +366,29 @@ class CliModule(Module):
             binder.bind(InitializeWorkspacePort, to=InstanceProvider(command), scope=singleton)
 
 
+
+
+class DeliverySubscriptionCliModule(Module):
+    """Configure local delivery subscriptions without bootstrapping or I/O."""
+
+    def __init__(self, workspace: str) -> None:
+        self._workspace = workspace
+
+    def configure(self, binder: Binder) -> None:
+        connection = SqliteSchemaConnectionFactory(
+            Path(self._workspace),
+            load_workspace_migrations(with_runtime=True),
+            minimum_version=7,
+        )
+        store = SqliteDeliverySubscriptionStoreAdapter(connection.connect)
+        binder.bind(
+            ConfigureDeliverySubscriptionPort,
+            to=InstanceProvider(ConfigureDeliverySubscription(store)),
+        )
+        binder.bind(
+            ReadDeliverySubscriptionPort,
+            to=InstanceProvider(ReadDeliverySubscription(store)),
+        )
 
 
 class WorkspaceEffectsCliModule(Module):
