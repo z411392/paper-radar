@@ -132,8 +132,8 @@ class SqlitePubmedObservationReplayAdapter:
     def _snapshot(self, observation_id: str) -> _ReplaySnapshot:
         with self._transaction() as connection:
             row = connection.execute(
-                "SELECT o.*,u.state AS unit_state,b.source AS binding_source,"
-                "b.enabled AS binding_enabled FROM source_observations o "
+                "SELECT o.*,u.state AS unit_state,b.source AS binding_source "
+                "FROM source_observations o "
                 "JOIN harvest_units u ON u.id=o.unit_id "
                 "JOIN source_bindings b ON b.id=u.binding_id WHERE o.id=?",
                 (observation_id,),
@@ -143,7 +143,6 @@ class SqlitePubmedObservationReplayAdapter:
             if (
                 row["source"] != "pubmed"
                 or row["binding_source"] != "pubmed"
-                or row["binding_enabled"] != 1
                 or row["unit_state"] not in {"pending", "partial", "succeeded"}
                 or row["parser_version"] != PubmedSourceAdapter.PARSER_VERSION
                 or row["native_updated_at"] is not None
