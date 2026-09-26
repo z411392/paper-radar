@@ -3,6 +3,7 @@ import json
 import os
 import re
 import sqlite3
+import stat
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -11,6 +12,7 @@ from libs.kernel.adapters.driven.sqlite_connection_factory import (
     SqliteConnectionFactory,
 )
 from libs.kernel.adapters.driven.workspace_paths import WorkspacePaths
+from libs.kernel.dtos.object_ref import ObjectRef
 from libs.kernel.exceptions.storage_error import StorageError
 from libs.research_workflow.dtos.workspace_backup import WorkspaceBackupResult
 from libs.research_workflow.exceptions.workspace_backup_error import WorkspaceBackupError
@@ -116,8 +118,6 @@ class LocalWorkspaceBackupAdapter:
             "object_ids": object_ids or [],
         }
         path = self._pin_path(run_id)
-        if path.exists():
-            path.unlink()
         self._atomic_json(path, payload)
 
     def _remove_pin(self, run_id: str) -> None:
@@ -223,6 +223,121 @@ class LocalWorkspaceBackupAdapter:
                 source.close()
             staging.unlink(missing_ok=True)
 
+    def _snapshot_objects(self, database: Path) -> tuple[ObjectRef, ...]:
+        connection: sqlite3.Connection | None = None
+        try:
+            connection = sqlite3.connect(
+                f"{database.as_uri()}?mode=ro",
+                uri=True,
+            )
+            connection.row_factory = sqlite3.Row
+            rows = connection.execute(
+                "SELECT * FROM object_registry ORDER BY object_id"
+            ).fetchall()
+            refs = tuple(
+                ObjectRef(
+                    row["object_id"],
+                    row["content_sha256"],
+                    row["relative_path"],
+                    row["kind"],
+                    row["media_type"],
+                    row["byte_size"],
+                    row["created_at"],
+                    row["retention_policy"],
+                    row["state"],
+                )
+                for row in rows
+            )
+            if any(ref.state != "available" for ref in refs):
+                raise WorkspaceBackupError("backup_object_unavailable")
+            return refs
+        except WorkspaceBackupError:
+            raise
+        except StorageError as exc:
+            raise WorkspaceBackupError("backup_registry_corrupt") from exc
+        except sqlite3.Error as exc:
+            raise WorkspaceBackupError("backup_database_error") from exc
+        finally:
+            if connection is not None:
+                connection.close()
+
+    def _copy_object(
+        self,
+        object_ref: ObjectRef,
+        backup_directory: Path,
+    ) -> None:
+        backup_paths = WorkspacePaths(backup_directory)
+        source_fd: int | None = None
+        destination_fd: int | None = None
+        staging: Path | None = None
+        try:
+            source = self._paths.path(object_ref.relative_path)
+            source_fd = os.open(
+                source,
+                os.O_RDONLY | os.O_NOFOLLOW,
+            )
+            if not stat.S_ISREG(os.fstat(source_fd).st_mode):
+                raise WorkspaceBackupError("backup_object_unsafe")
+
+            relative_parent = Path(object_ref.relative_path).parent.as_posix()
+            destination_parent = backup_paths.directory(relative_parent)
+            target = backup_paths.path(object_ref.relative_path)
+            if target.exists() or target.is_symlink():
+                raise WorkspaceBackupError("backup_destination_not_empty")
+            staging = target.with_name(f".{target.name}.partial")
+            destination_fd = os.open(
+                staging,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                0o600,
+            )
+
+            digest = hashlib.sha256()
+            byte_size = 0
+            with (
+                os.fdopen(source_fd, "rb", closefd=False) as source_stream,
+                os.fdopen(destination_fd, "wb", closefd=False) as destination_stream,
+            ):
+                while chunk := source_stream.read(1024 * 1024):
+                    digest.update(chunk)
+                    byte_size += len(chunk)
+                    destination_stream.write(chunk)
+                destination_stream.flush()
+                os.fsync(destination_stream.fileno())
+
+            if (
+                byte_size != object_ref.byte_size
+                or digest.hexdigest() != object_ref.content_sha256
+            ):
+                raise WorkspaceBackupError("backup_object_corrupt")
+
+            os.close(source_fd)
+            source_fd = None
+            os.close(destination_fd)
+            destination_fd = None
+            os.replace(staging, target)
+            WorkspacePaths.sync_directory(destination_parent)
+            staging = None
+        except FileNotFoundError as exc:
+            raise WorkspaceBackupError("backup_object_missing") from exc
+        except WorkspaceBackupError:
+            raise
+        except StorageError as exc:
+            code = (
+                "backup_object_unsafe"
+                if exc.code == "unsafe_path"
+                else "backup_file_io"
+            )
+            raise WorkspaceBackupError(code) from exc
+        except OSError as exc:
+            raise WorkspaceBackupError("backup_file_io") from exc
+        finally:
+            if source_fd is not None:
+                os.close(source_fd)
+            if destination_fd is not None:
+                os.close(destination_fd)
+            if staging is not None:
+                staging.unlink(missing_ok=True)
+
     def _building_manifest(
         self,
         *,
@@ -230,6 +345,7 @@ class LocalWorkspaceBackupAdapter:
         workspace_id: str,
         created_at: str,
         database_sha256: str,
+        objects: tuple[ObjectRef, ...] = (),
     ) -> dict[str, object]:
         return {
             "format_version": 1,
@@ -241,8 +357,19 @@ class LocalWorkspaceBackupAdapter:
                 "relative_path": "state/app.sqlite3",
                 "sha256": database_sha256,
             },
-            "object_count": 0,
-            "objects": [],
+            "object_count": len(objects),
+            "objects": [
+                {
+                    "object_id": ref.object_id,
+                    "content_sha256": ref.content_sha256,
+                    "relative_path": ref.relative_path,
+                    "kind": ref.kind,
+                    "media_type": ref.media_type,
+                    "byte_size": ref.byte_size,
+                    "retention_policy": ref.retention_policy,
+                }
+                for ref in objects
+            ],
         }
 
     def backup(
@@ -265,6 +392,11 @@ class LocalWorkspaceBackupAdapter:
             self._write_pin(run_id)
             database = self._snapshot_database(backup_directory)
             database_sha256 = self._sha256_file(database)
+            objects = self._snapshot_objects(database)
+            self._write_pin(
+                run_id,
+                object_ids=[ref.object_id for ref in objects],
+            )
             partial = backup_directory / "manifest.partial.json"
             self._atomic_json(
                 partial,
@@ -273,14 +405,17 @@ class LocalWorkspaceBackupAdapter:
                     workspace_id=workspace_id,
                     created_at=created,
                     database_sha256=database_sha256,
+                    objects=objects,
                 ),
             )
+            for object_ref in objects:
+                self._copy_object(object_ref, backup_directory)
             return WorkspaceBackupResult(
                 run_id=run_id,
                 relative_directory=relative_directory,
                 database_sha256=database_sha256,
                 manifest_sha256="",
-                object_count=0,
+                object_count=len(objects),
                 state="building",
             )
         except WorkspaceBackupError:
