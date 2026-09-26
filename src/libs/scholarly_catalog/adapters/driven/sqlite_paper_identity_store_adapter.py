@@ -6,6 +6,9 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
+from libs.scholarly_catalog.domain.services.normalize_paper_identifier import (
+    NormalizePaperIdentifier,
+)
 from libs.scholarly_catalog.dtos.normalized_identifier import NormalizedIdentifier
 from libs.scholarly_catalog.dtos.paper_identity_observation import PaperIdentityObservation
 from libs.scholarly_catalog.dtos.paper_identity_resolution import PaperIdentityResolution
@@ -464,6 +467,15 @@ class SqlitePaperIdentityStoreAdapter:
             raise PaperIdentityError(
                 "versioned_identifier_not_manifestation_identity"
             )
+        try:
+            canonical = NormalizePaperIdentifier()(
+                namespace,
+                normalized_value,
+            )
+        except PaperIdentityError as exc:
+            raise PaperIdentityError("invalid_identifier_binding") from exc
+        if canonical != identifier:
+            raise PaperIdentityError("invalid_identifier_binding")
         source_evidence_id = self._binding_text(
             source_evidence_id,
             maximum_bytes=256,
