@@ -765,3 +765,40 @@ def test_start_pass_rejects_silently_ignored_window_transition(
     finally:
         connection.close()
     assert count == 0
+
+
+def test_start_pass_rejects_silently_ignored_pass_insert(
+    tmp_path: Path,
+) -> None:
+    path, store = _setup(tmp_path)
+    _, plan = _plan()
+    window = store.ensure_window(plan, NOW)
+
+    connection = sqlite3.connect(path)
+    connection.execute(
+        "CREATE TRIGGER ignore_start_pass_insert "
+        "BEFORE INSERT ON crossref_harvest_passes "
+        "BEGIN SELECT RAISE(IGNORE); END"
+    )
+    connection.commit()
+    connection.close()
+
+    with pytest.raises(
+        CrossrefHarvestJournalError,
+        match="crossref_pass_conflict",
+    ):
+        store.start_pass(plan, NOW)
+
+    persisted_window = store.read_window(window.window_id)
+    assert persisted_window.state == "pending"
+
+    connection = sqlite3.connect(path)
+    try:
+        count = connection.execute(
+            "SELECT count(*) FROM crossref_harvest_passes "
+            "WHERE window_id=?",
+            (window.window_id,),
+        ).fetchone()[0]
+    finally:
+        connection.close()
+    assert count == 0
