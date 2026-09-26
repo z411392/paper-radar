@@ -5,7 +5,7 @@ import pytest
 from injector import Injector, UnsatisfiedRequirement
 
 from apps.cli.adapters.driving.show_version import show_version
-from apps.cli.module import CliModule, WorkerCliModule
+from apps.cli.module import CliModule, OperationalHealthCliModule, WorkerCliModule
 from libs.kernel.adapters.driven.bundled_workspace_migrations import (
     load_workspace_migrations,
 )
@@ -15,6 +15,7 @@ from libs.kernel.adapters.driven.sqlite_workspace_bootstrap_adapter import (
 from libs.paper_explanations.dtos.generation_budget_policy import (
     GenerationBudgetPolicy,
 )
+from libs.research_workflow.ports.operational_health_port import InspectHealthPort
 from libs.research_workflow.ports.process_evidence_explanation_port import (
     ProcessEvidenceExplanationPort,
 )
@@ -201,3 +202,31 @@ def test_worker_complete_tracked_runtime_binds_explanation_port_without_model_ca
     )
 
     assert injector.get(ProcessEvidenceExplanationPort) is not None
+
+
+def test_operational_health_composition_reads_empty_runtime_as_real_zeroes(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "runtime"
+    info = SqliteWorkspaceBootstrapAdapter(
+        root,
+        load_workspace_migrations(with_runtime=True),
+    ).initialize()
+    assert info.schema_version == 25
+    assert info.external_effects_enabled is False
+
+    injector = Injector(
+        [OperationalHealthCliModule(str(root))],
+        auto_bind=False,
+    )
+    report = injector.get(InspectHealthPort)()
+
+    assert report.sources == ()
+    assert report.explanations is not None
+    assert report.explanations.qa_rejected == 0
+    assert report.explanations.currency is None
+    assert report.explanations.reserved_micros == 0
+    assert report.explanations.settled_actual_micros == 0
+    assert report.explanations.unknown_cost_reservations == 0
+    assert report.delivery is not None
+    assert report.delivery.unknown_deliveries == 0
