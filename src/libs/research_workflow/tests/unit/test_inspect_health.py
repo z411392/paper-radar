@@ -4,6 +4,7 @@ from libs.research_workflow.application.queries.inspect_health import InspectHea
 from libs.research_workflow.dtos.operational_health import (
     DeliveryHealthEvidence,
     ExplanationHealthEvidence,
+    RuntimeHealthEvidence,
     WorkflowHealthEvidence,
 )
 from libs.discovery.dtos.harvest_coverage import HarvestCoverageWindow
@@ -44,6 +45,16 @@ class Explanation:
 
     def __call__(self):
         return self.value
+
+
+class Runtime:
+    def __call__(self):
+        return RuntimeHealthEvidence(
+            python_implementation="cpython",
+            python_version="3.13.5",
+            sqlite_version="3.49.1",
+            sqlite_source_id="2025-02-18 example",
+        )
 
 
 class Delivery:
@@ -126,6 +137,7 @@ def test_health_keeps_source_failure_and_pending_age_distinct_from_no_new_papers
             )
         ),
         delivery=Delivery(DeliveryHealthEvidence(unknown_deliveries=1)),
+        runtime=Runtime(),
         clock=lambda: NOW,
     )
 
@@ -145,6 +157,8 @@ def test_health_keeps_source_failure_and_pending_age_distinct_from_no_new_papers
     assert result.explanations.settled_actual_micros == 533
     assert result.explanations.unknown_cost_reservations == 1
     assert result.delivery.unknown_deliveries == 1
+    assert result.runtime.sqlite_version == "3.49.1"
+    assert result.runtime.python_implementation == "cpython"
 
 
 def test_missing_optional_health_evidence_is_unknown_not_zero():
@@ -154,6 +168,7 @@ def test_missing_optional_health_evidence_is_unknown_not_zero():
         scheduler=Scheduler(),
         explanation=Explanation(None),
         delivery=Delivery(None),
+        runtime=Runtime(),
         clock=lambda: NOW,
     )
 

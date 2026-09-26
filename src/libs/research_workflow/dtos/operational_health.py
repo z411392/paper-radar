@@ -27,6 +27,14 @@ class DeliveryHealthEvidence:
 
 
 @dataclass(frozen=True)
+class RuntimeHealthEvidence:
+    python_implementation: str
+    python_version: str
+    sqlite_version: str
+    sqlite_source_id: str
+
+
+@dataclass(frozen=True)
 class SourceOperationalHealth:
     source_id: str
     latest_successful_window_end: str | None
@@ -43,3 +51,4 @@ class OperationalHealthReport:
     coverage_gaps: tuple[CoverageGap, ...]
     explanations: ExplanationHealthEvidence | None
     delivery: DeliveryHealthEvidence | None
+    runtime: RuntimeHealthEvidence

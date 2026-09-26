@@ -15,6 +15,7 @@ from libs.research_workflow.exceptions.operational_health_error import (
 from libs.research_workflow.ports.operational_health_port import (
     ReadDeliveryHealthEvidencePort,
     ReadExplanationHealthEvidencePort,
+    ReadRuntimeHealthEvidencePort,
     ReadWorkflowHealthEvidencePort,
 )
 from libs.research_workflow.ports.scheduler_input_port import SchedulerInputPort
@@ -32,6 +33,7 @@ class InspectHealth:
         scheduler: SchedulerInputPort,
         explanation: ReadExplanationHealthEvidencePort,
         delivery: ReadDeliveryHealthEvidencePort,
+        runtime: ReadRuntimeHealthEvidencePort,
         clock: Callable[[], datetime],
     ) -> None:
         self._coverage = coverage
@@ -39,6 +41,7 @@ class InspectHealth:
         self._scheduler = scheduler
         self._explanation = explanation
         self._delivery = delivery
+        self._runtime = runtime
         self._clock = clock
 
     @staticmethod
@@ -133,4 +136,5 @@ class InspectHealth:
             coverage_gaps=scheduler.input_gaps,
             explanations=self._explanation(),
             delivery=self._delivery(),
+            runtime=self._runtime(),
         )

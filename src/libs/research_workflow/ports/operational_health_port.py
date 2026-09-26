@@ -4,6 +4,7 @@ from libs.research_workflow.dtos.operational_health import (
     DeliveryHealthEvidence,
     ExplanationHealthEvidence,
     OperationalHealthReport,
+    RuntimeHealthEvidence,
     WorkflowHealthEvidence,
 )
 
@@ -22,3 +23,7 @@ class ReadDeliveryHealthEvidencePort(Protocol):
 
 class InspectHealthPort(Protocol):
     def __call__(self) -> OperationalHealthReport: ...
+
+
+class ReadRuntimeHealthEvidencePort(Protocol):
+    def __call__(self) -> RuntimeHealthEvidence: ...

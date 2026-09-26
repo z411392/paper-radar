@@ -171,6 +171,7 @@ from libs.research_workflow.adapters.driven.sqlite_scheduler_input_adapter impor
 from libs.research_workflow.adapters.driven.sqlite_source_catalog_projection_store_adapter import (
     SqliteSourceCatalogProjectionStoreAdapter,
 )
+from libs.research_workflow.adapters.driven.sqlite_runtime_health_adapter import SqliteRuntimeHealthAdapter
 from libs.research_workflow.adapters.driven.sqlite_workflow_health_adapter import (
     SqliteWorkflowHealthAdapter,
 )
@@ -391,6 +392,7 @@ class OperationalHealthCliModule(Module):
             scheduler=scheduler_inputs,
             explanation=SqliteExplanationHealthAdapter(connection.connect),
             delivery=SqliteDeliveryHealthAdapter(connection.connect),
+            runtime=SqliteRuntimeHealthAdapter(connection.connect),
             clock=clock.now,
         )
         binder.bind(InspectHealthPort, to=InstanceProvider(query))
