@@ -146,8 +146,8 @@ class SqliteArxivObservationReplayAdapter:
         with self._transaction() as connection:
             row = connection.execute(
                 "SELECT o.*,u.state AS unit_state,b.source AS binding_source,"
-                "b.query_fingerprint AS binding_query_fingerprint,"
-                "b.enabled AS binding_enabled FROM source_observations o "
+                "b.query_fingerprint AS binding_query_fingerprint "
+                "FROM source_observations o "
                 "JOIN harvest_units u ON u.id=o.unit_id "
                 "JOIN source_bindings b ON b.id=u.binding_id WHERE o.id=?",
                 (observation_id,),
@@ -157,7 +157,6 @@ class SqliteArxivObservationReplayAdapter:
             if (
                 row["source"] != "arxiv"
                 or row["binding_source"] != "arxiv"
-                or row["binding_enabled"] != 1
                 or row["unit_state"] not in {"partial", "succeeded"}
                 or not isinstance(row["native_id"], str)
                 or not row["native_id"]
