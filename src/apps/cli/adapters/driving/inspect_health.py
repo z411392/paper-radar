@@ -10,6 +10,7 @@ from libs.kernel.exceptions.storage_error import StorageError
 from libs.research_workflow.exceptions.operational_health_error import (
     OperationalHealthError,
 )
+from libs.research_workflow.exceptions.workflow_job_error import WorkflowJobError
 from libs.research_workflow.ports.operational_health_port import InspectHealthPort
 
 
@@ -29,7 +30,7 @@ def run_health_cli(argv: list[str]) -> None:
             auto_bind=False,
         )
         result = injector.get(InspectHealthPort)()
-    except (StorageError, OperationalHealthError) as exc:
+    except (StorageError, OperationalHealthError, WorkflowJobError) as exc:
         code = getattr(exc, "code", str(exc))
         print(
             json.dumps({"error": {"code": code}}, ensure_ascii=False),

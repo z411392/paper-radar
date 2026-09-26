@@ -7,6 +7,7 @@ from libs.research_workflow.dtos.operational_health import (
     WorkflowHealthEvidence,
 )
 from libs.discovery.dtos.harvest_coverage import HarvestCoverageWindow
+from libs.research_workflow.dtos.scheduler import CoverageGap
 
 
 NOW = datetime(2026, 9, 26, 8, 0, tzinfo=timezone.utc)
@@ -26,6 +27,15 @@ class Workflow:
 
     def __call__(self):
         return self.rows
+
+
+class Scheduler:
+    def __init__(self, gaps=()):
+        self.gaps = gaps
+
+    def read(self, now):
+        del now
+        return type("Snapshot", (), {"input_gaps": self.gaps})()
 
 
 class Explanation:
@@ -94,6 +104,7 @@ def test_health_keeps_source_failure_and_pending_age_distinct_from_no_new_papers
                 ),
             )
         ),
+        scheduler=Scheduler((CoverageGap("harvest", "personal:3:badminton:7", "no_selected_source"),)),
         workflow=Workflow(
             (
                 WorkflowHealthEvidence(
@@ -129,7 +140,7 @@ def test_health_keeps_source_failure_and_pending_age_distinct_from_no_new_papers
     assert by_source["crossref"].pending_count == 1
     assert by_source["crossref"].oldest_pending_age_seconds == 2700
 
-    assert result.explanations.qa_rejected == 2
+    assert result.coverage_gaps == (\n        CoverageGap("harvest", "personal:3:badminton:7", "no_selected_source"),\n    )\n    assert result.explanations.qa_rejected == 2
     assert result.explanations.reserved_micros == 600
     assert result.explanations.settled_actual_micros == 533
     assert result.explanations.unknown_cost_reservations == 1
@@ -140,6 +151,7 @@ def test_missing_optional_health_evidence_is_unknown_not_zero():
     query = InspectHealth(
         coverage=Coverage(()),
         workflow=Workflow(()),
+        scheduler=Scheduler(),
         explanation=Explanation(None),
         delivery=Delivery(None),
         clock=lambda: NOW,
@@ -148,5 +160,6 @@ def test_missing_optional_health_evidence_is_unknown_not_zero():
     result = query()
 
     assert result.sources == ()
+    assert result.coverage_gaps == ()
     assert result.explanations is None
     assert result.delivery is None

@@ -382,11 +382,13 @@ class OperationalHealthCliModule(Module):
             minimum_version=25,
         )
         clock = SystemWorkflowClockAdapter()
+        scheduler_inputs = SqliteSchedulerInputAdapter(connection.connect)
         query = InspectHealth(
             coverage=ReadHarvestCoverage(
                 SqliteHarvestCoverageAdapter(connection.connect)
             ),
             workflow=SqliteWorkflowHealthAdapter(connection.connect),
+            scheduler=scheduler_inputs,
             explanation=SqliteExplanationHealthAdapter(connection.connect),
             delivery=SqliteDeliveryHealthAdapter(connection.connect),
             clock=clock.now,

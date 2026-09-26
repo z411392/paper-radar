@@ -17,6 +17,7 @@ from libs.research_workflow.ports.operational_health_port import (
     ReadExplanationHealthEvidencePort,
     ReadWorkflowHealthEvidencePort,
 )
+from libs.research_workflow.ports.scheduler_input_port import SchedulerInputPort
 
 
 _PENDING_STATES = frozenset({"pending", "running", "awaiting_external", "budget_blocked"})
@@ -28,12 +29,14 @@ class InspectHealth:
         *,
         coverage: ReadHarvestCoveragePort,
         workflow: ReadWorkflowHealthEvidencePort,
+        scheduler: SchedulerInputPort,
         explanation: ReadExplanationHealthEvidencePort,
         delivery: ReadDeliveryHealthEvidencePort,
         clock: Callable[[], datetime],
     ) -> None:
         self._coverage = coverage
         self._workflow = workflow
+        self._scheduler = scheduler
         self._explanation = explanation
         self._delivery = delivery
         self._clock = clock
@@ -109,6 +112,7 @@ class InspectHealth:
             raise OperationalHealthError("invalid_health_clock")
         now = now.astimezone(timezone.utc)
 
+        scheduler = self._scheduler.read(now)
         workflow_rows = self._workflow()
         jobs: dict[str, WorkflowHealthEvidence] = {}
         for row in workflow_rows:
@@ -126,6 +130,7 @@ class InspectHealth:
         )
         return OperationalHealthReport(
             sources=sources,
+            coverage_gaps=scheduler.input_gaps,
             explanations=self._explanation(),
             delivery=self._delivery(),
         )

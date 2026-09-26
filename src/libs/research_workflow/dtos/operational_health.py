@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 
+from libs.research_workflow.dtos.scheduler import CoverageGap
+
 
 @dataclass(frozen=True)
 class WorkflowHealthEvidence:
@@ -38,5 +40,6 @@ class SourceOperationalHealth:
 @dataclass(frozen=True)
 class OperationalHealthReport:
     sources: tuple[SourceOperationalHealth, ...]
+    coverage_gaps: tuple[CoverageGap, ...]
     explanations: ExplanationHealthEvidence | None
     delivery: DeliveryHealthEvidence | None
