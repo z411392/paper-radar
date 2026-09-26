@@ -44,6 +44,9 @@ from libs.discovery.adapters.driven.pubmed_source_adapter import PubmedSourceAda
 from libs.discovery.adapters.driven.rate_limited_source_http_transport_adapter import (
     RateLimitedSourceHttpTransportAdapter,
 )
+from libs.discovery.adapters.driven.sqlite_arxiv_observation_replay_adapter import (
+    SqliteArxivObservationReplayAdapter,
+)
 from libs.discovery.adapters.driven.sqlite_claimed_crossref_attachment_adapter import (
     SqliteClaimedCrossrefAttachmentAdapter,
 )
@@ -58,22 +61,19 @@ from libs.discovery.adapters.driven.sqlite_crossref_harvest_journal_adapter impo
 )
 from libs.discovery.adapters.driven.sqlite_harvest_coverage_adapter import SqliteHarvestCoverageAdapter
 from libs.discovery.adapters.driven.sqlite_harvest_processing_adapter import SqliteHarvestProcessingAdapter
+from libs.discovery.adapters.driven.sqlite_harvest_resume_adapter import SqliteHarvestResumeAdapter
+from libs.discovery.adapters.driven.sqlite_harvest_store_adapter import SqliteHarvestStoreAdapter
 from libs.discovery.adapters.driven.sqlite_harvest_unit_context_adapter import (
     SqliteHarvestUnitContextAdapter,
 )
-from libs.discovery.adapters.driven.sqlite_harvest_resume_adapter import SqliteHarvestResumeAdapter
-from libs.discovery.adapters.driven.sqlite_harvest_store_adapter import SqliteHarvestStoreAdapter
-from libs.discovery.adapters.driven.sqlite_arxiv_observation_replay_adapter import (
-    SqliteArxivObservationReplayAdapter,
+from libs.discovery.adapters.driven.sqlite_pubmed_harvest_store_adapter import (
+    SqlitePubmedHarvestStoreAdapter,
 )
 from libs.discovery.adapters.driven.sqlite_pubmed_observation_replay_adapter import (
     SqlitePubmedObservationReplayAdapter,
 )
 from libs.discovery.adapters.driven.sqlite_source_observation_page_adapter import (
     SqliteSourceObservationPageAdapter,
-)
-from libs.discovery.adapters.driven.sqlite_pubmed_harvest_store_adapter import (
-    SqlitePubmedHarvestStoreAdapter,
 )
 from libs.discovery.application.commands.attach_claimed_crossref_capture import (
     AttachClaimedCrossrefCapture,
@@ -93,9 +93,9 @@ from libs.discovery.application.commands.run_pubmed_harvest_window import RunPub
 from libs.discovery.application.commands.start_harvest_attempt import StartHarvestAttempt
 from libs.discovery.application.queries.compile_source_query import CompileSourceQuery
 from libs.discovery.application.queries.fetch_source_page import FetchSourcePage
-from libs.discovery.application.queries.read_harvest_coverage import ReadHarvestCoverage
 from libs.discovery.application.queries.parse_source_page import ParseSourcePage
 from libs.discovery.application.queries.read_harvest_attempt import ReadHarvestAttempt
+from libs.discovery.application.queries.read_harvest_coverage import ReadHarvestCoverage
 from libs.discovery.application.queries.read_harvest_resume import ReadHarvestResume
 from libs.discovery.application.queries.replay_crossref_capture import ReplayCrossrefCapture
 from libs.discovery.ports.compile_source_query_port import CompileSourceQueryPort
@@ -113,10 +113,10 @@ from libs.kernel.adapters.driven.sqlite_workspace_external_effects_adapter impor
 )
 from libs.kernel.adapters.driven.sqlite_workspace_info_adapter import SqliteWorkspaceInfoAdapter
 from libs.kernel.application.commands.initialize_workspace import InitializeWorkspace
+from libs.kernel.application.commands.publish_object import PublishObject
 from libs.kernel.application.commands.set_workspace_external_effects import (
     SetWorkspaceExternalEffects,
 )
-from libs.kernel.application.commands.publish_object import PublishObject
 from libs.kernel.application.queries.read_object import ReadObject
 from libs.kernel.ports.initialize_workspace_port import InitializeWorkspacePort
 from libs.kernel.ports.set_workspace_external_effects_port import (
@@ -167,11 +167,11 @@ from libs.paper_explanations.ports.structured_generation_port import (
     StructuredGenerationPort,
 )
 from libs.research_workflow.adapters.driven.python_runtime_version_adapter import PythonRuntimeVersionAdapter
+from libs.research_workflow.adapters.driven.sqlite_runtime_health_adapter import SqliteRuntimeHealthAdapter
 from libs.research_workflow.adapters.driven.sqlite_scheduler_input_adapter import SqliteSchedulerInputAdapter
 from libs.research_workflow.adapters.driven.sqlite_source_catalog_projection_store_adapter import (
     SqliteSourceCatalogProjectionStoreAdapter,
 )
-from libs.research_workflow.adapters.driven.sqlite_runtime_health_adapter import SqliteRuntimeHealthAdapter
 from libs.research_workflow.adapters.driven.sqlite_workflow_health_adapter import (
     SqliteWorkflowHealthAdapter,
 )
@@ -210,6 +210,9 @@ from libs.research_workflow.ports.operational_health_port import InspectHealthPo
 from libs.research_workflow.ports.process_evidence_explanation_port import (
     ProcessEvidenceExplanationPort,
 )
+from libs.research_workflow.ports.process_revision_notice_port import (
+    ProcessRevisionNoticePort,
+)
 from libs.research_workflow.ports.process_workflow_job_port import ProcessWorkflowJobPort
 from libs.research_workflow.ports.project_source_catalog_unit_port import (
     ProjectSourceCatalogUnitPort,
@@ -217,9 +220,6 @@ from libs.research_workflow.ports.project_source_catalog_unit_port import (
 from libs.research_workflow.ports.read_runtime_version_port import ReadRuntimeVersionPort
 from libs.research_workflow.ports.run_crossref_harvest_window_port import (
     RunCrossrefHarvestWindowPort,
-)
-from libs.research_workflow.ports.process_revision_notice_port import (
-    ProcessRevisionNoticePort,
 )
 from libs.research_workflow.ports.run_harvest_slice_port import RunHarvestSlicePort
 from libs.research_workflow.ports.run_scheduler_tick_port import RunSchedulerTickPort
@@ -229,9 +229,6 @@ from libs.research_workflow.ports.workflow_clock_port import WorkflowClockPort
 from libs.research_workflow.ports.workflow_job_store_port import WorkflowJobStorePort
 from libs.scholarly_catalog.adapters.driven.kernel_evidence_object_adapter import (
     KernelEvidenceObjectAdapter,
-)
-from libs.scholarly_catalog.adapters.driven.sqlite_evidence_snapshot_store_adapter import (
-    SqliteEvidenceSnapshotStoreAdapter,
 )
 from libs.scholarly_catalog.adapters.driven.sqlite_crossref_integrity_event_source_adapter import (
     SqliteCrossrefIntegrityEventSourceAdapter,
@@ -251,11 +248,14 @@ from libs.scholarly_catalog.adapters.driven.sqlite_crossref_relation_store_adapt
 from libs.scholarly_catalog.adapters.driven.sqlite_digest_research_event_adapter import (
     SqliteDigestResearchEventAdapter,
 )
-from libs.scholarly_catalog.adapters.driven.sqlite_research_event_store_adapter import (
-    SqliteResearchEventStoreAdapter,
+from libs.scholarly_catalog.adapters.driven.sqlite_evidence_snapshot_store_adapter import (
+    SqliteEvidenceSnapshotStoreAdapter,
 )
 from libs.scholarly_catalog.adapters.driven.sqlite_paper_identity_store_adapter import (
     SqlitePaperIdentityStoreAdapter,
+)
+from libs.scholarly_catalog.adapters.driven.sqlite_research_event_store_adapter import (
+    SqliteResearchEventStoreAdapter,
 )
 from libs.scholarly_catalog.application.commands.bind_crossref_integrity_works import (
     BindCrossrefIntegrityWorks,
@@ -269,11 +269,11 @@ from libs.scholarly_catalog.application.commands.prepare_evidence_snapshot impor
 from libs.scholarly_catalog.application.commands.project_arxiv_observation import (
     ProjectArxivObservation,
 )
-from libs.scholarly_catalog.application.commands.project_pubmed_observation import (
-    ProjectPubmedObservation,
-)
 from libs.scholarly_catalog.application.commands.project_crossref_pending_item import (
     ProjectCrossrefPendingItem,
+)
+from libs.scholarly_catalog.application.commands.project_pubmed_observation import (
+    ProjectPubmedObservation,
 )
 from libs.scholarly_catalog.application.commands.promote_crossref_integrity_events import (
     PromoteCrossrefIntegrityEvents,
@@ -316,6 +316,8 @@ from libs.watch_profiles.ports.publish_watch_profile_port import PublishWatchPro
 from libs.watch_profiles.ports.read_domain_definition_port import ReadDomainDefinitionPort
 from libs.watch_profiles.ports.read_watch_profile_port import ReadWatchProfilePort
 from libs.watch_profiles.ports.set_watch_profile_lifecycle_port import SetWatchProfileLifecyclePort
+
+
 
 
 class CliModule(Module):
