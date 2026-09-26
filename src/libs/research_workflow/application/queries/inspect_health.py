@@ -83,6 +83,7 @@ class InspectHealth:
                 source_id=source_id,
                 evidence_state="vacuum",
                 latest_successful_window_end=None,
+                latest_successful_at=None,
                 latest_observed_window_end=None,
                 failure_count=0,
                 pending_count=0,
@@ -94,6 +95,17 @@ class InspectHealth:
         latest_success = (
             max(succeeded, key=lambda item: cls._instant(item.window_end)).window_end
             if succeeded
+            else None
+        )
+        successful_attempts = [
+            jobs[row.business_key].finished_at
+            for row in succeeded
+            if row.business_key in jobs
+            and jobs[row.business_key].finished_at is not None
+        ]
+        latest_successful_at = (
+            max(successful_attempts, key=cls._instant)
+            if successful_attempts
             else None
         )
         failures = [row for row in rows if row.workflow_state == "failed"]
@@ -114,6 +126,7 @@ class InspectHealth:
             source_id=source_id,
             evidence_state="observed",
             latest_successful_window_end=latest_success,
+            latest_successful_at=latest_successful_at,
             latest_observed_window_end=latest.window_end,
             failure_count=len(failures),
             pending_count=len(pending),

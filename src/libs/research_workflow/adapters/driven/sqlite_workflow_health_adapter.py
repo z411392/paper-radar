@@ -20,6 +20,8 @@ class SqliteWorkflowHealthAdapter:
             connection.execute("BEGIN")
             rows = connection.execute(
                 "SELECT j.business_key,j.state,j.created_at,j.due_at,"
+                "(SELECT a.finished_at FROM job_attempts a "
+                "WHERE a.job_id=j.id ORDER BY a.attempt_no DESC LIMIT 1) AS finished_at,"
                 "(SELECT a.error_code FROM job_attempts a "
                 "WHERE a.job_id=j.id ORDER BY a.attempt_no DESC LIMIT 1) AS last_error_code "
                 "FROM workflow_jobs j WHERE j.job_kind='harvest_window' "
@@ -41,16 +43,16 @@ class SqliteWorkflowHealthAdapter:
                 for key in ("business_key", "state", "created_at", "due_at")
             ):
                 raise OperationalHealthError("workflow_health_corrupt")
-            if row["last_error_code"] is not None and not isinstance(
-                row["last_error_code"], str
-            ):
-                raise OperationalHealthError("workflow_health_corrupt")
+            for optional in ("finished_at", "last_error_code"):
+                if row[optional] is not None and not isinstance(row[optional], str):
+                    raise OperationalHealthError("workflow_health_corrupt")
             result.append(
                 WorkflowHealthEvidence(
                     business_key=row["business_key"],
                     state=row["state"],
                     created_at=row["created_at"],
                     due_at=row["due_at"],
+                    finished_at=row["finished_at"],
                     last_error_code=row["last_error_code"],
                 )
             )

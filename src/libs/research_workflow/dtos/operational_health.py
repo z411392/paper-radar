@@ -9,6 +9,7 @@ class WorkflowHealthEvidence:
     state: str
     created_at: str
     due_at: str
+    finished_at: str | None
     last_error_code: str | None
 
 
@@ -39,6 +40,7 @@ class SourceOperationalHealth:
     source_id: str
     evidence_state: str
     latest_successful_window_end: str | None
+    latest_successful_at: str | None
     latest_observed_window_end: str | None
     failure_count: int
     pending_count: int

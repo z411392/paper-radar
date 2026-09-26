@@ -97,5 +97,7 @@ def test_reads_harvest_jobs_and_latest_attempt_error_without_mutation(tmp_path: 
         "harvest:pubmed",
     ]
     by_key = {row.business_key: row for row in rows}
+    assert by_key["harvest:crossref"].finished_at is None
     assert by_key["harvest:crossref"].last_error_code is None
+    assert by_key["harvest:pubmed"].finished_at == "2026-09-26T06:04:00+00:00"
     assert by_key["harvest:pubmed"].last_error_code == "ncbi_unavailable"

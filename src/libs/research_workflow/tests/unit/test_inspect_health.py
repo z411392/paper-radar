@@ -124,10 +124,19 @@ def test_health_keeps_source_failure_and_pending_age_distinct_from_no_new_papers
         workflow=Workflow(
             (
                 WorkflowHealthEvidence(
+                    business_key="harvest:arxiv:ok",
+                    state="succeeded",
+                    created_at="2026-09-26T05:45:00+00:00",
+                    due_at="2026-09-26T06:00:00+00:00",
+                    finished_at="2026-09-26T06:05:00+00:00",
+                    last_error_code=None,
+                ),
+                WorkflowHealthEvidence(
                     business_key="harvest:crossref:pending",
                     state="pending",
                     created_at="2026-09-26T07:15:00+00:00",
                     due_at="2026-09-26T07:30:00+00:00",
+                    finished_at=None,
                     last_error_code=None,
                 ),
             )
@@ -151,6 +160,7 @@ def test_health_keeps_source_failure_and_pending_age_distinct_from_no_new_papers
     by_source = {source.source_id: source for source in result.sources}
     assert by_source["arxiv"].evidence_state == "observed"
     assert by_source["arxiv"].latest_successful_window_end == "2026-09-26T06:00:00+00:00"
+    assert by_source["arxiv"].latest_successful_at == "2026-09-26T06:05:00+00:00"
     assert by_source["arxiv"].failure_count == 0
     assert by_source["pubmed"].latest_successful_window_end is None
     assert by_source["pubmed"].failure_count == 1
@@ -217,5 +227,6 @@ def test_configured_source_without_any_window_is_explicit_vacuum():
     assert source.evidence_state == "vacuum"
     assert source.latest_observed_window_end is None
     assert source.latest_successful_window_end is None
+    assert source.latest_successful_at is None
     assert source.failure_count == 0
     assert source.pending_count == 0
