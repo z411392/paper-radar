@@ -306,3 +306,28 @@ def test_binding_query_mismatch_is_rejected_before_raw_read(tmp_path: Path) -> N
     ):
         adapter(OBSERVATION)
     assert reads == []
+
+
+def test_disabled_binding_does_not_invalidate_saved_observation(
+    tmp_path: Path,
+) -> None:
+    schema, _, body, object_id = _setup(tmp_path)
+    connection = schema.connect()
+    try:
+        connection.execute(
+            "UPDATE source_bindings SET enabled=0 "
+            "WHERE id='binding:arxiv-replay'"
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    adapter = SqliteArxivObservationReplayAdapter(
+        schema.connect,
+        lambda requested: body if requested == object_id else b"",
+    )
+
+    replay = adapter(OBSERVATION)
+
+    assert replay.observation_id == OBSERVATION
+    assert replay.record.source_record_id == "2501.12345v1"
