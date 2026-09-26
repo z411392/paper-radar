@@ -2,6 +2,8 @@ import hashlib
 import json
 import os
 import re
+import shutil
+import tempfile
 import sqlite3
 import stat
 from datetime import datetime, timezone
@@ -765,6 +767,107 @@ class LocalWorkspaceRestoreAdapter:
             if connection is not None:
                 connection.close()
 
+    @staticmethod
+    def _copy_regular(
+        source: Path,
+        destination: Path,
+        *,
+        expected_sha256: str,
+        expected_size: int | None,
+        missing_code: str,
+        corrupt_code: str,
+    ) -> None:
+        source_fd: int | None = None
+        destination_fd: int | None = None
+        try:
+            source_fd = os.open(source, os.O_RDONLY | os.O_NOFOLLOW)
+            if not stat.S_ISREG(os.fstat(source_fd).st_mode):
+                raise WorkspaceRestoreError("restore_source_unsafe")
+            destination_fd = os.open(
+                destination,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                0o600,
+            )
+            digest = hashlib.sha256()
+            byte_size = 0
+            with (
+                os.fdopen(source_fd, "rb", closefd=False) as source_stream,
+                os.fdopen(destination_fd, "wb", closefd=False) as destination_stream,
+            ):
+                while chunk := source_stream.read(1024 * 1024):
+                    digest.update(chunk)
+                    byte_size += len(chunk)
+                    destination_stream.write(chunk)
+                destination_stream.flush()
+                os.fsync(destination_stream.fileno())
+            if digest.hexdigest() != expected_sha256:
+                raise WorkspaceRestoreError(corrupt_code)
+            if expected_size is not None and byte_size != expected_size:
+                raise WorkspaceRestoreError(corrupt_code)
+        except FileNotFoundError as exc:
+            raise WorkspaceRestoreError(missing_code) from exc
+        except WorkspaceRestoreError:
+            raise
+        except OSError as exc:
+            raise WorkspaceRestoreError("restore_file_io") from exc
+        finally:
+            if source_fd is not None:
+                os.close(source_fd)
+            if destination_fd is not None:
+                os.close(destination_fd)
+
+    def _stage_restore(
+        self,
+        backup_directory: Path,
+        target: Path,
+        *,
+        database: Path,
+        database_sha256: str,
+        refs: tuple[ObjectRef, ...],
+    ) -> Path:
+        try:
+            staging = Path(
+                tempfile.mkdtemp(
+                    prefix=f".{target.name}.restore-",
+                    dir=target.parent,
+                )
+            )
+        except OSError as exc:
+            raise WorkspaceRestoreError("restore_file_io") from exc
+
+        staging_paths = WorkspacePaths(staging)
+        try:
+            state = staging_paths.directory("state")
+            target_database = staging_paths.path("state/app.sqlite3")
+            self._copy_regular(
+                database,
+                target_database,
+                expected_sha256=database_sha256,
+                expected_size=None,
+                missing_code="restore_database_missing",
+                corrupt_code="restore_database_corrupt",
+            )
+            WorkspacePaths.sync_directory(state)
+
+            source_paths = WorkspacePaths(backup_directory)
+            for ref in refs:
+                destination_parent = staging_paths.directory(
+                    Path(ref.relative_path).parent.as_posix()
+                )
+                self._copy_regular(
+                    source_paths.path(ref.relative_path),
+                    staging_paths.path(ref.relative_path),
+                    expected_sha256=ref.content_sha256,
+                    expected_size=ref.byte_size,
+                    missing_code="restore_object_missing",
+                    corrupt_code="restore_object_corrupt",
+                )
+                WorkspacePaths.sync_directory(destination_parent)
+            return staging
+        except Exception:
+            shutil.rmtree(staging, ignore_errors=True)
+            raise
+
     def restore(
         self,
         backup_directory: Path,
@@ -775,6 +878,20 @@ class LocalWorkspaceRestoreAdapter:
             target,
         )
         manifest = self._read_manifest(backup_directory)
-        self._validate_snapshot(backup_directory, manifest)
-        raise WorkspaceRestoreError("restore_copy_pending")
+        database, _, _, refs = self._validate_snapshot(
+            backup_directory,
+            manifest,
+        )
+        database_spec = manifest["database"]
+        if not isinstance(database_spec, dict):
+            raise WorkspaceRestoreError("restore_manifest_invalid")
+        staging = self._stage_restore(
+            backup_directory,
+            target,
+            database=database,
+            database_sha256=str(database_spec["sha256"]),
+            refs=refs,
+        )
+        shutil.rmtree(staging, ignore_errors=True)
+        raise WorkspaceRestoreError("restore_publish_pending")
 
