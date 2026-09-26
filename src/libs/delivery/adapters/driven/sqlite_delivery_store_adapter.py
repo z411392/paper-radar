@@ -800,12 +800,49 @@ class SqliteDeliveryStoreAdapter:
                 recipient_ref=row["recipient_ref"],
             )
 
-    def claim_dispatch(self, outbox_id: str, now: datetime) -> DeliveryClaim:
+    def claim_dispatch(
+        self,
+        outbox_id: str,
+        now: datetime,
+        *,
+        expected_rendered_object_id: str | None = None,
+        expected_payload_sha256: str | None = None,
+        expected_idempotency_key: str | None = None,
+    ) -> DeliveryClaim:
         outbox_id = self._text(outbox_id, "invalid_outbox_id")
         started_at = self._time(now, "invalid_dispatch_time")
+        expectations = (
+            expected_rendered_object_id,
+            expected_payload_sha256,
+            expected_idempotency_key,
+        )
+        expectation_supplied = any(value is not None for value in expectations)
+        if expectation_supplied:
+            if (
+                not isinstance(expected_rendered_object_id, str)
+                or re.fullmatch(
+                    r"digest:[0-9a-f]{64}",
+                    expected_rendered_object_id,
+                )
+                is None
+                or not isinstance(expected_payload_sha256, str)
+                or re.fullmatch(
+                    r"[0-9a-f]{64}",
+                    expected_payload_sha256,
+                )
+                is None
+                or not isinstance(expected_idempotency_key, str)
+                or re.fullmatch(
+                    r"delivery-request:[0-9a-f]{64}",
+                    expected_idempotency_key,
+                )
+                is None
+            ):
+                raise DeliveryStoreError("invalid_dispatch_snapshot")
         with self._transaction() as connection:
             row = connection.execute(
                 "SELECT o.state AS outbox_state,o.workspace_epoch,o.digest_id,"
+                "o.idempotency_key,o.payload_sha256,d.rendered_object_id,"
                 "d.state AS digest_state,d.subscription_id,s.enabled,s.channel "
                 "FROM delivery_outbox o "
                 "JOIN digests d ON d.id=o.digest_id "
@@ -824,6 +861,16 @@ class SqliteDeliveryStoreAdapter:
                 raise DeliveryStoreError("delivery_state_corrupt")
             if row["channel"] != "email":
                 raise DeliveryStoreError("unsupported_delivery_channel")
+            if expectation_supplied and (
+                row["rendered_object_id"],
+                row["payload_sha256"],
+                row["idempotency_key"],
+            ) != (
+                expected_rendered_object_id,
+                expected_payload_sha256,
+                expected_idempotency_key,
+            ):
+                return DeliveryClaim("snapshot_changed")
 
             if not bool(row["enabled"]):
                 connection.execute(
