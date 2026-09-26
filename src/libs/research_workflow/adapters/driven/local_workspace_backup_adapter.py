@@ -896,26 +896,103 @@ class LocalWorkspaceRestoreAdapter:
             shutil.rmtree(staging, ignore_errors=True)
             raise
 
+    @staticmethod
+    def _isolate_restored_workspace(
+        staging: Path,
+        *,
+        workspace_id: str,
+        previous_epoch: int,
+        restored_from: str,
+    ) -> tuple[int, tuple[str, ...]]:
+        if previous_epoch >= 2**63 - 1:
+            raise WorkspaceRestoreError("restore_epoch_exhausted")
+        new_epoch = previous_epoch + 1
+        connection = SqliteConnectionFactory(staging).connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT workspace_id,epoch,external_effects_enabled "
+                "FROM workspace_metadata WHERE singleton=1"
+            ).fetchone()
+            if (
+                row is None
+                or row["workspace_id"] != workspace_id
+                or row["epoch"] != previous_epoch
+                or row["external_effects_enabled"] not in {0, 1}
+            ):
+                raise WorkspaceRestoreError("restore_isolation_conflict")
+            changed = connection.execute(
+                "UPDATE workspace_metadata SET "
+                "epoch=?,external_effects_enabled=0,restored_from=? "
+                "WHERE singleton=1 AND workspace_id=? AND epoch=?",
+                (
+                    new_epoch,
+                    restored_from,
+                    workspace_id,
+                    previous_epoch,
+                ),
+            ).rowcount
+            if changed != 1:
+                raise WorkspaceRestoreError("restore_isolation_conflict")
+            reconcile = tuple(
+                row["id"]
+                for row in connection.execute(
+                    "SELECT id FROM delivery_outbox "
+                    "WHERE workspace_epoch<>? "
+                    "AND state NOT IN ('provider_accepted','cancelled') "
+                    "ORDER BY id",
+                    (new_epoch,),
+                ).fetchall()
+            )
+            connection.commit()
+            return new_epoch, reconcile
+        except WorkspaceRestoreError:
+            if connection.in_transaction:
+                connection.rollback()
+            raise
+        except sqlite3.Error as exc:
+            if connection.in_transaction:
+                connection.rollback()
+            raise WorkspaceRestoreError("restore_isolation_failed") from exc
+        finally:
+            connection.close()
+
     def _verify_staging(
         self,
         staging: Path,
         *,
         workspace_id: str,
         epoch: int,
+        restored_from: str,
+        reconciliation_outbox_ids: tuple[str, ...],
         refs: tuple[ObjectRef, ...],
     ) -> None:
         schema = SqliteSchemaConnectionFactory(staging, self._migrations)
         connection = schema.connect()
         try:
             identity = connection.execute(
-                "SELECT workspace_id,epoch "
+                "SELECT workspace_id,epoch,external_effects_enabled,restored_from "
                 "FROM workspace_metadata WHERE singleton=1"
             ).fetchone()
             if (
                 identity is None
                 or identity["workspace_id"] != workspace_id
                 or identity["epoch"] != epoch
+                or identity["external_effects_enabled"] != 0
+                or identity["restored_from"] != restored_from
             ):
+                raise WorkspaceRestoreError("restore_readback_mismatch")
+            actual_reconcile = tuple(
+                row["id"]
+                for row in connection.execute(
+                    "SELECT id FROM delivery_outbox "
+                    "WHERE workspace_epoch<>? "
+                    "AND state NOT IN ('provider_accepted','cancelled') "
+                    "ORDER BY id",
+                    (epoch,),
+                ).fetchall()
+            )
+            if actual_reconcile != reconciliation_outbox_ids:
                 raise WorkspaceRestoreError("restore_readback_mismatch")
             if connection.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
                 raise WorkspaceRestoreError("restore_database_corrupt")
@@ -994,19 +1071,34 @@ class LocalWorkspaceRestoreAdapter:
                 database_sha256=str(database_spec["sha256"]),
                 refs=refs,
             )
+            backup_run_id = str(manifest["run_id"])
+            new_epoch, reconciliation_outbox_ids = (
+                self._isolate_restored_workspace(
+                    staging,
+                    workspace_id=workspace_id,
+                    previous_epoch=epoch,
+                    restored_from=backup_run_id,
+                )
+            )
             self._verify_staging(
                 staging,
                 workspace_id=workspace_id,
-                epoch=epoch,
+                epoch=new_epoch,
+                restored_from=backup_run_id,
+                reconciliation_outbox_ids=reconciliation_outbox_ids,
                 refs=refs,
             )
             self._publish_staging(staging, target)
             staging = None
             return WorkspaceRestoreResult(
                 workspace_id=workspace_id,
-                epoch=epoch,
+                epoch=new_epoch,
                 object_count=len(refs),
                 state="restored",
+                previous_epoch=epoch,
+                external_effects_enabled=False,
+                source_backup_run_id=backup_run_id,
+                reconciliation_outbox_ids=reconciliation_outbox_ids,
             )
         finally:
             if staging is not None:
