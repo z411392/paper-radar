@@ -237,3 +237,29 @@ def test_independent_processes_admit_only_one_request(setup):
         assert child.exitcode == 0
     assert received.count("admitted") == 1
     assert set(received) <= {"admitted", "crossref_provider_busy", "crossref_provider_deferred"}
+
+
+def test_observation_only_updates_received_response_while_send_is_deferred(setup):
+    _, clock, gate = setup
+    with gate.slot(EMAIL) as lease:
+        lease.observe(429, (("retry-after", "60"),))
+    before = json.loads(gate.state_path.read_text())
+
+    clock.value = 1001
+    forbidden = gate.observe_received(EMAIL, 403, ())
+    after_forbidden = json.loads(gate.state_path.read_text())
+
+    assert forbidden.action == "stop"
+    assert forbidden.failure_code == "crossref_forbidden"
+    assert after_forbidden["blocked"] is True
+    assert after_forbidden["not_before"] >= before["not_before"]
+
+    accepted = gate.observe_received(EMAIL, 200, ())
+    after_accepted = json.loads(gate.state_path.read_text())
+
+    assert accepted.action == "accept"
+    assert after_accepted["blocked"] is True
+    assert after_accepted["not_before"] >= after_forbidden["not_before"]
+    with pytest.raises(CrossrefRateError, match="crossref_circuit_open"):
+        with gate.slot(EMAIL):
+            pytest.fail("observation-only recovery must not clear send circuit")

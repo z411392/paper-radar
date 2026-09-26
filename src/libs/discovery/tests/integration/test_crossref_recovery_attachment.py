@@ -10,7 +10,7 @@ from libs.discovery.application.commands.attach_claimed_crossref_capture import 
 from libs.discovery.exceptions.crossref_attachment_error import (
     CrossrefAttachmentError,
 )
-from libs.discovery.exceptions.crossref_rate_error import CrossrefRateError
+from libs.discovery.domain.services.crossref_rate_policy import CrossrefRatePolicy
 from libs.discovery.tests.integration.test_crossref_claimed_attachment import (
     Fixture,
     NOW,
@@ -160,51 +160,69 @@ def test_recovery_receipt_failure_rolls_back_attempt_and_page(f):
     assert tuple(page) == ("requested", None, None)
 
 
-class CircuitOpenGate:
+class ObservationOnlyGate:
+    def __init__(self, now):
+        self.now = now
+        self.calls = 0
+
     @contextmanager
     def slot(self, contact_email):
-        assert contact_email == "fixture@example.invalid"
-        raise CrossrefRateError("crossref_circuit_open")
+        del contact_email
+        raise AssertionError("local recovery must not acquire a send slot")
         yield  # pragma: no cover
 
-
-class DeferredGate:
-    @contextmanager
-    def slot(self, contact_email):
+    def observe_received(
+        self,
+        contact_email,
+        status,
+        headers,
+        *,
+        capture_error=None,
+    ):
         assert contact_email == "fixture@example.invalid"
-        raise CrossrefRateError("crossref_provider_deferred", 30.0)
-        yield  # pragma: no cover
+        self.calls += 1
+        return CrossrefRatePolicy().evaluate(
+            status,
+            headers,
+            now=self.now,
+            capture_error=capture_error,
+        )
 
 
-def test_open_circuit_allows_only_local_recovery_of_existing_response(f):
-    f.stage(status=403)
+@pytest.mark.parametrize(
+    ("status", "headers", "action", "failure_code"),
+    [
+        (403, (), "stop", "crossref_forbidden"),
+        (
+            429,
+            (("retry-after", "3600"),),
+            "retry",
+            "crossref_rate_limited",
+        ),
+    ],
+)
+def test_local_recovery_observes_received_response_without_send_slot(
+    f,
+    status,
+    headers,
+    action,
+    failure_code,
+):
+    f.stage(status=status, headers=headers)
+    recovered_at = NOW + timedelta(seconds=61)
+    gate = ObservationOnlyGate(recovered_at)
     command = AttachClaimedCrossrefCapture(
         f.publisher,
-        CircuitOpenGate(),
+        gate,
         f.store,
         source=CrossrefSourceAdapter(),
-        clock=lambda: NOW + timedelta(seconds=61),
+        clock=lambda: recovered_at,
     )
 
     result = command(f.plan, f.claim)
 
-    assert result.action == "stop"
-    assert result.failure_code == "crossref_forbidden"
+    assert gate.calls == 1
+    assert result.action == action
+    assert result.failure_code == failure_code
     assert len(f.sql("SELECT * FROM crossref_capture_recoveries")) == 1
-
-
-def test_provider_deferred_does_not_attach_or_create_recovery_authority(f):
-    f.stage(status=429, headers=(("retry-after", "3600"),))
-    command = AttachClaimedCrossrefCapture(
-        f.publisher,
-        DeferredGate(),
-        f.store,
-        source=CrossrefSourceAdapter(),
-        clock=lambda: NOW + timedelta(seconds=61),
-    )
-
-    with pytest.raises(CrossrefRateError, match="crossref_provider_deferred"):
-        command(f.plan, f.claim)
-
-    assert f.sql("SELECT * FROM crossref_capture_recoveries") == []
-    assert f.sql("SELECT * FROM crossref_harvest_page_attempts") == []
+    assert len(f.sql("SELECT * FROM crossref_harvest_page_attempts")) == 1
