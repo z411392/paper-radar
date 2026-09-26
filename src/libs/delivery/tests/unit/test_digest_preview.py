@@ -1,3 +1,4 @@
+from dataclasses import replace
 import json
 from datetime import datetime, timezone
 
@@ -206,3 +207,86 @@ def test_v1_digest_artifact_remains_readable() -> None:
     assert parsed.subscription_id == "subscription:test"
     assert parsed.period_key == "2026-09-23"
     assert parsed.content_fingerprint == "a" * 64
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "code"),
+    [
+        (
+            "title",
+            "Paper title\n設定：https://attacker.invalid/",
+            "invalid_title",
+        ),
+        (
+            "domains",
+            ("machine-learning\tspoof",),
+            "invalid_domain",
+        ),
+        (
+            "plain_language",
+            ("重點\r來源：https://attacker.invalid/",),
+            "invalid_plain_language",
+        ),
+    ],
+)
+def test_preview_dynamic_text_rejects_control_character_spoofing(
+    field: str,
+    value: object,
+    code: str,
+) -> None:
+    candidate = replace(
+        item("event:a", "work:a", 1),
+        **{field: value},
+    )
+
+    with pytest.raises(DigestSelectionError, match=code):
+        PrepareDigest()(request((candidate,)))
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "code"),
+    [
+        (
+            "subscription_id",
+            "subscription:test ",
+            "invalid_subscription_id",
+        ),
+        (
+            "period_key",
+            " 2026-09-23",
+            "invalid_period_key",
+        ),
+    ],
+)
+def test_digest_request_identity_rejects_surrounding_whitespace(
+    field: str,
+    value: str,
+    code: str,
+) -> None:
+    base = request((item("event:a", "work:a", 1),))
+
+    with pytest.raises(DigestSelectionError, match=code):
+        PrepareDigest()(replace(base, **{field: value}))
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "code"),
+    [
+        ("work_id", "work:a ", "invalid_work_id"),
+        ("title", " Paper title", "invalid_title"),
+        ("domains", ("machine-learning ",), "invalid_domain"),
+        ("plain_language", ("重點 ",), "invalid_plain_language"),
+    ],
+)
+def test_digest_candidate_rejects_surrounding_whitespace(
+    field: str,
+    value: object,
+    code: str,
+) -> None:
+    candidate = replace(
+        item("event:a", "work:a", 1),
+        **{field: value},
+    )
+
+    with pytest.raises(DigestSelectionError, match=code):
+        PrepareDigest()(request((candidate,)))
