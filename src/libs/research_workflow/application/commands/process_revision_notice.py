@@ -124,6 +124,11 @@ class ProcessRevisionNotice:
                 "awaiting_external",
                 "delivery_payload_mismatch",
             )
+        if dispatched.state == "snapshot_changed":
+            return RevisionNoticeOutcome(
+                "awaiting_external",
+                "delivery_dispatch_snapshot_changed",
+            )
         if dispatched.state == "failed":
             return RevisionNoticeOutcome("failed", "delivery_rejected")
         return RevisionNoticeOutcome("failed", "delivery_state_corrupt")

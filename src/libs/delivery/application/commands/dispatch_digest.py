@@ -42,7 +42,13 @@ class DispatchDigest:
         ):
             return DispatchOutcome("payload_mismatch", candidate.outbox_id)
 
-        claim = self._store.claim_dispatch(candidate.outbox_id, now)
+        claim = self._store.claim_dispatch(
+            candidate.outbox_id,
+            now,
+            expected_rendered_object_id=candidate.rendered_object_id,
+            expected_payload_sha256=candidate.payload_sha256,
+            expected_idempotency_key=candidate.idempotency_key,
+        )
         if claim.state != "sending" or claim.attempt_id is None:
             return DispatchOutcome(claim.state, candidate.outbox_id, claim.attempt_id)
 

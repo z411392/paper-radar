@@ -16,7 +16,15 @@ class DeliveryDispatchStorePort(Protocol):
 
     def cancel_pending(self, outbox_id: str) -> str: ...
 
-    def claim_dispatch(self, outbox_id: str, now: datetime) -> DeliveryClaim: ...
+    def claim_dispatch(
+        self,
+        outbox_id: str,
+        now: datetime,
+        *,
+        expected_rendered_object_id: str | None = None,
+        expected_payload_sha256: str | None = None,
+        expected_idempotency_key: str | None = None,
+    ) -> DeliveryClaim: ...
 
     def finish_dispatch(
         self,
