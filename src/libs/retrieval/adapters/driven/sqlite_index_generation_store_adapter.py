@@ -412,9 +412,22 @@ class SqliteIndexGenerationStoreAdapter:
                 if (
                     row["index_sha256"] != index_sha256
                     or row["manifest_sha256"] != manifest.manifest_sha256
-                    or row["verified_at"] != verified.isoformat()
+                    or not isinstance(row["verified_at"], str)
                 ):
                     raise IndexGenerationError("index_generation_conflict")
+                try:
+                    IndexGenerationRules.instant(
+                        datetime.fromisoformat(row["verified_at"])
+                    )
+                except (
+                    ValueError,
+                    TypeError,
+                    OverflowError,
+                    IndexGenerationError,
+                ) as exc:
+                    raise IndexGenerationError(
+                        "index_generation_state_corrupt"
+                    ) from exc
                 return self._result(row, replayed=True)
             if row["state"] != "building":
                 raise IndexGenerationError("index_generation_conflict")

@@ -174,3 +174,36 @@ def test_failed_generation_cannot_replace_ready_generation(
             prepared,
             failed_at=NOW,
         )
+
+
+def test_ready_replay_preserves_original_verified_time(tmp_path: Path) -> None:
+    raw, store, prepared, _ = _building(tmp_path)
+    manifest = IndexGenerationRules.manifest(
+        prepared,
+        index_sha256="a" * 64,
+    )
+    store.mark_ready(
+        prepared,
+        manifest,
+        index_sha256="a" * 64,
+        verified_at=NOW,
+    )
+
+    replay = store.mark_ready(
+        prepared,
+        manifest,
+        index_sha256="a" * 64,
+        verified_at=NOW.replace(hour=2),
+    )
+
+    assert replay.state == "ready"
+    assert replay.replayed is True
+    connection = raw.connect()
+    try:
+        verified_at = connection.execute(
+            "SELECT verified_at FROM index_generations WHERE id=?",
+            (prepared.generation_id,),
+        ).fetchone()[0]
+    finally:
+        connection.close()
+    assert verified_at == NOW.isoformat()
