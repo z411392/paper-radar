@@ -1,0 +1,251 @@
+openapi: 3.1.0
+info:
+  title: Paper Radar Local Reading API
+  version: 0.1.0-contract
+  description: |
+    Contract-only boundary for a future local Paper Radar HTTP/RSS consumer.
+    This file does not authorize a public service, remote bind, cloud deploy,
+    login system, or network side effect.
+servers:
+  - url: http://127.0.0.1:{port}
+    description: IPv4 loopback only
+    variables:
+      port:
+        default: "8765"
+x-paper-radar-transport:
+  lifecycle: contract-only
+  allowed_bind_addresses:
+    - 127.0.0.1
+    - "::1"
+  forbidden_bind_examples:
+    - 0.0.0.0
+    - "::"
+  host_policy: exact-startup-loopback-host-and-port
+  cors:
+    wildcard_allowed: false
+    credentialed_cross_origin_allowed: false
+  get_side_effects: forbidden
+  rss_side_effects: forbidden
+  mutation:
+    require_same_loopback_origin: true
+    require_capability_header: X-Paper-Radar-Mutation-Token
+    direct_database_access_from_transport: forbidden
+paths:
+  /v1/works/{work_id}/reading-history:
+    get:
+      operationId: readLocalReadingHistory
+      summary: Read exact local paper and delivery history
+      description: |
+        Read-only projection over the existing local-reading-history inbound port.
+        This GET must not create read, saved, useful, relevance, or any other
+        feedback event.
+      x-paper-radar-side-effect-free: true
+      parameters:
+        - name: work_id
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 256
+        - name: reader_id
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 256
+        - name: channel
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [email, rss]
+      responses:
+        "200":
+          description: Exact local reading-history projection
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocalReadingHistory"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/IntegrityConflict"
+  /v1/reader-feedback:
+    post:
+      operationId: recordReaderFeedback
+      summary: Append one private reader-feedback event
+      description: |
+        Mutation boundary over the delivery RecordFeedback inbound use case.
+        The HTTP adapter must not write SQLite directly. Exact replay semantics
+        are owned by the use case/store: same feedback_id and same payload is
+        idempotent; same feedback_id with different payload is a conflict.
+      x-paper-radar-requires-same-loopback-origin: true
+      x-paper-radar-requires-capability-header: X-Paper-Radar-Mutation-Token
+      parameters:
+        - $ref: "#/components/parameters/MutationToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReaderFeedbackRequest"
+      responses:
+        "200":
+          description: Existing event replayed without a second insert
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecordedFeedback"
+        "201":
+          description: New append-only feedback event recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecordedFeedback"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/ForbiddenMutation"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/FeedbackConflict"
+  /v1/feed.xml:
+    get:
+      operationId: readLocalRssFeed
+      summary: Read a local RSS projection
+      description: |
+        Read-only local projection. Fetching or refreshing this feed must not
+        mark any work as read and must not create reader_feedback rows.
+      x-paper-radar-side-effect-free: true
+      parameters:
+        - name: reader_id
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 256
+      responses:
+        "200":
+          description: RSS 2.0 XML generated from already persisted local state
+          content:
+            application/rss+xml:
+              schema:
+                type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
+components:
+  parameters:
+    MutationToken:
+      name: X-Paper-Radar-Mutation-Token
+      in: header
+      required: true
+      description: |
+        Per-launch local mutation capability. It is not a user login/session and
+        must not be accepted from cross-origin callers.
+      schema:
+        type: string
+        minLength: 32
+  schemas:
+    ReaderFeedbackRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - feedback_id
+        - reader_id
+        - work_id
+        - action
+        - created_at
+      properties:
+        feedback_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        reader_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        work_id:
+          type: string
+          minLength: 1
+          maxLength: 256
+        action:
+          type: string
+          enum:
+            - useful
+            - relevant_not_urgent
+            - irrelevant
+            - read
+            - saved
+            - unsaved
+        profile_id:
+          type:
+            - string
+            - "null"
+          minLength: 1
+          maxLength: 256
+        created_at:
+          type: string
+          format: date-time
+    RecordedFeedback:
+      type: object
+      additionalProperties: false
+      required:
+        - feedback_id
+        - replayed
+      properties:
+        feedback_id:
+          type: string
+        replayed:
+          type: boolean
+    LocalReadingHistory:
+      type: object
+      description: |
+        JSON serialization of the existing LocalReadingHistory application DTO.
+        Exact nested DTO fields remain owned by the application contract rather
+        than duplicated as a second domain model in the transport layer.
+      additionalProperties: true
+    Error:
+      type: object
+      additionalProperties: false
+      required:
+        - code
+      properties:
+        code:
+          type: string
+  responses:
+    BadRequest:
+      description: Invalid bounded input
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: Referenced local work or profile is missing
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    IntegrityConflict:
+      description: Local history exists but its referenced evidence is unavailable or corrupt
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    FeedbackConflict:
+      description: feedback_id already exists with a different payload
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    ForbiddenMutation:
+      description: Loopback origin, Host, or mutation capability check failed
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
