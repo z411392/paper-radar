@@ -224,9 +224,6 @@ def test_operational_health_composition_reads_empty_runtime_as_real_zeroes(
     assert report.sources == ()
     assert report.explanations is not None
     assert report.explanations.qa_rejected == 0
-    assert report.explanations.currency is None
-    assert report.explanations.reserved_micros == 0
-    assert report.explanations.settled_actual_micros == 0
-    assert report.explanations.unknown_cost_reservations == 0
+    assert report.explanations.usage_periods == ()
     assert report.delivery is not None
     assert report.delivery.unknown_deliveries == 0

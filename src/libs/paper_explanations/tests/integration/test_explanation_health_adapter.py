@@ -69,13 +69,16 @@ def test_reads_reserved_exposure_settled_actual_unknown_cost_and_qa_reject(tmp_p
     health = SqliteExplanationHealthAdapter(factory(setup_database(tmp_path)))()
 
     assert health.qa_rejected == 1
-    assert health.currency == "USD"
-    assert health.reserved_micros == 600
-    assert health.settled_actual_micros == 533
-    assert health.unknown_cost_reservations == 1
+    assert len(health.usage_periods) == 1
+    period = health.usage_periods[0]
+    assert period.period_key == "2026-09"
+    assert period.currency == "USD"
+    assert period.reserved_micros == 600
+    assert period.settled_actual_micros == 533
+    assert period.unknown_cost_reservations == 1
 
 
-def test_multiple_currencies_are_not_summed_as_if_they_were_comparable(tmp_path: Path):
+def test_period_and_currency_boundaries_are_preserved(tmp_path: Path):
     database = setup_database(tmp_path)
     connection = sqlite3.connect(database)
     connection.execute(
@@ -85,10 +88,15 @@ def test_multiple_currencies_are_not_summed_as_if_they_were_comparable(tmp_path:
     )
     connection.execute(
         "INSERT INTO usage_reservations VALUES("
-        "'usage:twd','run:twd','2026-09','TWD',30,NULL,'reserved','2026-09-26')"
+        "'usage:twd','run:twd','2026-10','TWD',30,NULL,'reserved','2026-09-26')"
     )
     connection.commit()
     connection.close()
 
-    with pytest.raises(OperationalHealthError, match="multiple_health_currencies"):
-        SqliteExplanationHealthAdapter(factory(database))()
+    health = SqliteExplanationHealthAdapter(factory(database))()
+
+    assert [(item.period_key, item.currency) for item in health.usage_periods] == [
+        ("2026-09", "USD"),
+        ("2026-10", "TWD"),
+    ]
+    assert health.usage_periods[1].reserved_micros == 30

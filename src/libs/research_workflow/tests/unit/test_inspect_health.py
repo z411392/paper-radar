@@ -5,6 +5,7 @@ from libs.research_workflow.dtos.operational_health import (
     DeliveryHealthEvidence,
     ExplanationHealthEvidence,
     RuntimeHealthEvidence,
+    UsagePeriodHealthEvidence,
     WorkflowHealthEvidence,
 )
 from libs.discovery.dtos.harvest_coverage import HarvestCoverageWindow
@@ -144,10 +145,15 @@ def test_health_keeps_source_failure_and_pending_age_distinct_from_no_new_papers
         explanation=Explanation(
             ExplanationHealthEvidence(
                 qa_rejected=2,
-                currency="USD",
-                reserved_micros=600,
-                settled_actual_micros=533,
-                unknown_cost_reservations=1,
+                usage_periods=(
+                    UsagePeriodHealthEvidence(
+                        period_key="2026-09",
+                        currency="USD",
+                        reserved_micros=600,
+                        settled_actual_micros=533,
+                        unknown_cost_reservations=1,
+                    ),
+                ),
             )
         ),
         delivery=Delivery(DeliveryHealthEvidence(unknown_deliveries=1)),
@@ -172,9 +178,15 @@ def test_health_keeps_source_failure_and_pending_age_distinct_from_no_new_papers
         CoverageGap("harvest", "personal:3:badminton:7", "no_selected_source"),
     )
     assert result.explanations.qa_rejected == 2
-    assert result.explanations.reserved_micros == 600
-    assert result.explanations.settled_actual_micros == 533
-    assert result.explanations.unknown_cost_reservations == 1
+    assert result.explanations.usage_periods == (
+        UsagePeriodHealthEvidence(
+            period_key="2026-09",
+            currency="USD",
+            reserved_micros=600,
+            settled_actual_micros=533,
+            unknown_cost_reservations=1,
+        ),
+    )
     assert result.delivery.unknown_deliveries == 1
     assert result.runtime.sqlite_version == "3.49.1"
     assert result.runtime.python_implementation == "cpython"

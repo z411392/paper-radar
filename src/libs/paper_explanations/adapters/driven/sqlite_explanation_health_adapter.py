@@ -1,7 +1,10 @@
 import sqlite3
 from collections.abc import Callable
 
-from libs.research_workflow.dtos.operational_health import ExplanationHealthEvidence
+from libs.research_workflow.dtos.operational_health import (
+    ExplanationHealthEvidence,
+    UsagePeriodHealthEvidence,
+)
 from libs.research_workflow.exceptions.operational_health_error import (
     OperationalHealthError,
 )
@@ -22,14 +25,15 @@ class SqliteExplanationHealthAdapter:
                 "SELECT COUNT(*) FROM summary_revisions WHERE qa_state='rejected'"
             ).fetchone()[0]
             rows = connection.execute(
-                "SELECT currency,"
+                "SELECT period_key,currency,"
                 "SUM(CASE WHEN state IN ('reserved','unknown') THEN reserved_micros ELSE 0 END) "
                 "AS reserved_micros,"
                 "SUM(CASE WHEN state='settled' THEN actual_micros ELSE 0 END) "
                 "AS settled_actual_micros,"
                 "SUM(CASE WHEN state='unknown' THEN 1 ELSE 0 END) "
                 "AS unknown_cost_reservations "
-                "FROM usage_reservations GROUP BY currency ORDER BY currency"
+                "FROM usage_reservations "
+                "GROUP BY period_key,currency ORDER BY period_key,currency"
             ).fetchall()
             connection.commit()
         except sqlite3.Error as exc:
@@ -40,30 +44,33 @@ class SqliteExplanationHealthAdapter:
             if connection is not None:
                 connection.close()
 
-        if len(rows) > 1:
-            raise OperationalHealthError("multiple_health_currencies")
-        if not rows:
-            return ExplanationHealthEvidence(
-                qa_rejected=qa_rejected,
-                currency=None,
-                reserved_micros=0,
-                settled_actual_micros=0,
-                unknown_cost_reservations=0,
+        periods = []
+        for row in rows:
+            values = (
+                row["reserved_micros"],
+                row["settled_actual_micros"],
+                row["unknown_cost_reservations"],
             )
-
-        row = rows[0]
-        values = (
-            qa_rejected,
-            row["reserved_micros"],
-            row["settled_actual_micros"],
-            row["unknown_cost_reservations"],
-        )
-        if any(type(value) is not int or value < 0 for value in values):
+            if (
+                not isinstance(row["period_key"], str)
+                or not row["period_key"]
+                or not isinstance(row["currency"], str)
+                or not row["currency"]
+                or any(type(value) is not int or value < 0 for value in values)
+            ):
+                raise OperationalHealthError("explanation_health_corrupt")
+            periods.append(
+                UsagePeriodHealthEvidence(
+                    period_key=row["period_key"],
+                    currency=row["currency"],
+                    reserved_micros=row["reserved_micros"],
+                    settled_actual_micros=row["settled_actual_micros"],
+                    unknown_cost_reservations=row["unknown_cost_reservations"],
+                )
+            )
+        if type(qa_rejected) is not int or qa_rejected < 0:
             raise OperationalHealthError("explanation_health_corrupt")
         return ExplanationHealthEvidence(
             qa_rejected=qa_rejected,
-            currency=row["currency"],
-            reserved_micros=row["reserved_micros"],
-            settled_actual_micros=row["settled_actual_micros"],
-            unknown_cost_reservations=row["unknown_cost_reservations"],
+            usage_periods=tuple(periods),
         )
