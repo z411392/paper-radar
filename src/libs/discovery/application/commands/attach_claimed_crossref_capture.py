@@ -6,13 +6,11 @@ may be stricter after a failed attach: it must never be rolled back with local j
 from collections.abc import Callable
 from datetime import datetime, timezone
 
-from libs.discovery.domain.services.crossref_rate_policy import CrossrefRatePolicy
 from libs.discovery.dtos.crossref_attachment import CrossrefAttachment
 from libs.discovery.dtos.crossref_capture_claim import CrossrefCaptureClaim
 from libs.discovery.dtos.crossref_page import CrossrefWindowPlan
 from libs.discovery.exceptions.crossref_attachment_error import CrossrefAttachmentError as Error
 from libs.discovery.exceptions.crossref_protocol_error import CrossrefProtocolError
-from libs.discovery.exceptions.crossref_rate_error import CrossrefRateError
 from libs.discovery.ports.claimed_crossref_attachment_port import (
     ClaimedCrossrefAttachmentPort,
     PublishClaimedCrossrefCapturePort,
@@ -48,25 +46,12 @@ class AttachClaimedCrossrefCapture:
         prior = self._attachments.replay(claim, stored)
         if prior is not None:
             return prior
-        try:
-            with self._gate.slot(plan.definition.contact_email) as lease:
-                decision = lease.observe(
-                    stored.capture.status,
-                    stored.capture.headers,
-                    capture_error=stored.capture.capture_error,
-                )
-        except CrossrefRateError as exc:
-            if exc.code != 'crossref_circuit_open':
-                raise
-            # A persistent open circuit is already stricter than any local
-            # recovery outcome. Reconstruct the response decision without
-            # authorizing or performing a provider request.
-            decision = CrossrefRatePolicy().evaluate(
-                stored.capture.status,
-                stored.capture.headers,
-                now=stored.capture.received_at,
-                capture_error=stored.capture.capture_error,
-            )
+        decision = self._gate.observe_received(
+            plan.definition.contact_email,
+            stored.capture.status,
+            stored.capture.headers,
+            capture_error=stored.capture.capture_error,
+        )
         return self._attachments.recover(
             claim,
             stored,
