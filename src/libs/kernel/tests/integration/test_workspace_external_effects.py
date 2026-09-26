@@ -1,6 +1,7 @@
 import json
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -330,3 +331,107 @@ def test_external_effects_same_request_replays_but_stale_state_cannot_reverse(
 
     with pytest.raises(StorageError, match="workspace_effects_conflict"):
         adapter.set_enabled(False, **request)
+
+
+def test_external_effects_two_writers_cannot_reverse_committed_enable(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "runtime"
+    migrations = load_workspace_migrations(with_runtime=True)
+    original = SqliteWorkspaceBootstrapAdapter(root, migrations).initialize()
+    factory = SqliteSchemaConnectionFactory(
+        root,
+        migrations,
+        minimum_version=17,
+    )
+    request = {
+        "expected_workspace_id": original.workspace_id,
+        "expected_epoch": original.epoch,
+        "expected_enabled": False,
+    }
+    barrier = threading.Barrier(2)
+    outcomes: list[tuple[str, str, object]] = []
+    outcomes_lock = threading.Lock()
+
+    def write(label: str, desired: bool) -> None:
+        adapter = SqliteWorkspaceExternalEffectsAdapter(factory.connect)
+        barrier.wait(timeout=5)
+        try:
+            result = adapter.set_enabled(desired, **request)
+        except StorageError as exc:
+            outcome: tuple[str, str, object] = (label, "error", exc.code)
+        else:
+            outcome = (label, "ok", result.external_effects_enabled)
+        with outcomes_lock:
+            outcomes.append(outcome)
+
+    enable = threading.Thread(target=write, args=("enable", True))
+    disable = threading.Thread(target=write, args=("disable", False))
+    enable.start()
+    disable.start()
+    enable.join(timeout=10)
+    disable.join(timeout=10)
+
+    assert not enable.is_alive()
+    assert not disable.is_alive()
+    assert ("enable", "ok", True) in outcomes
+    assert any(
+        outcome in {
+            ("disable", "ok", False),
+            ("disable", "error", "workspace_effects_conflict"),
+        }
+        for outcome in outcomes
+    )
+
+    connection = factory.connect()
+    try:
+        row = connection.execute(
+            "SELECT workspace_id,epoch,external_effects_enabled "
+            "FROM workspace_metadata WHERE singleton=1"
+        ).fetchone()
+        assert tuple(row) == (original.workspace_id, original.epoch, 1)
+    finally:
+        connection.close()
+
+
+def test_external_effects_rolls_back_gate_and_trigger_side_effect_on_conflict(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "runtime"
+    migrations = load_workspace_migrations(with_runtime=True)
+    original = SqliteWorkspaceBootstrapAdapter(root, migrations).initialize()
+    factory = SqliteSchemaConnectionFactory(
+        root,
+        migrations,
+        minimum_version=17,
+    )
+
+    def connect_with_epoch_fault():
+        connection = factory.connect()
+        connection.execute(
+            "CREATE TEMP TRIGGER force_effects_epoch_change "
+            "AFTER UPDATE OF external_effects_enabled ON workspace_metadata "
+            "BEGIN "
+            "UPDATE workspace_metadata SET epoch=epoch+1 WHERE singleton=1; "
+            "END"
+        )
+        return connection
+
+    adapter = SqliteWorkspaceExternalEffectsAdapter(connect_with_epoch_fault)
+    with pytest.raises(StorageError, match="workspace_effects_conflict"):
+        adapter.set_enabled(
+            True,
+            expected_workspace_id=original.workspace_id,
+            expected_epoch=original.epoch,
+            expected_enabled=False,
+        )
+
+    connection = factory.connect()
+    try:
+        row = connection.execute(
+            "SELECT workspace_id,epoch,external_effects_enabled "
+            "FROM workspace_metadata WHERE singleton=1"
+        ).fetchone()
+        assert tuple(row) == (original.workspace_id, original.epoch, 0)
+    finally:
+        connection.close()
