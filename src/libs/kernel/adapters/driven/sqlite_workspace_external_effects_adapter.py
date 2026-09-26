@@ -11,9 +11,37 @@ class SqliteWorkspaceExternalEffectsAdapter:
     def __init__(self, connect: Callable[[], sqlite3.Connection]) -> None:
         self._connect = connect
 
-    def set_enabled(self, enabled: bool) -> WorkspaceInfo:
+    def set_enabled(
+        self,
+        enabled: bool,
+        *,
+        expected_workspace_id: str | None = None,
+        expected_epoch: int | None = None,
+        expected_enabled: bool | None = None,
+    ) -> WorkspaceInfo:
         if type(enabled) is not bool:
             raise StorageError("invalid_external_effects_state")
+        expectation_supplied = any(
+            value is not None
+            for value in (
+                expected_workspace_id,
+                expected_epoch,
+                expected_enabled,
+            )
+        )
+        expected_current: int | None = None
+        if expectation_supplied:
+            if (
+                not isinstance(expected_workspace_id, str)
+                or not expected_workspace_id
+                or "\0" in expected_workspace_id
+                or type(expected_epoch) is not int
+                or not 1 <= expected_epoch < 2**63
+                or type(expected_enabled) is not bool
+            ):
+                raise StorageError("invalid_workspace_effects_expectation")
+            expected_current = 1 if expected_enabled else 0
+
         connection: sqlite3.Connection | None = None
         try:
             connection = self._connect()
@@ -45,12 +73,27 @@ class SqliteWorkspaceExternalEffectsAdapter:
                 or version < 1
             ):
                 raise StorageError("workspace_metadata_invalid")
+            if expectation_supplied and (
+                row["workspace_id"] != expected_workspace_id
+                or row["epoch"] != expected_epoch
+            ):
+                raise StorageError("workspace_effects_conflict")
+
             requested = 1 if enabled else 0
-            if row["external_effects_enabled"] != requested:
+            current = row["external_effects_enabled"]
+            if current != requested:
+                if expectation_supplied and current != expected_current:
+                    raise StorageError("workspace_effects_conflict")
                 changed = connection.execute(
                     "UPDATE workspace_metadata SET external_effects_enabled=? "
-                    "WHERE singleton=1 AND external_effects_enabled=?",
-                    (requested, row["external_effects_enabled"]),
+                    "WHERE singleton=1 AND workspace_id=? AND epoch=? "
+                    "AND external_effects_enabled=?",
+                    (
+                        requested,
+                        row["workspace_id"],
+                        row["epoch"],
+                        current,
+                    ),
                 ).rowcount
                 if changed != 1:
                     raise StorageError("workspace_effects_conflict")
