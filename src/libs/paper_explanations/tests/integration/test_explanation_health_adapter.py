@@ -1,8 +1,13 @@
 import sqlite3
 from pathlib import Path
 
+import pytest
+
 from libs.paper_explanations.adapters.driven.sqlite_explanation_health_adapter import (
     SqliteExplanationHealthAdapter,
+)
+from libs.paper_explanations.exceptions.explanation_health_error import (
+    ExplanationHealthError,
 )
 
 
@@ -23,8 +28,10 @@ def setup_database(tmp_path: Path) -> Path:
     )
     connection.execute(
         "INSERT INTO model_runs("
-        "id,task_kind,provider,model_name,prompt_digest,input_fingerprint,state,started_at"
-        ") VALUES('run:settled','summary','gateway','model','p2','i2','succeeded','2026-09-26')"
+        "id,task_kind,provider,model_name,prompt_digest,input_fingerprint,state,"
+        "actual_cost_micros,started_at"
+        ") VALUES('run:settled','summary','gateway','model','p2','i2','succeeded',"
+        "533,'2026-09-26')"
     )
     connection.execute(
         "INSERT INTO model_runs("
@@ -97,3 +104,19 @@ def test_period_and_currency_boundaries_are_preserved(tmp_path: Path):
         ("2026-10", "TWD"),
     ]
     assert health.usage_periods[1].reserved_micros == 30
+
+
+def test_settled_usage_must_match_model_run_actual_cost(tmp_path: Path):
+    database = setup_database(tmp_path)
+    connection = sqlite3.connect(database)
+    connection.execute(
+        "UPDATE model_runs SET actual_cost_micros=534 WHERE id='run:settled'"
+    )
+    connection.commit()
+    connection.close()
+
+    with pytest.raises(
+        ExplanationHealthError,
+        match="explanation_health_ledger_mismatch",
+    ):
+        SqliteExplanationHealthAdapter(factory(database))()
