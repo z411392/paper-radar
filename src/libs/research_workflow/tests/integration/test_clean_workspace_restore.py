@@ -134,14 +134,22 @@ def test_restore_to_new_workspace_preserves_registered_objects(
     restored_connection = SqliteConnectionFactory(target).connect()
     try:
         source_identity = source_connection.execute(
-            "SELECT workspace_id,epoch,external_effects_enabled "
+            "SELECT workspace_id,epoch,external_effects_enabled,restored_from "
             "FROM workspace_metadata WHERE singleton=1"
         ).fetchone()
         restored_identity = restored_connection.execute(
-            "SELECT workspace_id,epoch,external_effects_enabled "
+            "SELECT workspace_id,epoch,external_effects_enabled,restored_from "
             "FROM workspace_metadata WHERE singleton=1"
         ).fetchone()
-        assert tuple(restored_identity) == tuple(source_identity)
+        assert restored_identity["workspace_id"] == source_identity["workspace_id"]
+        assert restored_identity["epoch"] == source_identity["epoch"] + 1
+        assert restored_identity["external_effects_enabled"] == 0
+        assert restored_identity["restored_from"] == "backup:restore-fixture"
+        assert result.previous_epoch == source_identity["epoch"]
+        assert result.epoch == source_identity["epoch"] + 1
+        assert result.external_effects_enabled is False
+        assert result.source_backup_run_id == "backup:restore-fixture"
+        assert result.reconciliation_outbox_ids == ()
         assert restored_connection.execute(
             "PRAGMA foreign_key_check"
         ).fetchall() == []
