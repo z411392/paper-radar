@@ -117,3 +117,49 @@ def test_health_cli_reports_cost_ledger_mismatch_as_structured_error(
     assert raised.value.code == 1
     output = json.loads(capsys.readouterr().err)
     assert output == {"error": {"code": "explanation_health_ledger_mismatch"}}
+
+
+def test_health_cli_reports_delivery_ledger_mismatch_as_structured_error(
+    tmp_path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    workspace = tmp_path / "runtime"
+    SqliteWorkspaceBootstrapAdapter(
+        workspace,
+        load_workspace_migrations(with_runtime=True),
+    ).initialize()
+
+    connection = SqliteConnectionFactory(workspace).connect()
+    try:
+        connection.execute("PRAGMA foreign_keys=OFF")
+        connection.execute(
+            "INSERT INTO digests VALUES("
+            "'digest:health','subscription:health','2026-09-26',"
+            "'2026-09-26T08:00:00+00:00',NULL,'unknown',"
+            "'2026-09-26T08:00:00+00:00')"
+        )
+        connection.execute(
+            "INSERT INTO delivery_outbox VALUES("
+            "'outbox:health','digest:health','request:health','a','unknown',1,NULL,"
+            "'2026-09-26T08:00:00+00:00')"
+        )
+        connection.execute(
+            "INSERT INTO delivery_attempts VALUES("
+            "'attempt:health','outbox:health',1,'failed',NULL,'timeout',"
+            "'2026-09-26T08:01:00+00:00','2026-09-26T08:02:00+00:00')"
+        )
+        connection.execute(
+            "INSERT INTO notification_ledger VALUES("
+            "'notification:health','reader:health','event:health','email',"
+            "'outbox:health','unknown','2026-09-26T08:00:00+00:00')"
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    with pytest.raises(SystemExit) as raised:
+        run_health_cli(["health", "--workspace", str(workspace)])
+
+    assert raised.value.code == 1
+    output = json.loads(capsys.readouterr().err)
+    assert output == {"error": {"code": "delivery_health_ledger_mismatch"}}
