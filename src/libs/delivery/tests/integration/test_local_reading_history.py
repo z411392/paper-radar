@@ -405,10 +405,21 @@ def _setup(tmp_path: Path) -> Path:
     return path
 
 
+class FixtureObjectReader:
+    def __call__(self, object_id: str) -> bytes:
+        assert isinstance(object_id, str) and object_id
+        return b"fixture"
+
+
 def _query(path: Path) -> ReadLocalReadingHistory:
     connect = _connect(path)
     return ReadLocalReadingHistory(
-        ReadLocalPaperRecord(SqliteLocalPaperHistoryAdapter(connect)),
+        ReadLocalPaperRecord(
+            SqliteLocalPaperHistoryAdapter(
+                connect,
+                FixtureObjectReader(),
+            )
+        ),
         SqliteLocalDeliveryHistoryAdapter(connect),
     )
 

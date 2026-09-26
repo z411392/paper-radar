@@ -3,6 +3,8 @@ import sqlite3
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 
+from libs.kernel.exceptions.storage_error import StorageError
+from libs.kernel.ports.read_object_port import ReadObjectPort
 from libs.scholarly_catalog.dtos.local_paper_record import (
     LocalAccessAssessmentView,
     LocalManifestationView,
@@ -18,6 +20,7 @@ class SqliteLocalPaperHistoryAdapter:
     def __init__(
         self,
         connect: Callable[[], sqlite3.Connection],
+        read_object: ReadObjectPort,
         *,
         maximum_alias_family: int = 10000,
     ) -> None:
@@ -27,6 +30,7 @@ class SqliteLocalPaperHistoryAdapter:
         ):
             raise LocalPaperHistoryError("invalid_local_paper_alias_limit")
         self._connect = connect
+        self._read_object = read_object
         self._maximum_alias_family = maximum_alias_family
 
     @staticmethod
@@ -221,14 +225,21 @@ class SqliteLocalPaperHistoryAdapter:
                     f"WHERE r.manifestation_id IN ({placeholders})",
                     tuple(chunk),
                 ).fetchall():
-                    if (
-                        row["abstract_object_id"] is not None
-                        and row["abstract_object_state"] != "available"
-                    ):
-                        raise LocalPaperHistoryError(
-                            "local_paper_object_unavailable"
-                        )
-                    revision_rows.setdefault(row["manifestation_id"], []).append(row)
+                    if row["abstract_object_id"] is not None:
+                        if row["abstract_object_state"] != "available":
+                            raise LocalPaperHistoryError(
+                                "local_paper_object_unavailable"
+                            )
+                        try:
+                            self._read_object(row["abstract_object_id"])
+                        except StorageError as exc:
+                            raise LocalPaperHistoryError(
+                                "local_paper_object_unavailable"
+                            ) from exc
+                    revision_rows.setdefault(
+                        row["manifestation_id"],
+                        [],
+                    ).append(row)
                 for row in connection.execute(
                     "SELECT * FROM access_assessments "
                     f"WHERE manifestation_id IN ({placeholders})",

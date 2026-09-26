@@ -283,8 +283,17 @@ class ReadingHistoryCliModule(Module):
             load_workspace_migrations(with_runtime=True),
             minimum_version=7,
         )
+        root = Path(self._workspace)
+        raw = SqliteConnectionFactory(root)
+        read_object = ReadObject(
+            FilesystemObjectBytesAdapter(root),
+            SqliteObjectUnitOfWorkAdapter(raw),
+        )
         paper = ReadLocalPaperRecord(
-            SqliteLocalPaperHistoryAdapter(connection.connect)
+            SqliteLocalPaperHistoryAdapter(
+                connection.connect,
+                read_object,
+            )
         )
         history = ReadLocalReadingHistory(
             paper,
