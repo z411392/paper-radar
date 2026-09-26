@@ -1172,11 +1172,27 @@ class SqliteCrossrefHarvestJournalAdapter:
             ).rowcount
             if changed != 1:
                 raise CrossrefHarvestJournalError("crossref_checkpoint_conflict")
-            connection.execute(
+            changed = connection.execute(
                 "UPDATE crossref_harvest_windows SET state=?,updated_at=? "
-                "WHERE id=?",
+                "WHERE id=? AND state='running'",
                 (window_state, committed, state["window_id"]),
-            )
+            ).rowcount
+            if changed != 1:
+                raise CrossrefHarvestJournalError(
+                    "crossref_checkpoint_conflict"
+                )
+            written_window = connection.execute(
+                "SELECT state,updated_at FROM crossref_harvest_windows "
+                "WHERE id=?",
+                (state["window_id"],),
+            ).fetchone()
+            if written_window is None or tuple(written_window) != (
+                window_state,
+                committed,
+            ):
+                raise CrossrefHarvestJournalError(
+                    "crossref_checkpoint_conflict"
+                )
             updated = connection.execute(
                 "SELECT * FROM crossref_harvest_passes WHERE id=?",
                 (pass_id,),
