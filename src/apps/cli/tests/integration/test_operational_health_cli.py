@@ -163,3 +163,69 @@ def test_health_cli_reports_delivery_ledger_mismatch_as_structured_error(
     assert raised.value.code == 1
     output = json.loads(capsys.readouterr().err)
     assert output == {"error": {"code": "delivery_health_ledger_mismatch"}}
+
+
+def test_health_cli_reports_workflow_ledger_mismatch_as_structured_error(
+    tmp_path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    workspace = tmp_path / "runtime"
+    SqliteWorkspaceBootstrapAdapter(
+        workspace,
+        load_workspace_migrations(with_runtime=True),
+    ).initialize()
+
+    connection = SqliteConnectionFactory(workspace).connect()
+    try:
+        input_json = json.dumps(
+            {
+                "binding_key": "personal:3:statistics:7:arxiv",
+                "profile_id": "personal",
+                "profile_revision": 3,
+                "domain_id": "statistics",
+                "domain_revision": 7,
+                "source_id": "arxiv",
+                "window_start": "2026-09-25T00:00:00+00:00",
+                "window_end": "2026-09-26T00:00:00+00:00",
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        connection.execute(
+            "INSERT INTO workflow_jobs("
+            "id,job_kind,business_key,input_json,input_fingerprint,state,due_at,"
+            "fencing_token,attempt_count,created_at"
+            ") VALUES(?,?,?,?,?,'succeeded',?,1,1,?)",
+            (
+                "job:health-mismatch",
+                "harvest_window",
+                "harvest:health-mismatch",
+                input_json,
+                "a" * 64,
+                "2026-09-26T00:00:00+00:00",
+                "2026-09-25T23:00:00+00:00",
+            ),
+        )
+        connection.execute(
+            "INSERT INTO job_attempts VALUES(?,?,?,?,?,?,?,?)",
+            (
+                "attempt:health-mismatch",
+                "job:health-mismatch",
+                1,
+                1,
+                "failed",
+                "source_unavailable",
+                "2026-09-25T23:01:00+00:00",
+                "2026-09-25T23:02:00+00:00",
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    with pytest.raises(SystemExit) as raised:
+        run_health_cli(["health", "--workspace", str(workspace)])
+
+    assert raised.value.code == 1
+    output = json.loads(capsys.readouterr().err)
+    assert output == {"error": {"code": "workflow_health_ledger_mismatch"}}
