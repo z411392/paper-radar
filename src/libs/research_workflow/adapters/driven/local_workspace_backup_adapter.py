@@ -681,12 +681,30 @@ class LocalWorkspaceRestoreAdapter:
             "retention_policy": ref.retention_policy,
         }
 
+    @staticmethod
+    def _reject_database_sidecars(backup_directory: Path) -> None:
+        paths = WorkspacePaths(backup_directory)
+        for suffix in ("-wal", "-journal", "-shm"):
+            relative = f"state/app.sqlite3{suffix}"
+            try:
+                sidecar = paths.path(relative)
+            except StorageError as exc:
+                raise WorkspaceRestoreError(
+                    "restore_database_sidecar_present"
+                ) from exc
+            try:
+                sidecar.lstat()
+            except FileNotFoundError:
+                continue
+            raise WorkspaceRestoreError("restore_database_sidecar_present")
+
     def _validate_snapshot(
         self,
         backup_directory: Path,
         manifest: dict[str, object],
     ) -> tuple[Path, str, int, tuple[ObjectRef, ...]]:
         paths = WorkspacePaths(backup_directory)
+        self._reject_database_sidecars(backup_directory)
         database = paths.path("state/app.sqlite3")
         database_spec = manifest["database"]
         if not isinstance(database_spec, dict):
