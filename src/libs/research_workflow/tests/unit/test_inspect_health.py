@@ -152,7 +152,10 @@ def test_health_keeps_source_failure_and_pending_age_distinct_from_no_new_papers
     assert by_source["crossref"].pending_count == 1
     assert by_source["crossref"].oldest_pending_age_seconds == 2700
 
-    assert result.coverage_gaps == (\n        CoverageGap("harvest", "personal:3:badminton:7", "no_selected_source"),\n    )\n    assert result.explanations.qa_rejected == 2
+    assert result.coverage_gaps == (
+        CoverageGap("harvest", "personal:3:badminton:7", "no_selected_source"),
+    )
+    assert result.explanations.qa_rejected == 2
     assert result.explanations.reserved_micros == 600
     assert result.explanations.settled_actual_micros == 533
     assert result.explanations.unknown_cost_reservations == 1
