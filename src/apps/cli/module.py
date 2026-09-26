@@ -7,6 +7,7 @@ from libs.delivery.adapters.driven.json_recipient_resolver_adapter import (
 )
 from libs.delivery.adapters.driven.kernel_digest_artifact_adapter import KernelDigestArtifactAdapter
 from libs.delivery.adapters.driven.smtp_mail_sender_adapter import SmtpMailSenderAdapter
+from libs.delivery.adapters.driven.sqlite_delivery_health_adapter import SqliteDeliveryHealthAdapter
 from libs.delivery.adapters.driven.sqlite_delivery_store_adapter import SqliteDeliveryStoreAdapter
 from libs.delivery.adapters.driven.sqlite_digest_delivery_context_adapter import (
     SqliteDigestDeliveryContextAdapter,
@@ -55,6 +56,7 @@ from libs.discovery.adapters.driven.sqlite_crossref_capture_inbox_adapter import
 from libs.discovery.adapters.driven.sqlite_crossref_harvest_journal_adapter import (
     SqliteCrossrefHarvestJournalAdapter,
 )
+from libs.discovery.adapters.driven.sqlite_harvest_coverage_adapter import SqliteHarvestCoverageAdapter
 from libs.discovery.adapters.driven.sqlite_harvest_processing_adapter import SqliteHarvestProcessingAdapter
 from libs.discovery.adapters.driven.sqlite_harvest_unit_context_adapter import (
     SqliteHarvestUnitContextAdapter,
@@ -91,6 +93,7 @@ from libs.discovery.application.commands.run_pubmed_harvest_window import RunPub
 from libs.discovery.application.commands.start_harvest_attempt import StartHarvestAttempt
 from libs.discovery.application.queries.compile_source_query import CompileSourceQuery
 from libs.discovery.application.queries.fetch_source_page import FetchSourcePage
+from libs.discovery.application.queries.read_harvest_coverage import ReadHarvestCoverage
 from libs.discovery.application.queries.parse_source_page import ParseSourcePage
 from libs.discovery.application.queries.read_harvest_attempt import ReadHarvestAttempt
 from libs.discovery.application.queries.read_harvest_resume import ReadHarvestResume
@@ -132,6 +135,9 @@ from libs.paper_explanations.adapters.driven.sqlite_current_summary_store_adapte
 from libs.paper_explanations.adapters.driven.sqlite_digest_current_summary_adapter import (
     SqliteDigestCurrentSummaryAdapter,
 )
+from libs.paper_explanations.adapters.driven.sqlite_explanation_health_adapter import (
+    SqliteExplanationHealthAdapter,
+)
 from libs.paper_explanations.adapters.driven.sqlite_generation_ledger_adapter import (
     SqliteGenerationLedgerAdapter,
 )
@@ -165,6 +171,9 @@ from libs.research_workflow.adapters.driven.sqlite_scheduler_input_adapter impor
 from libs.research_workflow.adapters.driven.sqlite_source_catalog_projection_store_adapter import (
     SqliteSourceCatalogProjectionStoreAdapter,
 )
+from libs.research_workflow.adapters.driven.sqlite_workflow_health_adapter import (
+    SqliteWorkflowHealthAdapter,
+)
 from libs.research_workflow.adapters.driven.sqlite_workflow_job_store_adapter import (
     SqliteWorkflowJobStoreAdapter,
 )
@@ -190,11 +199,13 @@ from libs.research_workflow.application.queries.build_crossref_window_plan impor
     BuildCrossrefWindowPlan,
 )
 from libs.research_workflow.application.queries.build_harvest_query_input import BuildHarvestQueryInput
+from libs.research_workflow.application.queries.inspect_health import InspectHealth
 from libs.research_workflow.application.queries.read_runtime_version import ReadRuntimeVersion
 from libs.research_workflow.ports.build_crossref_window_plan_port import (
     BuildCrossrefWindowPlanPort,
 )
 from libs.research_workflow.ports.build_harvest_query_input_port import BuildHarvestQueryInputPort
+from libs.research_workflow.ports.operational_health_port import InspectHealthPort
 from libs.research_workflow.ports.process_evidence_explanation_port import (
     ProcessEvidenceExplanationPort,
 )
@@ -357,6 +368,31 @@ class WorkspaceEffectsCliModule(Module):
             SetWorkspaceExternalEffectsPort,
             to=InstanceProvider(command),
         )
+
+class OperationalHealthCliModule(Module):
+    """Assemble read-only operational evidence without enabling external effects."""
+
+    def __init__(self, workspace: str) -> None:
+        self._workspace = workspace
+
+    def configure(self, binder: Binder) -> None:
+        connection = SqliteSchemaConnectionFactory(
+            Path(self._workspace),
+            load_workspace_migrations(with_runtime=True),
+            minimum_version=25,
+        )
+        clock = SystemWorkflowClockAdapter()
+        query = InspectHealth(
+            coverage=ReadHarvestCoverage(
+                SqliteHarvestCoverageAdapter(connection.connect)
+            ),
+            workflow=SqliteWorkflowHealthAdapter(connection.connect),
+            explanation=SqliteExplanationHealthAdapter(connection.connect),
+            delivery=SqliteDeliveryHealthAdapter(connection.connect),
+            clock=clock.now,
+        )
+        binder.bind(InspectHealthPort, to=InstanceProvider(query))
+
 
 class WatchProfileCliModule(Module):
     """Assemble profile ports without bootstrapping or opening a database."""

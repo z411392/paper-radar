@@ -6,6 +6,7 @@ from fire import Fire
 from injector import Injector
 
 from apps.cli.adapters.driving.initialize_workspace import initialize_workspace
+from apps.cli.adapters.driving.inspect_health import run_health_cli
 from apps.cli.adapters.driving.manage_harvest import run_harvest_cli
 from apps.cli.adapters.driving.manage_watch_profiles import run_watch_cli
 from apps.cli.adapters.driving.manage_workspace_effects import (
@@ -27,6 +28,7 @@ def run() -> None:
                 "domains",
                 "profile",
                 "harvest",
+                "health",
                 "effects",
                 "run-worker",
             ),
@@ -66,6 +68,9 @@ def run() -> None:
         return
     if sys.argv[1:2] == ["harvest"]:
         run_harvest_cli(sys.argv[1:])
+        return
+    if sys.argv[1:2] == ["health"]:
+        run_health_cli(sys.argv[1:])
         return
     if sys.argv[1:2] == ["effects"]:
         run_workspace_effects_cli(sys.argv[1:])
