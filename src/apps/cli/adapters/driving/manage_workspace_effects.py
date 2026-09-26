@@ -7,6 +7,7 @@ from injector import Injector
 
 from apps.cli.module import WorkspaceEffectsCliModule
 from libs.kernel.exceptions.storage_error import StorageError
+from libs.kernel.ports.read_workspace_info_port import ReadWorkspaceInfoPort
 from libs.kernel.ports.set_workspace_external_effects_port import (
     SetWorkspaceExternalEffectsPort,
 )
@@ -29,8 +30,12 @@ def run_workspace_effects_cli(argv: list[str]) -> None:
             [WorkspaceEffectsCliModule(arguments.workspace)],
             auto_bind=False,
         )
+        snapshot = injector.get(ReadWorkspaceInfoPort)()
         result = injector.get(SetWorkspaceExternalEffectsPort)(
-            arguments.operation == "enable"
+            arguments.operation == "enable",
+            expected_workspace_id=snapshot.workspace_id,
+            expected_epoch=snapshot.epoch,
+            expected_enabled=snapshot.external_effects_enabled,
         )
     except StorageError as exc:
         error: dict[str, str] = {"code": exc.code}

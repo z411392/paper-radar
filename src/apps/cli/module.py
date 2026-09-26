@@ -92,6 +92,7 @@ from libs.kernel.application.commands.set_workspace_external_effects import (
 from libs.kernel.application.commands.publish_object import PublishObject
 from libs.kernel.application.queries.read_object import ReadObject
 from libs.kernel.ports.initialize_workspace_port import InitializeWorkspacePort
+from libs.kernel.ports.read_workspace_info_port import ReadWorkspaceInfoPort
 from libs.kernel.ports.set_workspace_external_effects_port import (
     SetWorkspaceExternalEffectsPort,
 )
@@ -197,8 +198,13 @@ class WorkspaceEffectsCliModule(Module):
             load_workspace_migrations(with_runtime=True),
             minimum_version=17,
         )
+        info = SqliteWorkspaceInfoAdapter(connection.connect)
         adapter = SqliteWorkspaceExternalEffectsAdapter(connection.connect)
         command = SetWorkspaceExternalEffects(adapter)
+        binder.bind(
+            ReadWorkspaceInfoPort,
+            to=InstanceProvider(info),
+        )
         binder.bind(
             SetWorkspaceExternalEffectsPort,
             to=InstanceProvider(command),
