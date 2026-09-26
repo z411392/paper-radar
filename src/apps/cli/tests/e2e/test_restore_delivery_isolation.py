@@ -1,9 +1,11 @@
+import json
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 
+from apps.cli.adapters.driving.inspect_health import run_health_cli
 from libs.delivery.adapters.driven.sqlite_delivery_store_adapter import (
     SqliteDeliveryStoreAdapter,
 )
@@ -478,3 +480,52 @@ def test_revision_notice_keeps_restored_old_outbox_awaiting_external(
     assert outcome.error_code == "delivery_restore_reconciliation_required"
     assert sender.calls == 0
     assert _outbox_state(target)[0] == "pending"
+
+
+def test_unknown_delivery_survives_restore_health_and_resend_fence(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    source = tmp_path / "source-unknown-health"
+    old_epoch, object_id, payload_sha256 = _seed_pending_delivery(source)
+    _set_delivery_state(source, "unknown")
+
+    backup = BackupWorkspace(LocalWorkspaceBackupAdapter(source))(
+        run_id="backup:unknown-health",
+        created_at=NOW,
+    )
+    restored = tmp_path / "restored-unknown-health"
+    result = RestoreWorkspace(
+        LocalWorkspaceRestoreAdapter(load_workspace_migrations(with_runtime=True))
+    )(
+        backup_directory=source / backup.relative_directory,
+        target=restored,
+    )
+
+    assert result.previous_epoch == old_epoch
+    assert result.epoch == old_epoch + 1
+    assert result.external_effects_enabled is False
+    assert result.reconciliation_outbox_ids == (OUTBOX,)
+    assert _outbox_state(restored) == ("unknown", old_epoch)
+
+    run_health_cli(["health", "--workspace", str(restored)])
+    health = json.loads(capsys.readouterr().out)
+    assert health["delivery"] == {"unknown_deliveries": 1}
+
+    sender = FakeSender()
+    dispatch = _dispatch(restored, object_id, payload_sha256, sender)
+    blocked = dispatch(OUTBOX, now=NOW)
+    assert blocked.state == "unknown"
+    assert sender.calls == 0
+
+    _, schema = _schema(restored)
+    enabled = SetWorkspaceExternalEffects(
+        SqliteWorkspaceExternalEffectsAdapter(schema.connect)
+    )(True)
+    assert enabled.external_effects_enabled is True
+    assert enabled.epoch == old_epoch + 1
+
+    replay = dispatch(OUTBOX, now=NOW)
+    assert replay.state == "unknown"
+    assert sender.calls == 0
+    assert _outbox_state(restored) == ("unknown", old_epoch)
