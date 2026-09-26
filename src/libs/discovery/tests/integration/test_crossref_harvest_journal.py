@@ -692,3 +692,38 @@ def test_commit_page_rejects_silently_ignored_window_checkpoint(
     finally:
         connection.close()
     assert page_state == ("decoded", None)
+
+
+def test_fail_pass_rejects_silently_ignored_pass_update(
+    tmp_path: Path,
+) -> None:
+    path, store = _setup(tmp_path)
+    _, plan = _plan()
+    window = store.ensure_window(plan, NOW)
+    current = store.start_pass(plan, NOW)
+
+    connection = sqlite3.connect(path)
+    connection.execute(
+        "CREATE TRIGGER ignore_fail_pass "
+        "BEFORE UPDATE OF state ON crossref_harvest_passes "
+        "WHEN OLD.state='running' AND NEW.state='failed' "
+        "BEGIN SELECT RAISE(IGNORE); END"
+    )
+    connection.commit()
+    connection.close()
+
+    with pytest.raises(
+        CrossrefHarvestJournalError,
+        match="crossref_pass_conflict",
+    ):
+        store.fail_pass(
+            current.pass_id,
+            "crossref_transport_failed",
+            NOW + timedelta(seconds=1),
+        )
+
+    persisted_pass = store.read_pass(current.pass_id)
+    persisted_window = store.read_window(window.window_id)
+    assert persisted_pass.state == "running"
+    assert persisted_pass.error_code is None
+    assert persisted_window.state == "running"
