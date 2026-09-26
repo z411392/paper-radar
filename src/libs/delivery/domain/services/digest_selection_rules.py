@@ -16,7 +16,13 @@ class DigestSelectionError(ValueError):
 class DigestSelectionRules:
     @staticmethod
     def _text(value: object, code: str, *, maximum: int = 4096) -> str:
-        if not isinstance(value, str) or not value.strip() or len(value) > maximum or "\0" in value:
+        if (
+            not isinstance(value, str)
+            or not value.strip()
+            or value != value.strip()
+            or len(value) > maximum
+            or any(ord(char) < 32 or ord(char) == 127 for char in value)
+        ):
             raise DigestSelectionError(code)
         try:
             value.encode("utf-8")
