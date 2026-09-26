@@ -8,7 +8,7 @@ from libs.research_workflow.dtos.operational_health import (
     WorkflowHealthEvidence,
 )
 from libs.discovery.dtos.harvest_coverage import HarvestCoverageWindow
-from libs.research_workflow.dtos.scheduler import CoverageGap
+from libs.research_workflow.dtos.scheduler import CoverageGap, HarvestBindingSchedule
 
 
 NOW = datetime(2026, 9, 26, 8, 0, tzinfo=timezone.utc)
@@ -31,12 +31,17 @@ class Workflow:
 
 
 class Scheduler:
-    def __init__(self, gaps=()):
+    def __init__(self, gaps=(), bindings=()):
         self.gaps = gaps
+        self.bindings = bindings
 
     def read(self, now):
         del now
-        return type("Snapshot", (), {"input_gaps": self.gaps})()
+        return type(
+            "Snapshot",
+            (),
+            {"input_gaps": self.gaps, "harvest_bindings": self.bindings},
+        )()
 
 
 class Explanation:
@@ -144,6 +149,7 @@ def test_health_keeps_source_failure_and_pending_age_distinct_from_no_new_papers
     result = query()
 
     by_source = {source.source_id: source for source in result.sources}
+    assert by_source["arxiv"].evidence_state == "observed"
     assert by_source["arxiv"].latest_successful_window_end == "2026-09-26T06:00:00+00:00"
     assert by_source["arxiv"].failure_count == 0
     assert by_source["pubmed"].latest_successful_window_end is None
@@ -181,3 +187,35 @@ def test_missing_optional_health_evidence_is_unknown_not_zero():
     assert result.coverage_gaps == ()
     assert result.explanations is None
     assert result.delivery is None
+
+
+def test_configured_source_without_any_window_is_explicit_vacuum():
+    binding = HarvestBindingSchedule(
+        binding_key="personal:3:software-engineering:7:arxiv",
+        profile_id="personal",
+        profile_revision=3,
+        domain_id="software-engineering",
+        domain_revision=7,
+        source_id="arxiv",
+        last_succeeded_window_end=None,
+    )
+    query = InspectHealth(
+        coverage=Coverage(()),
+        workflow=Workflow(()),
+        scheduler=Scheduler(bindings=(binding,)),
+        explanation=Explanation(None),
+        delivery=Delivery(None),
+        runtime=Runtime(),
+        clock=lambda: NOW,
+    )
+
+    result = query()
+
+    assert len(result.sources) == 1
+    source = result.sources[0]
+    assert source.source_id == "arxiv"
+    assert source.evidence_state == "vacuum"
+    assert source.latest_observed_window_end is None
+    assert source.latest_successful_window_end is None
+    assert source.failure_count == 0
+    assert source.pending_count == 0

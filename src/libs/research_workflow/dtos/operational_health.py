@@ -37,8 +37,9 @@ class RuntimeHealthEvidence:
 @dataclass(frozen=True)
 class SourceOperationalHealth:
     source_id: str
+    evidence_state: str
     latest_successful_window_end: str | None
-    latest_observed_window_end: str
+    latest_observed_window_end: str | None
     failure_count: int
     pending_count: int
     oldest_pending_age_seconds: int | None

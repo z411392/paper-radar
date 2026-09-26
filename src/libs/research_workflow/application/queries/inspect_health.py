@@ -78,6 +78,17 @@ class InspectHealth:
         jobs: dict[str, WorkflowHealthEvidence],
         now: datetime,
     ) -> SourceOperationalHealth:
+        if not rows:
+            return SourceOperationalHealth(
+                source_id=source_id,
+                evidence_state="vacuum",
+                latest_successful_window_end=None,
+                latest_observed_window_end=None,
+                failure_count=0,
+                pending_count=0,
+                oldest_pending_age_seconds=None,
+                last_error_code=None,
+            )
         latest = max(rows, key=lambda item: cls._instant(item.window_end))
         succeeded = [row for row in rows if row.workflow_state == "succeeded"]
         latest_success = (
@@ -101,6 +112,7 @@ class InspectHealth:
         )
         return SourceOperationalHealth(
             source_id=source_id,
+            evidence_state="observed",
             latest_successful_window_end=latest_success,
             latest_observed_window_end=latest.window_end,
             failure_count=len(failures),
@@ -127,9 +139,11 @@ class InspectHealth:
         for row in self._coverage():
             grouped[row.source_id].append(row)
 
+        expected_sources = {binding.source_id for binding in scheduler.harvest_bindings}
+        source_ids = expected_sources | set(grouped)
         sources = tuple(
             self._source(source_id, grouped[source_id], jobs, now)
-            for source_id in sorted(grouped)
+            for source_id in sorted(source_ids)
         )
         return OperationalHealthReport(
             sources=sources,
