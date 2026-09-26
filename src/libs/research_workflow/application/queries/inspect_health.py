@@ -9,6 +9,7 @@ from libs.research_workflow.dtos.operational_health import (
     SourceOperationalHealth,
     WorkflowHealthEvidence,
 )
+from libs.research_workflow.dtos.scheduler import HarvestBindingSchedule
 from libs.research_workflow.exceptions.operational_health_error import (
     OperationalHealthError,
 )
@@ -70,17 +71,51 @@ class InspectHealth:
             raise OperationalHealthError("operational_health_clock_skew")
         return seconds
 
+    @staticmethod
+    def _binding_identity(
+        binding: HarvestBindingSchedule,
+    ) -> tuple[str, str, int, str, int, str]:
+        return (
+            binding.binding_key,
+            binding.profile_id,
+            binding.profile_revision,
+            binding.domain_id,
+            binding.domain_revision,
+            binding.source_id,
+        )
+
+    @staticmethod
+    def _row_identity(
+        row: HarvestCoverageWindow,
+    ) -> tuple[str, str, int, str, int, str]:
+        return (
+            row.binding_key,
+            row.profile_id,
+            row.profile_revision,
+            row.domain_id,
+            row.domain_revision,
+            row.source_id,
+        )
+
     @classmethod
     def _source(
         cls,
-        source_id: str,
+        binding_key: str,
+        binding: HarvestBindingSchedule | None,
         rows: list[HarvestCoverageWindow],
         jobs: dict[str, WorkflowHealthEvidence],
         now: datetime,
     ) -> SourceOperationalHealth:
         if not rows:
+            if binding is None:
+                raise OperationalHealthError("operational_health_binding_missing")
             return SourceOperationalHealth(
-                source_id=source_id,
+                binding_key=binding.binding_key,
+                profile_id=binding.profile_id,
+                profile_revision=binding.profile_revision,
+                domain_id=binding.domain_id,
+                domain_revision=binding.domain_revision,
+                source_id=binding.source_id,
                 evidence_state="vacuum",
                 latest_successful_window_end=None,
                 latest_successful_at=None,
@@ -90,6 +125,15 @@ class InspectHealth:
                 oldest_pending_age_seconds=None,
                 last_error_code=None,
             )
+
+        identity = cls._row_identity(rows[0])
+        if identity[0] != binding_key:
+            raise OperationalHealthError("operational_health_binding_mismatch")
+        if any(cls._row_identity(row) != identity for row in rows[1:]):
+            raise OperationalHealthError("operational_health_binding_mismatch")
+        if binding is not None and cls._binding_identity(binding) != identity:
+            raise OperationalHealthError("operational_health_binding_mismatch")
+
         latest = max(rows, key=lambda item: cls._instant(item.window_end))
         succeeded = [row for row in rows if row.workflow_state == "succeeded"]
         latest_success = (
@@ -123,7 +167,12 @@ class InspectHealth:
             else None
         )
         return SourceOperationalHealth(
-            source_id=source_id,
+            binding_key=identity[0],
+            profile_id=identity[1],
+            profile_revision=identity[2],
+            domain_id=identity[3],
+            domain_revision=identity[4],
+            source_id=identity[5],
             evidence_state="observed",
             latest_successful_window_end=latest_success,
             latest_successful_at=latest_successful_at,
@@ -150,13 +199,24 @@ class InspectHealth:
 
         grouped: dict[str, list[HarvestCoverageWindow]] = defaultdict(list)
         for row in self._coverage():
-            grouped[row.source_id].append(row)
+            grouped[row.binding_key].append(row)
 
-        expected_sources = {binding.source_id for binding in scheduler.harvest_bindings}
-        source_ids = expected_sources | set(grouped)
+        expected: dict[str, HarvestBindingSchedule] = {}
+        for binding in scheduler.harvest_bindings:
+            if binding.binding_key in expected:
+                raise OperationalHealthError("duplicate_health_binding")
+            expected[binding.binding_key] = binding
+
+        binding_keys = set(expected) | set(grouped)
         sources = tuple(
-            self._source(source_id, grouped[source_id], jobs, now)
-            for source_id in sorted(source_ids)
+            self._source(
+                binding_key,
+                expected.get(binding_key),
+                grouped[binding_key],
+                jobs,
+                now,
+            )
+            for binding_key in sorted(binding_keys)
         )
         return OperationalHealthReport(
             sources=sources,

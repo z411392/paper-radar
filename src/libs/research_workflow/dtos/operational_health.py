@@ -25,6 +25,11 @@ class RuntimeHealthEvidence:
 
 @dataclass(frozen=True)
 class SourceOperationalHealth:
+    binding_key: str
+    profile_id: str
+    profile_revision: int
+    domain_id: str
+    domain_revision: int
     source_id: str
     evidence_state: str
     latest_successful_window_end: str | None
