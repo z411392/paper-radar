@@ -2,6 +2,8 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
+
 from libs.delivery.adapters.driven.sqlite_delivery_store_adapter import (
     SqliteDeliveryStoreAdapter,
 )
@@ -38,7 +40,11 @@ from libs.research_workflow.adapters.driven.local_workspace_backup_adapter impor
     LocalWorkspaceRestoreAdapter,
 )
 from libs.research_workflow.application.commands.backup_workspace import BackupWorkspace
+from libs.research_workflow.application.commands.process_revision_notice import (
+    ProcessRevisionNotice,
+)
 from libs.research_workflow.application.commands.restore_workspace import RestoreWorkspace
+from libs.research_workflow.dtos.revision_notice import RevisionNoticeRequest
 
 
 NOW = datetime(2026, 9, 26, 10, 0, tzinfo=timezone.utc)
@@ -231,6 +237,70 @@ def _dispatch(
     )
 
 
+def _set_delivery_state(root: Path, state: str) -> None:
+    mapping = {
+        "pending": ("queued", "reserved", None),
+        "sending": ("queued", "reserved", "sending"),
+        "failed": ("queued", "reserved", "failed"),
+        "unknown": ("unknown", "unknown", "unknown"),
+        "provider_accepted": ("sent", "accepted", "provider_accepted"),
+        "cancelled": ("cancelled", "cancelled", None),
+    }
+    digest_state, ledger_state, attempt_state = mapping[state]
+    _, schema = _schema(root)
+    connection = schema.connect()
+    try:
+        connection.execute(
+            "UPDATE delivery_outbox SET state=? WHERE id=?",
+            (state, OUTBOX),
+        )
+        connection.execute(
+            "UPDATE digests SET state=? WHERE id='digest:restore-row'",
+            (digest_state,),
+        )
+        connection.execute(
+            "UPDATE notification_ledger SET state=? WHERE outbox_id=?",
+            (ledger_state, OUTBOX),
+        )
+        if attempt_state is not None:
+            connection.execute(
+                "INSERT INTO delivery_attempts("
+                "id,outbox_id,attempt_no,state,provider_message_id,error_code,"
+                "started_at,finished_at"
+                ") VALUES(?,?,?,?,?,?,?,?)",
+                (
+                    f"attempt:{state}",
+                    OUTBOX,
+                    1,
+                    attempt_state,
+                    "provider:historical"
+                    if attempt_state == "provider_accepted"
+                    else None,
+                    "fixture"
+                    if attempt_state in {"failed", "unknown"}
+                    else None,
+                    NOW.isoformat(),
+                    None if attempt_state == "sending" else NOW.isoformat(),
+                ),
+            )
+        connection.commit()
+    finally:
+        connection.close()
+
+
+class PriorRecipientTrue:
+    def contains(self, reader_id: str, channel: str, work_id: str) -> bool:
+        assert reader_id == "reader:restore"
+        assert channel == "email"
+        assert work_id == "work:restore"
+        return True
+
+
+class SummariesUnused:
+    def __call__(self, work_id: str, revision_id: str):
+        raise AssertionError("status notice must not request a summary")
+
+
 def _outbox_state(root: Path) -> tuple[str, int]:
     _, schema = _schema(root)
     connection = schema.connect()
@@ -332,3 +402,79 @@ def test_restore_records_provenance_and_keeps_effects_off(
         assert row["restored_from"] == "backup:provenance"
     finally:
         connection.close()
+
+
+
+@pytest.mark.parametrize(
+    ("state", "requires_reconciliation"),
+    [
+        ("pending", True),
+        ("sending", True),
+        ("failed", True),
+        ("unknown", True),
+        ("provider_accepted", False),
+        ("cancelled", False),
+    ],
+)
+def test_restore_reconciliation_set_is_derived_from_epoch_and_terminal_state(
+    tmp_path: Path,
+    state: str,
+    requires_reconciliation: bool,
+) -> None:
+    source = tmp_path / f"source-{state}"
+    old_epoch, _, _ = _seed_pending_delivery(source)
+    _set_delivery_state(source, state)
+    backup = BackupWorkspace(LocalWorkspaceBackupAdapter(source))(
+        run_id=f"backup:{state}",
+        created_at=NOW,
+    )
+    target = tmp_path / f"restored-{state}"
+
+    result = RestoreWorkspace(
+        LocalWorkspaceRestoreAdapter(load_workspace_migrations(with_runtime=True))
+    )(
+        backup_directory=source / backup.relative_directory,
+        target=target,
+    )
+
+    assert result.epoch == old_epoch + 1
+    assert (OUTBOX in result.reconciliation_outbox_ids) is requires_reconciliation
+    restored_state, restored_outbox_epoch = _outbox_state(target)
+    assert restored_state == state
+    assert restored_outbox_epoch == old_epoch
+
+
+def test_revision_notice_keeps_restored_old_outbox_awaiting_external(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source-workflow"
+    _, object_id, payload_sha256 = _seed_pending_delivery(source)
+    backup = BackupWorkspace(LocalWorkspaceBackupAdapter(source))(
+        run_id="backup:workflow",
+        created_at=NOW,
+    )
+    target = tmp_path / "restored-workflow"
+    RestoreWorkspace(
+        LocalWorkspaceRestoreAdapter(load_workspace_migrations(with_runtime=True))
+    )(
+        backup_directory=source / backup.relative_directory,
+        target=target,
+    )
+
+    sender = FakeSender()
+    dispatch = _dispatch(target, object_id, payload_sha256, sender)
+    _, schema = _schema(target)
+    notice = ProcessRevisionNotice(
+        store=SqliteDeliveryStoreAdapter(schema.connect),
+        summaries=SummariesUnused(),
+        prior_recipient=PriorRecipientTrue(),
+        dispatch=dispatch,
+        clock=lambda: NOW,
+    )
+
+    outcome = notice(RevisionNoticeRequest(OUTBOX, None))
+
+    assert outcome.state == "awaiting_external"
+    assert outcome.error_code == "delivery_restore_reconciliation_required"
+    assert sender.calls == 0
+    assert _outbox_state(target)[0] == "pending"
