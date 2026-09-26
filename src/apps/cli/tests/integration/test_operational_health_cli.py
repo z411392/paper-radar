@@ -61,3 +61,59 @@ def test_health_cli_rejects_previous_runtime_schema_as_structured_error(
     assert raised.value.code == 1
     output = json.loads(capsys.readouterr().err)
     assert output == {"error": {"code": "schema_upgrade_required"}}
+
+
+def test_health_cli_reports_cost_ledger_mismatch_as_structured_error(
+    tmp_path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    workspace = tmp_path / "runtime"
+    SqliteWorkspaceBootstrapAdapter(
+        workspace,
+        load_workspace_migrations(with_runtime=True),
+    ).initialize()
+
+    connection = SqliteConnectionFactory(workspace).connect()
+    try:
+        connection.execute(
+            "INSERT INTO model_runs("
+            "id,task_kind,provider,model_name,prompt_digest,input_fingerprint,state,"
+            "actual_cost_micros,started_at"
+            ") VALUES(?,?,?,?,?,?,?,?,?)",
+            (
+                "run:health-mismatch",
+                "summary",
+                "gateway",
+                "model",
+                "prompt",
+                "input",
+                "succeeded",
+                534,
+                "2026-09-26T08:00:00+00:00",
+            ),
+        )
+        connection.execute(
+            "INSERT INTO usage_reservations("
+            "id,run_id,period_key,currency,reserved_micros,actual_micros,state,created_at"
+            ") VALUES(?,?,?,?,?,?,?,?)",
+            (
+                "usage:health-mismatch",
+                "run:health-mismatch",
+                "2026-09",
+                "USD",
+                600,
+                533,
+                "settled",
+                "2026-09-26T08:00:00+00:00",
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    with pytest.raises(SystemExit) as raised:
+        run_health_cli(["health", "--workspace", str(workspace)])
+
+    assert raised.value.code == 1
+    output = json.loads(capsys.readouterr().err)
+    assert output == {"error": {"code": "explanation_health_ledger_mismatch"}}
