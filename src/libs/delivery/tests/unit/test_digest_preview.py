@@ -160,6 +160,14 @@ def test_status_artifact_is_v2_and_keeps_notice_identity() -> None:
     content = DigestArtifactRules.serialize(preview)
     payload = json.loads(content)
 
+    assert not {
+        "reader_id",
+        "recipient",
+        "recipient_ref",
+        "email",
+        "smtp_password",
+        "api_key",
+    } & payload.keys()
     assert payload["schema_version"] == 2
     assert payload["items"] == [
         {
