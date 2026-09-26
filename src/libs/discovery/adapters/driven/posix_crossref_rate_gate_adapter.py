@@ -256,3 +256,109 @@ class PosixCrossrefRateGateAdapter:
                         fcntl.flock(directory_fd, fcntl.LOCK_UN)
                 finally:
                     os.close(directory_fd)
+
+
+    def observe_received(
+        self,
+        contact_email: str,
+        status: int | None,
+        headers: tuple[tuple[str, str], ...],
+        *,
+        capture_error: str | None = None,
+    ) -> CrossrefRateDecision:
+        if _contact_identity(contact_email) != self.identity:
+            raise CrossrefRateError("crossref_contact_mismatch")
+        directory_fd = fd = -1
+        locked = directory_locked = False
+        lease = None
+        try:
+            directory_fd = os.open(
+                self.directory,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+            )
+            directory = os.fstat(directory_fd)
+            if directory.st_uid != os.getuid() or directory.st_mode & 0o022:
+                raise CrossrefRateError("crossref_rate_path_unsafe")
+            try:
+                fcntl.flock(directory_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                raise CrossrefRateError(
+                    "crossref_provider_busy",
+                    1.0,
+                ) from None
+            directory_locked = True
+            flags = os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK
+            created = False
+            try:
+                fd = os.open(
+                    self.state_path.name,
+                    flags | os.O_CREAT | os.O_EXCL,
+                    0o600,
+                    dir_fd=directory_fd,
+                )
+                created = True
+            except FileExistsError:
+                fd = os.open(
+                    self.state_path.name,
+                    flags,
+                    dir_fd=directory_fd,
+                )
+            info = os.fstat(fd)
+            if (
+                not stat.S_ISREG(info.st_mode)
+                or info.st_nlink != 1
+                or info.st_uid != os.getuid()
+                or info.st_mode & 0o077
+            ):
+                raise CrossrefRateError("crossref_rate_path_unsafe")
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                raise CrossrefRateError(
+                    "crossref_provider_busy",
+                    1.0,
+                ) from None
+            locked = True
+            raw = os.read(fd, 4097)
+            if len(raw) > 4096:
+                raise CrossrefRateError("crossref_rate_state_corrupt")
+            state = (
+                {
+                    "version": 1,
+                    "identity": self.identity,
+                    "not_before": 0.0,
+                    "last_now": 0.0,
+                    "interval_seconds": 1.0,
+                    "failures": 0,
+                    "blocked": False,
+                }
+                if created and not raw
+                else _decode(raw, self.identity)
+            )
+            lease = _Lease(self, directory_fd, fd, state)
+            lease._check_path()
+            if created:
+                lease.persist()
+                os.fsync(directory_fd)
+            return lease.observe(
+                status,
+                headers,
+                capture_error=capture_error,
+            )
+        except OSError as exc:
+            raise CrossrefRateError("crossref_rate_io_error") from exc
+        finally:
+            if lease is not None:
+                lease.active = False
+            if fd >= 0:
+                try:
+                    if locked:
+                        fcntl.flock(fd, fcntl.LOCK_UN)
+                finally:
+                    os.close(fd)
+            if directory_fd >= 0:
+                try:
+                    if directory_locked:
+                        fcntl.flock(directory_fd, fcntl.LOCK_UN)
+                finally:
+                    os.close(directory_fd)
