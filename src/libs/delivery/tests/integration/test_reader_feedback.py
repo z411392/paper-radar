@@ -245,3 +245,38 @@ def test_feedback_does_not_mutate_research_facts_or_relevance(tmp_path: Path) ->
 
     assert _paper_state(schema) == before
     assert [row[3] for row in _feedback_rows(schema)] == ["irrelevant"]
+
+
+def test_reopen_preserves_feedback_and_replay_identity(tmp_path: Path) -> None:
+    schema = _schema(tmp_path)
+
+    first = _record(_command(schema), "feedback:reopen", "read", profile_id=None)
+    second = _record(_command(schema), "feedback:reopen", "read", profile_id=None)
+
+    assert first.replayed is False
+    assert second.replayed is True
+    assert _feedback_rows(schema) == [
+        (
+            "feedback:reopen",
+            READER,
+            WORK,
+            "read",
+            None,
+            NOW.isoformat(),
+        )
+    ]
+
+
+def test_profile_is_optional_for_private_feedback(tmp_path: Path) -> None:
+    schema = _schema(tmp_path)
+
+    result = _record(
+        _command(schema),
+        "feedback:no-profile",
+        "relevant_not_urgent",
+        profile_id=None,
+    )
+
+    assert result.replayed is False
+    assert _feedback_rows(schema)[0][4] is None
+
