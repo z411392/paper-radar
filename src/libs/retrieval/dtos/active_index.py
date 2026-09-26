@@ -16,6 +16,9 @@ class ActiveIndexPin:
     generation_id: str
     pointer_version: int
     relative_directory: str
+    dimension: int
+    dtype: str
+    metric: str
     index_sha256: str
     manifest_sha256: str
     membership_digest: str

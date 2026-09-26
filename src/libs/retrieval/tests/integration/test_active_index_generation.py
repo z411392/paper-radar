@@ -65,6 +65,9 @@ def test_first_activation_and_reader_pin(tmp_path: Path) -> None:
     assert pin == active
     assert pin.generation_id == generation.generation_id
     assert pin.relative_directory == generation.relative_directory
+    assert pin.dimension == 4
+    assert pin.dtype == "float32"
+    assert pin.metric == "inner_product"
     assert pin.index_sha256
     assert pin.manifest_sha256
 

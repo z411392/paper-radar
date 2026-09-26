@@ -96,7 +96,11 @@ class SqliteActiveIndexStoreAdapter:
         generation_id: str,
     ) -> sqlite3.Row:
         row = connection.execute(
-            "SELECT * FROM index_generations WHERE id=?",
+            "SELECT g.*,s.dimension AS space_dimension,"
+            "s.dtype AS space_dtype,s.metric AS space_metric "
+            "FROM index_generations g "
+            "JOIN embedding_spaces s ON s.id=g.space_id "
+            "WHERE g.id=?",
             (generation_id,),
         ).fetchone()
         if row is None:
@@ -107,6 +111,10 @@ class SqliteActiveIndexStoreAdapter:
             cls._SPACE.fullmatch(row["space_id"]) is None
             or not isinstance(row["relative_directory"], str)
             or not row["relative_directory"]
+            or type(row["space_dimension"]) is not int
+            or row["space_dimension"] < 1
+            or row["space_dtype"] != "float32"
+            or row["space_metric"] not in {"inner_product", "l2"}
             or cls._HASH.fullmatch(row["index_sha256"] or "") is None
             or cls._HASH.fullmatch(row["manifest_sha256"] or "") is None
             or cls._HASH.fullmatch(row["membership_digest"] or "") is None
@@ -157,6 +165,9 @@ class SqliteActiveIndexStoreAdapter:
             active["generation_id"],
             active["pointer_version"],
             generation["relative_directory"],
+            generation["space_dimension"],
+            generation["space_dtype"],
+            generation["space_metric"],
             generation["index_sha256"],
             generation["manifest_sha256"],
             generation["membership_digest"],
