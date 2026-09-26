@@ -378,7 +378,6 @@ class SqliteCrossrefRelationStoreAdapter:
                         "crossref_relation_gap_conflict"
                     )
 
-
     def lifecycle(
         self,
         source_canonical_doi: str,
