@@ -287,6 +287,74 @@ class SqliteIndexGenerationStoreAdapter:
         with self._transaction(write=False) as connection:
             return self._snapshot(connection, space_id)
 
+
+    def snapshot_generation(
+        self,
+        generation_id: str,
+    ) -> IndexGenerationSnapshot:
+        if (
+            not isinstance(generation_id, str)
+            or not generation_id.startswith("faissgen:")
+            or len(generation_id) != 73
+        ):
+            raise IndexGenerationError("invalid_index_generation")
+        with self._transaction(write=False) as connection:
+            generation = connection.execute(
+                "SELECT * FROM index_generations WHERE id=?",
+                (generation_id,),
+            ).fetchone()
+            if generation is None:
+                raise IndexGenerationError("index_generation_missing")
+            if generation["state"] != "ready":
+                raise IndexGenerationError("index_generation_not_ready")
+            space = self._space(connection, generation["space_id"])
+            rows = connection.execute(
+                "SELECT d.id AS document_id,d.sequence_no,"
+                "e.id AS embedding_id,e.object_id,e.row_offset,"
+                "e.input_fingerprint,o.content_sha256,o.relative_path,"
+                "o.kind,o.media_type,o.byte_size,o.state AS object_state,"
+                "o.retention_policy "
+                "FROM index_generation_members m "
+                "JOIN embeddings e ON e.id=m.embedding_id "
+                "AND e.space_id=m.space_id "
+                "JOIN search_documents d ON d.id=e.document_id "
+                "JOIN object_registry o ON o.object_id=e.object_id "
+                "WHERE m.generation_id=? AND m.space_id=? "
+                "ORDER BY m.embedding_id",
+                (generation_id, generation["space_id"]),
+            ).fetchall()
+            if (
+                type(generation["vector_count"]) is not int
+                or generation["vector_count"] < 1
+                or len(rows) != generation["vector_count"]
+                or type(generation["document_high_watermark"]) is not int
+                or generation["document_high_watermark"] < 1
+            ):
+                raise IndexGenerationError(
+                    "index_generation_state_corrupt"
+                )
+            members = tuple(
+                self._member(row, space_id=generation["space_id"])
+                for row in rows
+            )
+            snapshot = IndexGenerationSnapshot(
+                space["id"],
+                space["configuration_fingerprint"],
+                space["dimension"],
+                space["dtype"],
+                space["metric"],
+                generation["document_high_watermark"],
+                generation["vector_count"],
+                members,
+            )
+            try:
+                IndexGenerationRules.validate_snapshot(snapshot)
+            except IndexGenerationError as exc:
+                raise IndexGenerationError(
+                    "index_generation_state_corrupt"
+                ) from exc
+            return snapshot
+
     def start(
         self,
         generation: PreparedIndexGeneration,

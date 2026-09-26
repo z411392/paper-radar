@@ -12,6 +12,11 @@ from libs.retrieval.dtos.index_generation import (
 class IndexGenerationStorePort(Protocol):
     def snapshot(self, space_id: str) -> IndexGenerationSnapshot: ...
 
+    def snapshot_generation(
+        self,
+        generation_id: str,
+    ) -> IndexGenerationSnapshot: ...
+
     def start(
         self,
         generation: PreparedIndexGeneration,
