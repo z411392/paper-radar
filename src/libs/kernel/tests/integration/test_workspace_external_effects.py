@@ -235,3 +235,98 @@ def test_commissioned_crossref_worker_rejects_runtime_v16_before_provider_io(
     assert error["code"] == "schema_upgrade_required"
     assert "--with-runtime" in error["hint"]
     assert list(rate_dir.iterdir()) == []
+
+
+def test_external_effects_request_rejects_stale_workspace_id(tmp_path: Path) -> None:
+    root = tmp_path / "runtime"
+    migrations = load_workspace_migrations(with_runtime=True)
+    original = SqliteWorkspaceBootstrapAdapter(root, migrations).initialize()
+    adapter = SqliteWorkspaceExternalEffectsAdapter(
+        SqliteSchemaConnectionFactory(
+            root,
+            migrations,
+            minimum_version=17,
+        ).connect
+    )
+
+    with pytest.raises(StorageError, match="workspace_effects_conflict"):
+        adapter.set_enabled(
+            True,
+            expected_workspace_id="stale-workspace-id",
+            expected_epoch=original.epoch,
+            expected_enabled=False,
+        )
+
+    current = SqliteSchemaConnectionFactory(
+        root,
+        migrations,
+        minimum_version=17,
+    ).connect()
+    try:
+        assert current.execute(
+            "SELECT external_effects_enabled FROM workspace_metadata "
+            "WHERE singleton=1"
+        ).fetchone()[0] == 0
+    finally:
+        current.close()
+
+
+def test_external_effects_request_rejects_stale_epoch(tmp_path: Path) -> None:
+    root = tmp_path / "runtime"
+    migrations = load_workspace_migrations(with_runtime=True)
+    original = SqliteWorkspaceBootstrapAdapter(root, migrations).initialize()
+    adapter = SqliteWorkspaceExternalEffectsAdapter(
+        SqliteSchemaConnectionFactory(
+            root,
+            migrations,
+            minimum_version=17,
+        ).connect
+    )
+
+    with pytest.raises(StorageError, match="workspace_effects_conflict"):
+        adapter.set_enabled(
+            True,
+            expected_workspace_id=original.workspace_id,
+            expected_epoch=original.epoch + 1,
+            expected_enabled=False,
+        )
+
+    current = SqliteSchemaConnectionFactory(
+        root,
+        migrations,
+        minimum_version=17,
+    ).connect()
+    try:
+        assert current.execute(
+            "SELECT external_effects_enabled FROM workspace_metadata "
+            "WHERE singleton=1"
+        ).fetchone()[0] == 0
+    finally:
+        current.close()
+
+
+def test_external_effects_same_request_replays_but_stale_state_cannot_reverse(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "runtime"
+    migrations = load_workspace_migrations(with_runtime=True)
+    original = SqliteWorkspaceBootstrapAdapter(root, migrations).initialize()
+    adapter = SqliteWorkspaceExternalEffectsAdapter(
+        SqliteSchemaConnectionFactory(
+            root,
+            migrations,
+            minimum_version=17,
+        ).connect
+    )
+    request = {
+        "expected_workspace_id": original.workspace_id,
+        "expected_epoch": original.epoch,
+        "expected_enabled": False,
+    }
+
+    first = adapter.set_enabled(True, **request)
+    replay = adapter.set_enabled(True, **request)
+    assert replay == first
+
+    with pytest.raises(StorageError, match="workspace_effects_conflict"):
+        adapter.set_enabled(False, **request)
