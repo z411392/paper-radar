@@ -13,6 +13,7 @@ from libs.delivery.application.queries.read_local_reading_history import (
 from libs.delivery.exceptions.local_reading_history_error import (
     LocalReadingHistoryError,
 )
+from libs.kernel.exceptions.storage_error import StorageError
 from libs.scholarly_catalog.adapters.driven.sqlite_local_paper_history_adapter import (
     SqliteLocalPaperHistoryAdapter,
 )
@@ -518,3 +519,29 @@ def test_reopen_returns_same_read_model(tmp_path: Path) -> None:
     second = _query(path)("work:old", "reader:local")
 
     assert second == first
+
+
+class MissingObjectReader:
+    def __call__(self, object_id: str) -> bytes:
+        if object_id == "raw:abstract":
+            raise StorageError("missing", object_id)
+        return b"fixture"
+
+
+def test_registry_available_but_missing_referenced_object_is_integrity_error(
+    tmp_path: Path,
+) -> None:
+    path = _setup(tmp_path)
+    connect = _connect(path)
+    paper = ReadLocalPaperRecord(
+        SqliteLocalPaperHistoryAdapter(
+            connect,
+            MissingObjectReader(),
+        )
+    )
+
+    with pytest.raises(
+        LocalPaperHistoryError,
+        match="local_paper_object_unavailable",
+    ):
+        paper("work:canonical")
