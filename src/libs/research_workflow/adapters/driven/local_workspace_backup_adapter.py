@@ -125,6 +125,12 @@ class LocalWorkspaceBackupAdapter:
         path.unlink(missing_ok=True)
         WorkspacePaths.sync_directory(path.parent)
 
+    def _best_effort_remove_pin(self, run_id: str) -> None:
+        try:
+            self._remove_pin(run_id)
+        except (OSError, StorageError):
+            return
+
     def _create_building_run(
         self,
         run_id: str,
@@ -465,15 +471,15 @@ class LocalWorkspaceBackupAdapter:
                 self._verified_manifest(building_manifest),
             )
             manifest_sha256 = self._sha256_file(manifest)
+            partial.unlink(missing_ok=True)
+            WorkspacePaths.sync_directory(backup_directory)
+            self._remove_pin(run_id)
             self._mark_verified(
                 run_id,
                 database_sha256=database_sha256,
                 manifest_sha256=manifest_sha256,
                 object_count=len(objects),
             )
-            partial.unlink(missing_ok=True)
-            WorkspacePaths.sync_directory(backup_directory)
-            self._remove_pin(run_id)
             return WorkspaceBackupResult(
                 run_id=run_id,
                 relative_directory=relative_directory,
@@ -485,10 +491,10 @@ class LocalWorkspaceBackupAdapter:
         except WorkspaceBackupError:
             if inserted:
                 self._record_failed(run_id)
-                self._remove_pin(run_id)
+                self._best_effort_remove_pin(run_id)
             raise
         except (OSError, StorageError) as exc:
             if inserted:
                 self._record_failed(run_id)
-                self._remove_pin(run_id)
+                self._best_effort_remove_pin(run_id)
             raise WorkspaceBackupError("backup_file_io") from exc
