@@ -282,6 +282,9 @@ def test_foreign_key_check_is_required_separately_from_integrity_check(
 
     connection = sqlite3.connect(database)
     try:
+        assert connection.execute(
+            "PRAGMA journal_mode=DELETE"
+        ).fetchone() == ("delete",)
         connection.execute("PRAGMA foreign_keys=OFF")
         connection.execute(
             "INSERT INTO job_attempts VALUES(?,?,?,?,?,?,?,?)",
@@ -327,6 +330,9 @@ def test_migration_drift_is_rejected_even_when_database_hash_matches(
 
     connection = sqlite3.connect(database)
     try:
+        assert connection.execute(
+            "PRAGMA journal_mode=DELETE"
+        ).fetchone() == ("delete",)
         connection.execute(
             "UPDATE schema_migrations SET sha256=? WHERE version=1",
             ("0" * 64,),
@@ -346,3 +352,27 @@ def test_migration_drift_is_rejected_even_when_database_hash_matches(
         match="restore_migration_drift",
     ):
         _restore(backup_directory, tmp_path / "restored")
+
+
+@pytest.mark.parametrize(
+    "suffix",
+    ["-wal", "-journal", "-shm"],
+)
+def test_unhashed_sqlite_sidecar_is_rejected(
+    tmp_path: Path,
+    suffix: str,
+) -> None:
+    source = _source(tmp_path)
+    backup = _backup(source)
+    backup_directory = source / backup.relative_directory
+    sidecar = backup_directory / f"state/app.sqlite3{suffix}"
+    sidecar.write_bytes(b"not covered by manifest database sha256")
+
+    with pytest.raises(
+        WorkspaceRestoreError,
+        match="restore_database_sidecar_present",
+    ):
+        _restore(backup_directory, tmp_path / "restored")
+
+    assert not (tmp_path / "restored").exists()
+
