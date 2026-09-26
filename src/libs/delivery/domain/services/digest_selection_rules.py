@@ -19,6 +19,7 @@ class DigestSelectionRules:
         if (
             not isinstance(value, str)
             or not value.strip()
+            or value != value.strip()
             or len(value) > maximum
             or any(ord(char) < 32 or ord(char) == 127 for char in value)
         ):
