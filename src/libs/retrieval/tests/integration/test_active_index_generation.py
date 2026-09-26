@@ -1,5 +1,7 @@
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from threading import Barrier
 
 import pytest
 
@@ -211,3 +213,58 @@ def _active_store(raw):
     )
 
     return SqliteActiveIndexStoreAdapter(raw.connect)
+
+
+def test_two_writers_from_same_pin_allow_only_one_switch(
+    tmp_path: Path,
+) -> None:
+    raw, space, first_generation = _ready(tmp_path)
+    _, _, second_generation = _ready(
+        tmp_path,
+        faiss_version="2.15.1",
+    )
+    _, _, third_generation = _ready(
+        tmp_path,
+        faiss_version="3.15.1",
+    )
+    store = _active_store(raw)
+    first = store.activate(
+        ActivateIndexInput(
+            space.space_id,
+            first_generation.generation_id,
+            None,
+            None,
+        ),
+        activated_at=NOW,
+    )
+    barrier = Barrier(2)
+
+    def switch(target):
+        barrier.wait(timeout=5)
+        try:
+            return store.activate(
+                ActivateIndexInput(
+                    space.space_id,
+                    target.generation_id,
+                    first.generation_id,
+                    first.pointer_version,
+                ),
+                activated_at=NOW + timedelta(minutes=1),
+            )
+        except ActiveIndexError as exc:
+            return exc.code
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(
+            pool.map(
+                switch,
+                (second_generation, third_generation),
+            )
+        )
+
+    winners = [item for item in results if not isinstance(item, str)]
+    failures = [item for item in results if isinstance(item, str)]
+    assert len(winners) == 1
+    assert failures == ["active_index_stale"]
+    assert store.pin(space.space_id).generation_id == winners[0].generation_id
+    assert store.pin(space.space_id).pointer_version == 2
