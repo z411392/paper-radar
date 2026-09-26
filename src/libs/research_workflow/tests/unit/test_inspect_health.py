@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 
+from libs.discovery.dtos.harvest_coverage import HarvestCoverageWindow
 from libs.research_workflow.application.queries.inspect_health import InspectHealth
 from libs.research_workflow.dtos.operational_health import (
     DeliveryHealthEvidence,
@@ -8,7 +9,6 @@ from libs.research_workflow.dtos.operational_health import (
     UsagePeriodHealthEvidence,
     WorkflowHealthEvidence,
 )
-from libs.discovery.dtos.harvest_coverage import HarvestCoverageWindow
 from libs.research_workflow.dtos.scheduler import CoverageGap, HarvestBindingSchedule
 
 
