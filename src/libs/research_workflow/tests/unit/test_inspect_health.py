@@ -79,14 +79,16 @@ def window(
     state: str,
     window_end: str,
     *,
+    binding_key: str | None = None,
+    domain_id: str = "statistics",
     error: str | None = None,
 ) -> HarvestCoverageWindow:
     return HarvestCoverageWindow(
         business_key=business_key,
-        binding_key=f"binding:{source_id}",
+        binding_key=binding_key or f"binding:{source_id}",
         profile_id="personal",
         profile_revision=3,
-        domain_id="statistics",
+        domain_id=domain_id,
         domain_revision=7,
         source_id=source_id,
         window_start="2026-09-25T00:00:00+00:00",
@@ -252,3 +254,64 @@ def test_configured_source_without_any_window_is_explicit_vacuum():
     assert source.latest_successful_at is None
     assert source.failure_count == 0
     assert source.pending_count == 0
+
+
+def test_same_source_does_not_hide_a_vacuum_in_another_domain():
+    observed = HarvestBindingSchedule(
+        binding_key="personal:3:software-engineering:7:arxiv",
+        profile_id="personal",
+        profile_revision=3,
+        domain_id="software-engineering",
+        domain_revision=7,
+        source_id="arxiv",
+        last_succeeded_window_end=None,
+    )
+    vacuum = HarvestBindingSchedule(
+        binding_key="personal:3:badminton:7:arxiv",
+        profile_id="personal",
+        profile_revision=3,
+        domain_id="badminton",
+        domain_revision=7,
+        source_id="arxiv",
+        last_succeeded_window_end=None,
+    )
+    query = InspectHealth(
+        coverage=Coverage(
+            (
+                window(
+                    "harvest:software:arxiv",
+                    "arxiv",
+                    "succeeded",
+                    "2026-09-26T06:00:00+00:00",
+                    binding_key=observed.binding_key,
+                    domain_id=observed.domain_id,
+                ),
+            )
+        ),
+        workflow=Workflow(
+            (
+                WorkflowHealthEvidence(
+                    business_key="harvest:software:arxiv",
+                    state="succeeded",
+                    created_at="2026-09-26T05:45:00+00:00",
+                    due_at="2026-09-26T06:00:00+00:00",
+                    finished_at="2026-09-26T06:05:00+00:00",
+                    last_error_code=None,
+                ),
+            )
+        ),
+        scheduler=Scheduler(bindings=(observed, vacuum)),
+        explanation=Explanation(None),
+        delivery=Delivery(None),
+        runtime=Runtime(),
+        clock=lambda: NOW,
+    )
+
+    result = query()
+
+    assert len(result.sources) == 2
+    by_domain = {source.domain_id: source for source in result.sources}
+    assert by_domain["software-engineering"].source_id == "arxiv"
+    assert by_domain["software-engineering"].evidence_state == "observed"
+    assert by_domain["badminton"].source_id == "arxiv"
+    assert by_domain["badminton"].evidence_state == "vacuum"
