@@ -23,7 +23,10 @@ from libs.retrieval.adapters.driven.kernel_index_vector_loader_adapter import (
 from libs.retrieval.application.commands.build_index_generation import (
     BuildIndexGeneration,
 )
-from libs.retrieval.dtos.index_build import BuiltIndex
+from libs.retrieval.dtos.index_build import (
+    BuiltIndex,
+    PublishedIndexArtifacts,
+)
 from libs.retrieval.exceptions.index_generation_error import IndexGenerationError
 from libs.retrieval.tests.integration.test_index_generation_manifest import (
     _generation,
@@ -143,6 +146,49 @@ def test_builder_failure_leaves_generation_building_for_replay(
     _, raw, _, config, command = _command(tmp_path, FailingBuilder())
 
     with pytest.raises(IndexGenerationError, match="fixture_builder_failed"):
+        command(config)
+
+    connection = raw.connect()
+    try:
+        row = connection.execute(
+            "SELECT state,index_sha256,manifest_sha256,verified_at "
+            "FROM index_generations"
+        ).fetchone()
+    finally:
+        connection.close()
+    assert tuple(row) == ("building", None, None, None)
+
+
+class MismatchedArtifactStore:
+    def publish(self, generation, *, index_bytes, manifest):
+        del index_bytes, manifest
+        return PublishedIndexArtifacts(
+            generation.generation_id,
+            generation.relative_directory,
+            "f" * 64,
+            "e" * 64,
+        )
+
+
+def test_artifact_receipt_mismatch_leaves_generation_building(
+    tmp_path: Path,
+) -> None:
+    root, raw, _, space, _, store, config = _generation(tmp_path)
+    reader = ReadObject(
+        FilesystemObjectBytesAdapter(root),
+        SqliteObjectUnitOfWorkAdapter(
+            SqliteConnectionFactory(root)
+        ),
+    )
+    command = BuildIndexGeneration(
+        store,
+        KernelIndexVectorLoaderAdapter(reader),
+        FixtureBuilder(),
+        MismatchedArtifactStore(),
+        clock=lambda: NOW,
+    )
+
+    with pytest.raises(IndexGenerationError, match="index_artifact_mismatch"):
         command(config)
 
     connection = raw.connect()

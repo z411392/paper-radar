@@ -152,3 +152,66 @@ def test_derived_artifact_conflict_fails_closed(tmp_path: Path) -> None:
             index_bytes=index_bytes,
             manifest=manifest,
         )
+
+
+def test_vector_loader_reads_shared_batch_once(tmp_path: Path) -> None:
+    _, generation, _, reader = _prepared(tmp_path)
+
+    class CountingReader:
+        def __init__(self, inner):
+            self.inner = inner
+            self.calls = []
+
+        def __call__(self, object_id):
+            self.calls.append(object_id)
+            return self.inner(object_id)
+
+    counted = CountingReader(reader)
+    request = KernelIndexVectorLoaderAdapter(counted).load(generation)
+
+    assert len(request.vectors) == generation.vector_count
+    assert counted.calls == sorted(set(counted.calls))
+    assert counted.calls == sorted(
+        {member.object_id for member in generation.members}
+    )
+
+
+def test_derived_publish_resumes_after_index_only_crash(
+    tmp_path: Path,
+) -> None:
+    root, generation, _, _ = _prepared(tmp_path)
+    adapter = FilesystemIndexGenerationArtifactAdapter(root)
+    index_bytes = b"opaque-index-fixture"
+    index_sha = hashlib.sha256(index_bytes).hexdigest()
+    manifest = IndexGenerationRules.manifest(
+        generation,
+        index_sha256=index_sha,
+    )
+    directory = root / generation.relative_directory
+    directory.mkdir(parents=True)
+    (directory / "index.faiss").write_bytes(index_bytes)
+
+    before = SqliteConnectionFactory(root).connect()
+    try:
+        count_before = before.execute(
+            "SELECT count(*) FROM object_registry"
+        ).fetchone()[0]
+    finally:
+        before.close()
+
+    result = adapter.publish(
+        generation,
+        index_bytes=index_bytes,
+        manifest=manifest,
+    )
+
+    after = SqliteConnectionFactory(root).connect()
+    try:
+        count_after = after.execute(
+            "SELECT count(*) FROM object_registry"
+        ).fetchone()[0]
+    finally:
+        after.close()
+    assert result.index_sha256 == index_sha
+    assert (directory / "manifest.json").read_bytes() == manifest.content_bytes
+    assert count_after == count_before
