@@ -372,6 +372,56 @@ class LocalWorkspaceBackupAdapter:
             ],
         }
 
+    def _mark_verified(
+        self,
+        run_id: str,
+        *,
+        database_sha256: str,
+        manifest_sha256: str,
+        object_count: int,
+    ) -> None:
+        verified_at = datetime.now(timezone.utc).isoformat()
+        connection = self._factory.connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            changed = connection.execute(
+                "UPDATE backup_runs SET "
+                "state='verified',database_sha256=?,manifest_sha256=?,"
+                "object_count=?,verified_at=? "
+                "WHERE id=? AND state='building'",
+                (
+                    database_sha256,
+                    manifest_sha256,
+                    object_count,
+                    verified_at,
+                    run_id,
+                ),
+            ).rowcount
+            if changed != 1:
+                raise WorkspaceBackupError("backup_receipt_conflict")
+            connection.commit()
+        except WorkspaceBackupError:
+            connection.rollback()
+            raise
+        except sqlite3.Error as exc:
+            connection.rollback()
+            raise WorkspaceBackupError("backup_database_error") from exc
+        finally:
+            connection.close()
+
+    @staticmethod
+    def _verified_manifest(
+        building: dict[str, object],
+    ) -> dict[str, object]:
+        manifest = dict(building)
+        manifest["state"] = "verified"
+        manifest["integrity"] = {
+            "database": "ok",
+            "objects": "ok",
+            "hash_algorithm": "sha256",
+        }
+        return manifest
+
     def backup(
         self,
         run_id: str,
@@ -398,25 +448,39 @@ class LocalWorkspaceBackupAdapter:
                 object_ids=[ref.object_id for ref in objects],
             )
             partial = backup_directory / "manifest.partial.json"
-            self._atomic_json(
-                partial,
-                self._building_manifest(
-                    run_id=run_id,
-                    workspace_id=workspace_id,
-                    created_at=created,
-                    database_sha256=database_sha256,
-                    objects=objects,
-                ),
+            building_manifest = self._building_manifest(
+                run_id=run_id,
+                workspace_id=workspace_id,
+                created_at=created,
+                database_sha256=database_sha256,
+                objects=objects,
             )
+            self._atomic_json(partial, building_manifest)
             for object_ref in objects:
                 self._copy_object(object_ref, backup_directory)
+
+            manifest = backup_directory / "manifest.json"
+            self._atomic_json(
+                manifest,
+                self._verified_manifest(building_manifest),
+            )
+            manifest_sha256 = self._sha256_file(manifest)
+            self._mark_verified(
+                run_id,
+                database_sha256=database_sha256,
+                manifest_sha256=manifest_sha256,
+                object_count=len(objects),
+            )
+            partial.unlink(missing_ok=True)
+            WorkspacePaths.sync_directory(backup_directory)
+            self._remove_pin(run_id)
             return WorkspaceBackupResult(
                 run_id=run_id,
                 relative_directory=relative_directory,
                 database_sha256=database_sha256,
-                manifest_sha256="",
+                manifest_sha256=manifest_sha256,
                 object_count=len(objects),
-                state="building",
+                state="verified",
             )
         except WorkspaceBackupError:
             if inserted:
