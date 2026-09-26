@@ -1,12 +1,12 @@
 import sqlite3
 from collections.abc import Callable
 
-from libs.research_workflow.dtos.operational_health import (
+from libs.paper_explanations.dtos.explanation_health import (
     ExplanationHealthEvidence,
     UsagePeriodHealthEvidence,
 )
-from libs.research_workflow.exceptions.operational_health_error import (
-    OperationalHealthError,
+from libs.paper_explanations.exceptions.explanation_health_error import (
+    ExplanationHealthError,
 )
 
 
@@ -39,7 +39,7 @@ class SqliteExplanationHealthAdapter:
         except sqlite3.Error as exc:
             if connection is not None:
                 connection.rollback()
-            raise OperationalHealthError("explanation_health_database_error") from exc
+            raise ExplanationHealthError("explanation_health_database_error") from exc
         finally:
             if connection is not None:
                 connection.close()
@@ -58,7 +58,7 @@ class SqliteExplanationHealthAdapter:
                 or not row["currency"]
                 or any(type(value) is not int or value < 0 for value in values)
             ):
-                raise OperationalHealthError("explanation_health_corrupt")
+                raise ExplanationHealthError("explanation_health_corrupt")
             periods.append(
                 UsagePeriodHealthEvidence(
                     period_key=row["period_key"],
@@ -69,7 +69,7 @@ class SqliteExplanationHealthAdapter:
                 )
             )
         if type(qa_rejected) is not int or qa_rejected < 0:
-            raise OperationalHealthError("explanation_health_corrupt")
+            raise ExplanationHealthError("explanation_health_corrupt")
         return ExplanationHealthEvidence(
             qa_rejected=qa_rejected,
             usage_periods=tuple(periods),

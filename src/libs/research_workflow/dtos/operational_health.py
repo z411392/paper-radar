@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 
+from libs.delivery.dtos.delivery_health import DeliveryHealthEvidence
+from libs.paper_explanations.dtos.explanation_health import ExplanationHealthEvidence
 from libs.research_workflow.dtos.scheduler import CoverageGap
 
 
@@ -11,26 +13,6 @@ class WorkflowHealthEvidence:
     due_at: str
     finished_at: str | None
     last_error_code: str | None
-
-
-@dataclass(frozen=True)
-class UsagePeriodHealthEvidence:
-    period_key: str
-    currency: str
-    reserved_micros: int
-    settled_actual_micros: int
-    unknown_cost_reservations: int
-
-
-@dataclass(frozen=True)
-class ExplanationHealthEvidence:
-    qa_rejected: int
-    usage_periods: tuple[UsagePeriodHealthEvidence, ...]
-
-
-@dataclass(frozen=True)
-class DeliveryHealthEvidence:
-    unknown_deliveries: int
 
 
 @dataclass(frozen=True)

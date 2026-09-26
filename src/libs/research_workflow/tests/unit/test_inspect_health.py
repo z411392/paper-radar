@@ -1,14 +1,16 @@
 from datetime import datetime, timezone
 
+from libs.delivery.dtos.delivery_health import DeliveryHealthEvidence
+from libs.discovery.dtos.harvest_coverage import HarvestCoverageWindow
+from libs.paper_explanations.dtos.explanation_health import (
+    ExplanationHealthEvidence,
+    UsagePeriodHealthEvidence,
+)
 from libs.research_workflow.application.queries.inspect_health import InspectHealth
 from libs.research_workflow.dtos.operational_health import (
-    DeliveryHealthEvidence,
-    ExplanationHealthEvidence,
     RuntimeHealthEvidence,
-    UsagePeriodHealthEvidence,
     WorkflowHealthEvidence,
 )
-from libs.discovery.dtos.harvest_coverage import HarvestCoverageWindow
 from libs.research_workflow.dtos.scheduler import CoverageGap, HarvestBindingSchedule
 
 
@@ -121,7 +123,15 @@ def test_health_keeps_source_failure_and_pending_age_distinct_from_no_new_papers
                 ),
             )
         ),
-        scheduler=Scheduler((CoverageGap("harvest", "personal:3:badminton:7", "no_selected_source"),)),
+        scheduler=Scheduler(
+            (
+                CoverageGap(
+                    "harvest",
+                    "personal:3:badminton:7",
+                    "no_selected_source",
+                ),
+            )
+        ),
         workflow=Workflow(
             (
                 WorkflowHealthEvidence(

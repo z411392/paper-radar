@@ -6,8 +6,12 @@ from dataclasses import asdict
 from injector import Injector
 
 from apps.cli.module import OperationalHealthCliModule
+from libs.delivery.exceptions.delivery_health_error import DeliveryHealthError
 from libs.discovery.exceptions.harvest_coverage_error import HarvestCoverageError
 from libs.kernel.exceptions.storage_error import StorageError
+from libs.paper_explanations.exceptions.explanation_health_error import (
+    ExplanationHealthError,
+)
 from libs.research_workflow.exceptions.operational_health_error import (
     OperationalHealthError,
 )
@@ -32,6 +36,8 @@ def run_health_cli(argv: list[str]) -> None:
         )
         result = injector.get(InspectHealthPort)()
     except (
+        DeliveryHealthError,
+        ExplanationHealthError,
         HarvestCoverageError,
         StorageError,
         OperationalHealthError,

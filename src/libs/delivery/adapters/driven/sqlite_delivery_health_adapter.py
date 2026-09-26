@@ -1,10 +1,8 @@
 import sqlite3
 from collections.abc import Callable
 
-from libs.research_workflow.dtos.operational_health import DeliveryHealthEvidence
-from libs.research_workflow.exceptions.operational_health_error import (
-    OperationalHealthError,
-)
+from libs.delivery.dtos.delivery_health import DeliveryHealthEvidence
+from libs.delivery.exceptions.delivery_health_error import DeliveryHealthError
 
 
 class SqliteDeliveryHealthAdapter:
@@ -24,11 +22,11 @@ class SqliteDeliveryHealthAdapter:
         except sqlite3.Error as exc:
             if connection is not None:
                 connection.rollback()
-            raise OperationalHealthError("delivery_health_database_error") from exc
+            raise DeliveryHealthError("delivery_health_database_error") from exc
         finally:
             if connection is not None:
                 connection.close()
 
         if type(unknown) is not int or unknown < 0:
-            raise OperationalHealthError("delivery_health_corrupt")
+            raise DeliveryHealthError("delivery_health_corrupt")
         return DeliveryHealthEvidence(unknown_deliveries=unknown)

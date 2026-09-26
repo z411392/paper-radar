@@ -1,8 +1,8 @@
 from typing import Protocol
 
+from libs.delivery.dtos.delivery_health import DeliveryHealthEvidence
+from libs.paper_explanations.dtos.explanation_health import ExplanationHealthEvidence
 from libs.research_workflow.dtos.operational_health import (
-    DeliveryHealthEvidence,
-    ExplanationHealthEvidence,
     OperationalHealthReport,
     RuntimeHealthEvidence,
     WorkflowHealthEvidence,

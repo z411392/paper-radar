@@ -1,13 +1,8 @@
 import sqlite3
 from pathlib import Path
 
-import pytest
-
 from libs.paper_explanations.adapters.driven.sqlite_explanation_health_adapter import (
     SqliteExplanationHealthAdapter,
-)
-from libs.research_workflow.exceptions.operational_health_error import (
-    OperationalHealthError,
 )
 
 
@@ -65,7 +60,9 @@ def factory(database: Path):
     return connect
 
 
-def test_reads_reserved_exposure_settled_actual_unknown_cost_and_qa_reject(tmp_path: Path):
+def test_reads_reserved_exposure_settled_actual_unknown_cost_and_qa_reject(
+    tmp_path: Path,
+):
     health = SqliteExplanationHealthAdapter(factory(setup_database(tmp_path)))()
 
     assert health.qa_rejected == 1
