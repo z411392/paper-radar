@@ -16,3 +16,12 @@ class CrossrefRateLeasePort(Protocol):
 
 class CrossrefRateGatePort(Protocol):
     def slot(self, contact_email: str) -> AbstractContextManager[CrossrefRateLeasePort]: ...
+
+    def observe_received(
+        self,
+        contact_email: str,
+        status: int | None,
+        headers: tuple[tuple[str, str], ...],
+        *,
+        capture_error: str | None = None,
+    ) -> CrossrefRateDecision: ...
