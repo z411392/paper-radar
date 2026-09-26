@@ -302,6 +302,9 @@ class SqliteCrossrefHarvestJournalAdapter:
                         "crossref_pass_parameters_mismatch"
                     )
                 return self._pass_state(latest)
+            expected_window_state = "pending" if latest is None else "failed"
+            if window["state"] != expected_window_state:
+                raise CrossrefHarvestJournalError("crossref_pass_conflict")
             pass_no = 1 if latest is None else latest["pass_no"] + 1
             pass_id = self._pass_id(window_id, pass_no, parameters)
             connection.execute(
@@ -311,11 +314,23 @@ class SqliteCrossrefHarvestJournalAdapter:
                 ") VALUES(?,?,?,?,'running','*',?)",
                 (pass_id, window_id, pass_no, parameters, started),
             )
-            connection.execute(
+            changed = connection.execute(
                 "UPDATE crossref_harvest_windows SET state='running',updated_at=? "
+                "WHERE id=? AND state=?",
+                (started, window_id, expected_window_state),
+            ).rowcount
+            if changed != 1:
+                raise CrossrefHarvestJournalError("crossref_pass_conflict")
+            written_window = connection.execute(
+                "SELECT state,updated_at FROM crossref_harvest_windows "
                 "WHERE id=?",
-                (started, window_id),
-            )
+                (window_id,),
+            ).fetchone()
+            if written_window is None or tuple(written_window) != (
+                "running",
+                started,
+            ):
+                raise CrossrefHarvestJournalError("crossref_pass_conflict")
             row = connection.execute(
                 "SELECT * FROM crossref_harvest_passes WHERE id=?",
                 (pass_id,),
