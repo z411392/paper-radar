@@ -21,6 +21,7 @@ from libs.scholarly_catalog.application.commands.resolve_paper_identity import (
 from libs.scholarly_catalog.domain.services.normalize_paper_identifier import (
     NormalizePaperIdentifier,
 )
+from libs.scholarly_catalog.dtos.normalized_identifier import NormalizedIdentifier
 from libs.scholarly_catalog.dtos.paper_identity_observation import (
     PaperIdentityObservation,
 )
@@ -153,5 +154,41 @@ def test_secondary_identifier_requires_manifestation_level_identity(
         assert connection.execute(
             "SELECT count(*) FROM external_identifiers"
         ).fetchone()[0] == 1
+    finally:
+        connection.close()
+
+
+@pytest.mark.parametrize(
+    "identifier",
+    [
+        NormalizedIdentifier("doi", "10.1234/EXAMPLE", None),
+        NormalizedIdentifier("pmid", "000100", None),
+        NormalizedIdentifier("unknown", "value", None),
+    ],
+    ids=["noncanonical-doi", "noncanonical-pmid", "unsupported-namespace"],
+)
+def test_store_rejects_forged_noncanonical_normalized_identifier(
+    tmp_path: Path,
+    identifier: NormalizedIdentifier,
+) -> None:
+    schema, store, resolve = _tools(tmp_path / "runtime")
+    paper = resolve(_observation("100", "a"))
+
+    with pytest.raises(PaperIdentityError, match="invalid_identifier_binding"):
+        store.bind_identifier(
+            paper.manifestation_id,
+            identifier,
+            "evidence:forged",
+        )
+
+    connection = schema.connect()
+    try:
+        rows = connection.execute(
+            "SELECT namespace,normalized_value,manifestation_id "
+            "FROM external_identifiers ORDER BY namespace,normalized_value"
+        ).fetchall()
+        assert [tuple(row) for row in rows] == [
+            ("pmid", "100", paper.manifestation_id)
+        ]
     finally:
         connection.close()
