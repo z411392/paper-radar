@@ -9,11 +9,21 @@ import stat
 from datetime import datetime, timezone
 from pathlib import Path
 
+from libs.kernel.adapters.driven.filesystem_object_bytes_adapter import (
+    FilesystemObjectBytesAdapter,
+)
 from libs.kernel.adapters.driven.sqlite_connection_factory import (
     APPLICATION_ID,
     SqliteConnectionFactory,
 )
+from libs.kernel.adapters.driven.sqlite_object_unit_of_work_adapter import (
+    SqliteObjectUnitOfWorkAdapter,
+)
+from libs.kernel.adapters.driven.sqlite_schema_connection_factory import (
+    SqliteSchemaConnectionFactory,
+)
 from libs.kernel.adapters.driven.workspace_paths import WorkspacePaths
+from libs.kernel.application.queries.read_object import ReadObject
 from libs.kernel.dtos.migration import Migration
 from libs.kernel.dtos.object_ref import ObjectRef
 from libs.kernel.exceptions.storage_error import StorageError
@@ -868,6 +878,77 @@ class LocalWorkspaceRestoreAdapter:
             shutil.rmtree(staging, ignore_errors=True)
             raise
 
+    def _verify_staging(
+        self,
+        staging: Path,
+        *,
+        workspace_id: str,
+        epoch: int,
+        refs: tuple[ObjectRef, ...],
+    ) -> None:
+        schema = SqliteSchemaConnectionFactory(staging, self._migrations)
+        connection = schema.connect()
+        try:
+            identity = connection.execute(
+                "SELECT workspace_id,epoch "
+                "FROM workspace_metadata WHERE singleton=1"
+            ).fetchone()
+            if (
+                identity is None
+                or identity["workspace_id"] != workspace_id
+                or identity["epoch"] != epoch
+            ):
+                raise WorkspaceRestoreError("restore_readback_mismatch")
+            if connection.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                raise WorkspaceRestoreError("restore_database_corrupt")
+            if connection.execute("PRAGMA foreign_key_check").fetchall():
+                raise WorkspaceRestoreError("restore_foreign_key_violation")
+        finally:
+            connection.close()
+
+        files = FilesystemObjectBytesAdapter(staging)
+        uow = SqliteObjectUnitOfWorkAdapter(
+            SqliteConnectionFactory(staging)
+        )
+        reader = ReadObject(files, uow)
+        for ref in refs:
+            try:
+                reader(ref.object_id)
+            except StorageError as exc:
+                code = (
+                    "restore_object_missing"
+                    if exc.code in {"missing", "not_found"}
+                    else "restore_object_corrupt"
+                )
+                raise WorkspaceRestoreError(code) from exc
+
+    @staticmethod
+    def _publish_staging(staging: Path, target: Path) -> None:
+        target_existed = target.exists()
+        try:
+            if target_existed:
+                if target.is_symlink() or not target.is_dir():
+                    raise WorkspaceRestoreError("restore_target_unsafe")
+                try:
+                    next(target.iterdir())
+                except StopIteration:
+                    pass
+                else:
+                    raise WorkspaceRestoreError("restore_target_not_empty")
+                target.rmdir()
+            os.replace(staging, target)
+            WorkspacePaths.sync_directory(target.parent)
+        except WorkspaceRestoreError:
+            raise
+        except OSError as exc:
+            if target_existed and not target.exists():
+                try:
+                    target.mkdir(mode=0o700)
+                    WorkspacePaths.sync_directory(target.parent)
+                except OSError:
+                    pass
+            raise WorkspaceRestoreError("restore_publish_failed") from exc
+
     def restore(
         self,
         backup_directory: Path,
@@ -878,20 +959,38 @@ class LocalWorkspaceRestoreAdapter:
             target,
         )
         manifest = self._read_manifest(backup_directory)
-        database, _, _, refs = self._validate_snapshot(
+        database, workspace_id, epoch, refs = self._validate_snapshot(
             backup_directory,
             manifest,
         )
         database_spec = manifest["database"]
         if not isinstance(database_spec, dict):
             raise WorkspaceRestoreError("restore_manifest_invalid")
-        staging = self._stage_restore(
-            backup_directory,
-            target,
-            database=database,
-            database_sha256=str(database_spec["sha256"]),
-            refs=refs,
-        )
-        shutil.rmtree(staging, ignore_errors=True)
-        raise WorkspaceRestoreError("restore_publish_pending")
+
+        staging: Path | None = None
+        try:
+            staging = self._stage_restore(
+                backup_directory,
+                target,
+                database=database,
+                database_sha256=str(database_spec["sha256"]),
+                refs=refs,
+            )
+            self._verify_staging(
+                staging,
+                workspace_id=workspace_id,
+                epoch=epoch,
+                refs=refs,
+            )
+            self._publish_staging(staging, target)
+            staging = None
+            return WorkspaceRestoreResult(
+                workspace_id=workspace_id,
+                epoch=epoch,
+                object_count=len(refs),
+                state="restored",
+            )
+        finally:
+            if staging is not None:
+                shutil.rmtree(staging, ignore_errors=True)
 
