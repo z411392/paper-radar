@@ -50,12 +50,21 @@ class ProjectCrossrefPendingItem:
         relations: CrossrefRelationStorePort,
         integrity: CrossrefIntegrityStorePort | None = None,
         integrity_bindings: BindCrossrefIntegrityWorksPort | None = None,
+        relation_snapshot_complete: bool | None = None,
     ) -> None:
         self._normalize = normalize
         self._store = store
         self._relations = relations
+        if (
+            relation_snapshot_complete is not None
+            and type(relation_snapshot_complete) is not bool
+        ):
+            raise CrossrefProviderProjectionError(
+                "invalid_crossref_relation_snapshot"
+            )
         self._integrity = integrity
         self._integrity_bindings = integrity_bindings
+        self._relation_snapshot_complete = relation_snapshot_complete
 
     def __call__(
         self,
@@ -130,7 +139,16 @@ class ProjectCrossrefPendingItem:
             )
             for gap in gaps
         )
-        self._relations.register(tuple(assertions), gap_drafts)
+        if self._relation_snapshot_complete is None:
+            self._relations.register(tuple(assertions), gap_drafts)
+        else:
+            self._relations.register(
+                tuple(assertions),
+                gap_drafts,
+                source_canonical_doi=result.canonical_doi,
+                provider_revision_id=result.provider_revision_id,
+                snapshot_complete=self._relation_snapshot_complete,
+            )
 
         if self._integrity is not None:
             integrity_entries, integrity_gaps = CrossrefIntegrityRules.extract(item)

@@ -42,3 +42,16 @@ class CrossrefRelationGapDraft:
     error_code: str
     raw_json: str
     observed_at: datetime
+
+
+@dataclass(frozen=True)
+class CrossrefRelationLifecycle:
+    assertion_id: str
+    source_canonical_doi: str
+    predicate_raw: str
+    target_id_type_raw: str
+    target_value_raw: str
+    asserted_by_raw: str | None
+    state: str
+    last_observed_provider_revision_id: str
+    no_longer_observed_provider_revision_id: str | None

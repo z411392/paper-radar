@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from libs.scholarly_catalog.dtos.crossref_relation_assertion import (
     CrossrefRelationAssertionDraft,
     CrossrefRelationGapDraft,
+    CrossrefRelationLifecycle,
 )
 from libs.scholarly_catalog.exceptions.crossref_provider_projection_error import (
     CrossrefProviderProjectionError,
@@ -16,6 +17,10 @@ from libs.scholarly_catalog.exceptions.crossref_provider_projection_error import
 
 
 class SqliteCrossrefRelationStoreAdapter:
+    _SNAPSHOT_PATH = "$snapshot"
+    _COMPLETE_CODE = "relation_snapshot_complete"
+    _INCOMPLETE_CODE = "relation_snapshot_incomplete"
+
     def __init__(self, connect: Callable[[], sqlite3.Connection]) -> None:
         self._connect = connect
 
@@ -62,7 +67,11 @@ class SqliteCrossrefRelationStoreAdapter:
         return value
 
     @contextmanager
-    def _transaction(self) -> Iterator[sqlite3.Connection]:
+    def _transaction(
+        self,
+        *,
+        write: bool = True,
+    ) -> Iterator[sqlite3.Connection]:
         connection: sqlite3.Connection | None = None
         try:
             connection = self._connect()
@@ -71,7 +80,9 @@ class SqliteCrossrefRelationStoreAdapter:
                 raise CrossrefProviderProjectionError("owned_connection_required")
             if connection.execute("PRAGMA foreign_keys").fetchone()[0] != 1:
                 raise CrossrefProviderProjectionError("foreign_keys_required")
-            connection.execute("BEGIN IMMEDIATE")
+            if not write:
+                connection.execute("PRAGMA query_only=ON")
+            connection.execute("BEGIN IMMEDIATE" if write else "BEGIN")
             try:
                 yield connection
                 connection.commit()
@@ -110,12 +121,93 @@ class SqliteCrossrefRelationStoreAdapter:
         self,
         assertions: tuple[CrossrefRelationAssertionDraft, ...],
         gaps: tuple[CrossrefRelationGapDraft, ...],
+        *,
+        source_canonical_doi: str | None = None,
+        provider_revision_id: str | None = None,
+        snapshot_complete: bool | None = None,
     ) -> None:
         if not isinstance(assertions, tuple) or not isinstance(gaps, tuple):
             raise CrossrefProviderProjectionError(
                 "invalid_crossref_relation_assertion"
             )
+        authority_supplied = any(
+            value is not None
+            for value in (
+                source_canonical_doi,
+                provider_revision_id,
+                snapshot_complete,
+            )
+        )
+        if authority_supplied and (
+            source_canonical_doi is None
+            or provider_revision_id is None
+            or type(snapshot_complete) is not bool
+        ):
+            raise CrossrefProviderProjectionError(
+                "invalid_crossref_relation_snapshot"
+            )
         with self._transaction() as connection:
+            if authority_supplied:
+                source = self._text(source_canonical_doi, 512)
+                if (
+                    not isinstance(provider_revision_id, str)
+                    or re.fullmatch(
+                        r"crossref-provider-revision:[0-9a-f]{64}",
+                        provider_revision_id,
+                    )
+                    is None
+                ):
+                    raise CrossrefProviderProjectionError(
+                        "invalid_crossref_relation_snapshot"
+                    )
+                revision = connection.execute(
+                    "SELECT canonical_doi,first_observed_at "
+                    "FROM crossref_provider_revisions WHERE id=?",
+                    (provider_revision_id,),
+                ).fetchone()
+                if revision is None or revision["canonical_doi"] != source:
+                    raise CrossrefProviderProjectionError(
+                        "crossref_relation_revision_mismatch"
+                    )
+                marker_code = (
+                    self._COMPLETE_CODE
+                    if snapshot_complete
+                    else self._INCOMPLETE_CODE
+                )
+                marker_json = json.dumps(
+                    {"complete": snapshot_complete},
+                    sort_keys=True,
+                    ensure_ascii=True,
+                    separators=(",", ":"),
+                )
+                existing_marker = connection.execute(
+                    "SELECT error_code,raw_json FROM "
+                    "crossref_relation_parse_gaps "
+                    "WHERE provider_revision_id=? AND path=?",
+                    (provider_revision_id, self._SNAPSHOT_PATH),
+                ).fetchone()
+                if existing_marker is None:
+                    marker_id = "crossref-relation-gap:" + self._hash(
+                        provider_revision_id,
+                        self._SNAPSHOT_PATH,
+                        marker_code,
+                    )
+                    connection.execute(
+                        "INSERT INTO crossref_relation_parse_gaps "
+                        "VALUES(?,?,?,?,?,?)",
+                        (
+                            marker_id,
+                            provider_revision_id,
+                            self._SNAPSHOT_PATH,
+                            marker_code,
+                            marker_json,
+                            revision["first_observed_at"],
+                        ),
+                    )
+                elif tuple(existing_marker) != (marker_code, marker_json):
+                    raise CrossrefProviderProjectionError(
+                        "crossref_relation_snapshot_conflict"
+                    )
             for draft in assertions:
                 if not isinstance(draft, CrossrefRelationAssertionDraft):
                     raise CrossrefProviderProjectionError(
@@ -224,6 +316,10 @@ class SqliteCrossrefRelationStoreAdapter:
                     )
                 path = self._text(gap.path, 512)
                 error = self._text(gap.error_code, 128)
+                if path == self._SNAPSHOT_PATH:
+                    raise CrossrefProviderProjectionError(
+                        "invalid_crossref_relation_gap"
+                    )
                 observed = self._time(gap.observed_at)
                 try:
                     raw = json.loads(gap.raw_json)
@@ -281,3 +377,85 @@ class SqliteCrossrefRelationStoreAdapter:
                     raise CrossrefProviderProjectionError(
                         "crossref_relation_gap_conflict"
                     )
+
+
+    def lifecycle(
+        self,
+        source_canonical_doi: str,
+    ) -> tuple[CrossrefRelationLifecycle, ...]:
+        source = self._text(source_canonical_doi, 512)
+        complete_json = json.dumps(
+            {"complete": True},
+            sort_keys=True,
+            ensure_ascii=True,
+            separators=(",", ":"),
+        )
+        with self._transaction(write=False) as connection:
+            assertions = connection.execute(
+                "SELECT id,source_canonical_doi,predicate_raw,"
+                "target_id_type_raw,target_value_raw,asserted_by_raw "
+                "FROM crossref_relation_assertions "
+                "WHERE source_canonical_doi=? ORDER BY id",
+                (source,),
+            ).fetchall()
+            lifecycle = []
+            for assertion in assertions:
+                last = connection.execute(
+                    "SELECT r.id,r.revision_no "
+                    "FROM crossref_relation_revision_observations o "
+                    "JOIN crossref_provider_revisions r "
+                    "ON r.id=o.provider_revision_id "
+                    "WHERE o.assertion_id=? AND r.canonical_doi=? "
+                    "ORDER BY r.revision_no DESC LIMIT 1",
+                    (assertion["id"], source),
+                ).fetchone()
+                if last is None:
+                    raise CrossrefProviderProjectionError(
+                        "crossref_relation_state_corrupt"
+                    )
+                withdrawn = connection.execute(
+                    "SELECT r.id FROM crossref_provider_revisions r "
+                    "WHERE r.canonical_doi=? AND r.revision_no>? "
+                    "AND EXISTS("
+                    "SELECT 1 FROM crossref_relation_parse_gaps marker "
+                    "WHERE marker.provider_revision_id=r.id "
+                    "AND marker.path=? AND marker.error_code=? "
+                    "AND marker.raw_json=?"
+                    ") "
+                    "AND NOT EXISTS("
+                    "SELECT 1 FROM crossref_relation_parse_gaps gap "
+                    "WHERE gap.provider_revision_id=r.id AND gap.path<>?"
+                    ") "
+                    "AND NOT EXISTS("
+                    "SELECT 1 FROM crossref_relation_revision_observations o "
+                    "WHERE o.provider_revision_id=r.id AND o.assertion_id=?"
+                    ") "
+                    "ORDER BY r.revision_no LIMIT 1",
+                    (
+                        source,
+                        last["revision_no"],
+                        self._SNAPSHOT_PATH,
+                        self._COMPLETE_CODE,
+                        complete_json,
+                        self._SNAPSHOT_PATH,
+                        assertion["id"],
+                    ),
+                ).fetchone()
+                lifecycle.append(
+                    CrossrefRelationLifecycle(
+                        assertion["id"],
+                        assertion["source_canonical_doi"],
+                        assertion["predicate_raw"],
+                        assertion["target_id_type_raw"],
+                        assertion["target_value_raw"],
+                        assertion["asserted_by_raw"],
+                        (
+                            "no_longer_observed"
+                            if withdrawn is not None
+                            else "observed"
+                        ),
+                        last["id"],
+                        None if withdrawn is None else withdrawn["id"],
+                    )
+                )
+            return tuple(lifecycle)

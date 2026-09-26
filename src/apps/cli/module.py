@@ -558,6 +558,7 @@ class WorkerCliModule(Module):
                     connection.connect
                 ),
                 integrity_bindings=integrity_bindings,
+                relation_snapshot_complete=True,
             )
             crossref = RunProjectedCrossrefHarvestWindow(
                 claimed_crossref,
