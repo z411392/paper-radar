@@ -10,30 +10,49 @@ from libs.discovery.exceptions.crossref_capture_error import CrossrefCaptureErro
 from libs.discovery.exceptions.crossref_capture_inbox_error import CrossrefCaptureInboxError
 from libs.discovery.exceptions.crossref_harvest_journal_error import CrossrefHarvestJournalError
 from libs.discovery.exceptions.crossref_protocol_error import CrossrefProtocolError
+from libs.discovery.exceptions.arxiv_observation_replay_error import (
+    ArxivObservationReplayError,
+)
 from libs.discovery.exceptions.crossref_rate_error import CrossrefRateError
 from libs.discovery.exceptions.harvest_error import HarvestError
+from libs.discovery.exceptions.pubmed_observation_replay_error import (
+    PubmedObservationReplayError,
+)
 from libs.discovery.exceptions.source_fetch_error import SourceFetchError
+from libs.discovery.exceptions.source_observation_read_error import SourceObservationReadError
 from libs.discovery.exceptions.source_query_error import SourceQueryError
 from libs.discovery.ports.run_pubmed_harvest_window_port import RunPubmedHarvestWindowPort
 from libs.research_workflow.ports.build_crossref_window_plan_port import (
     BuildCrossrefWindowPlanPort,
 )
+from libs.research_workflow.dtos.evidence_explanation import EvidenceExplanationRequest
 from libs.research_workflow.dtos.harvest_query_request import HarvestQueryRequest
 from libs.research_workflow.dtos.revision_notice import RevisionNoticeRequest
 from libs.research_workflow.dtos.worker import WorkflowJobProcessResult
 from libs.research_workflow.dtos.workflow_job import CompleteWorkflowJob
 from libs.research_workflow.exceptions.harvest_workflow_error import HarvestWorkflowError
+from libs.research_workflow.exceptions.source_catalog_projection_error import (
+    SourceCatalogProjectionError,
+)
 from libs.research_workflow.exceptions.workflow_job_error import WorkflowJobError
 from libs.research_workflow.ports.build_harvest_query_input_port import BuildHarvestQueryInputPort
 from libs.research_workflow.ports.run_crossref_harvest_window_port import (
     RunCrossrefHarvestWindowPort,
 )
+from libs.research_workflow.ports.process_evidence_explanation_port import (
+    ProcessEvidenceExplanationPort,
+)
 from libs.research_workflow.ports.process_revision_notice_port import (
     ProcessRevisionNoticePort,
+)
+from libs.research_workflow.ports.project_source_catalog_unit_port import (
+    ProjectSourceCatalogUnitPort,
 )
 from libs.research_workflow.ports.run_harvest_slice_port import RunHarvestSlicePort
 from libs.research_workflow.ports.workflow_clock_port import WorkflowClockPort
 from libs.research_workflow.ports.workflow_job_store_port import WorkflowJobStorePort
+from libs.scholarly_catalog.exceptions.evidence_snapshot_error import EvidenceSnapshotError
+from libs.scholarly_catalog.exceptions.paper_identity_error import PaperIdentityError
 
 
 class ProcessWorkflowJob:
@@ -61,6 +80,8 @@ class ProcessWorkflowJob:
         crossref_plan: BuildCrossrefWindowPlanPort | None = None,
         crossref: RunCrossrefHarvestWindowPort | None = None,
         revision_notice: ProcessRevisionNoticePort | None = None,
+        source_catalog: ProjectSourceCatalogUnitPort | None = None,
+        explanation: ProcessEvidenceExplanationPort | None = None,
     ) -> None:
         self._store = store
         self._builder = builder
@@ -72,6 +93,8 @@ class ProcessWorkflowJob:
         self._crossref_plan = crossref_plan
         self._crossref = crossref
         self._revision_notice = revision_notice
+        self._source_catalog = source_catalog
+        self._explanation = explanation
 
     @staticmethod
     def _instant(value: object) -> datetime:
@@ -359,6 +382,61 @@ class ProcessWorkflowJob:
             )
 
         if result.stop_reason == "complete":
+            if source_id in {"arxiv", "pubmed"}:
+                progress = result.progress
+                if progress.state != "verified_empty":
+                    if self._source_catalog is None:
+                        return self._defer(
+                            lease,
+                            error_code="source_catalog_projection_not_connected",
+                            delay=timedelta(hours=1),
+                            state="awaiting_external",
+                        )
+                    try:
+                        projection = self._source_catalog(
+                            source_id,
+                            progress.unit_id,
+                            max_observations=100,
+                            projected_at=self._clock.now(),
+                        )
+                    except (
+                        SourceObservationReadError,
+                        ArxivObservationReplayError,
+                        PubmedObservationReplayError,
+                        SourceCatalogProjectionError,
+                        PaperIdentityError,
+                        EvidenceSnapshotError,
+                    ) as exc:
+                        state = (
+                            "awaiting_external"
+                            if any(
+                                token in exc.code
+                                for token in (
+                                    "corrupt",
+                                    "mismatch",
+                                    "missing",
+                                    "unavailable",
+                                    "unsupported",
+                                )
+                            )
+                            else "failed"
+                        )
+                        return self._defer(
+                            lease,
+                            error_code=exc.code,
+                            delay=(
+                                timedelta(hours=1)
+                                if state == "awaiting_external"
+                                else timedelta(minutes=5)
+                            ),
+                            state=state,
+                        )
+                    if projection.state != "succeeded":
+                        return self._defer(
+                            lease,
+                            error_code="source_catalog_projection_budget",
+                            delay=timedelta(minutes=1),
+                        )
             return self._complete(
                 lease,
                 state="succeeded",
@@ -401,6 +479,83 @@ class ProcessWorkflowJob:
                 raise WorkflowJobError("invalid_job_payload")
             result.append(DigestCoverageGap(row["kind"], row["identity"], row["reason"]))
         return tuple(result)
+
+    def _explanation_job(self, lease) -> WorkflowJobProcessResult:
+        pipeline = self._explanation
+        if pipeline is None:
+            return self._defer(
+                lease,
+                error_code="explanation_runtime_not_connected",
+                delay=timedelta(hours=1),
+                state="awaiting_external",
+            )
+        data = self._payload(lease.input_json)
+        if set(data) != {
+            "snapshot_id",
+            "revision_id",
+            "work_id",
+            "profile_id",
+            "profile_revision",
+            "domain_id",
+            "domain_revision",
+        }:
+            raise WorkflowJobError("invalid_job_payload")
+        if (
+            any(
+                not isinstance(data[key], str) or not data[key]
+                for key in (
+                    "snapshot_id",
+                    "revision_id",
+                    "work_id",
+                    "profile_id",
+                    "domain_id",
+                )
+            )
+            or type(data["profile_revision"]) is not int
+            or type(data["domain_revision"]) is not int
+            or data["profile_revision"] < 1
+            or data["domain_revision"] < 1
+        ):
+            raise WorkflowJobError("invalid_job_payload")
+        outcome = pipeline(
+            EvidenceExplanationRequest(
+                data["snapshot_id"],
+                data["revision_id"],
+                data["work_id"],
+                data["profile_id"],
+                data["profile_revision"],
+                data["domain_id"],
+                data["domain_revision"],
+            )
+        )
+        if outcome.state == "succeeded":
+            return self._complete(
+                lease,
+                state="succeeded",
+                error_code=None,
+                next_due_at=None,
+            )
+        if outcome.state == "cancelled":
+            return self._complete(
+                lease,
+                state="cancelled",
+                error_code=outcome.error_code,
+                next_due_at=None,
+            )
+        if outcome.state == "awaiting_external":
+            return self._defer(
+                lease,
+                error_code=outcome.error_code or "explanation_awaiting_external",
+                delay=timedelta(hours=1),
+                state="awaiting_external",
+            )
+        if outcome.state == "failed":
+            return self._defer(
+                lease,
+                error_code=outcome.error_code or "explanation_failed",
+                delay=timedelta(minutes=5),
+            )
+        raise WorkflowJobError("invalid_explanation_outcome")
 
     def _digest_job(self, lease) -> WorkflowJobProcessResult:
         digest = self._digest
@@ -554,6 +709,8 @@ class ProcessWorkflowJob:
                 lease,
                 lease_seconds=lease_seconds,
             )
+        if lease.job_kind == "explain_snapshot":
+            return self._explanation_job(lease)
         if lease.job_kind == "prepare_digest":
             return self._digest_job(lease)
         if lease.job_kind == "dispatch_digest":

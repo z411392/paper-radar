@@ -1,4 +1,7 @@
 from libs.paper_explanations.domain.services.generation_execution_rules import GenerationExecutionRules
+from libs.paper_explanations.dtos.budgeted_generation_execution import (
+    BudgetedGenerationExecution,
+)
 from libs.paper_explanations.dtos.generation_budget_policy import GenerationBudgetPolicy
 from libs.paper_explanations.dtos.structured_generation_request import StructuredGenerationRequest
 from libs.paper_explanations.dtos.structured_generation_result import StructuredGenerationResult
@@ -24,15 +27,31 @@ class RunBudgetedGeneration:
         self._clock = clock
         self._budget = budget
 
-    def __call__(self, request: StructuredGenerationRequest) -> StructuredGenerationResult:
+    def execute(
+        self,
+        request: StructuredGenerationRequest,
+    ) -> BudgetedGenerationExecution:
         identity = GenerationExecutionRules.identity(request, self._budget)
         reservation = self._ledger.reserve(identity, self._clock())
         if reservation.state == "cached":
             if reservation.output_object_id is None:
                 raise GenerationLedgerError("generation_ledger_corrupt")
-            return self._ledger.read_cached(reservation.output_object_id, identity)
+            if reservation.run_id is None:
+                raise GenerationLedgerError("generation_ledger_corrupt")
+            return BudgetedGenerationExecution(
+                reservation.run_id,
+                identity.generation_fingerprint,
+                self._ledger.read_cached(reservation.output_object_id, identity),
+                True,
+            )
         if reservation.state == "budget_blocked":
-            raise ModelGatewayError("budget_blocked")
+            if reservation.run_id is None:
+                raise GenerationLedgerError("generation_ledger_corrupt")
+            raise ModelGatewayError(
+                "budget_blocked",
+                run_id=reservation.run_id,
+                generation_fingerprint=identity.generation_fingerprint,
+            )
         if reservation.state == "in_progress":
             raise GenerationLedgerError("generation_in_progress")
         if reservation.state != "reserved" or reservation.run_id is None:
@@ -51,7 +70,12 @@ class RunBudgetedGeneration:
                 no_charge=GenerationExecutionRules.is_known_no_charge(exc.code),
                 finished_at=self._clock(),
             )
-            raise
+            raise ModelGatewayError(
+                exc.code,
+                exc.receipt,
+                run_id=run_id,
+                generation_fingerprint=identity.generation_fingerprint,
+            ) from exc
         except Exception:
             self._ledger.complete_failure(
                 run_id,
@@ -73,4 +97,15 @@ class RunBudgetedGeneration:
             )
             raise GenerationLedgerError("invalid_generation_result")
         self._ledger.complete_success(run_id, identity, result, self._clock())
-        return result
+        return BudgetedGenerationExecution(
+            run_id,
+            identity.generation_fingerprint,
+            result,
+            False,
+        )
+
+    def __call__(
+        self,
+        request: StructuredGenerationRequest,
+    ) -> StructuredGenerationResult:
+        return self.execute(request).result

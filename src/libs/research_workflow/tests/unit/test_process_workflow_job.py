@@ -1,9 +1,14 @@
 from datetime import datetime, timedelta, timezone
 from unittest.mock import Mock
 
+import pytest
+
 from libs.delivery.dtos.scheduled_digest import ScheduledDigestOutcome
 from libs.research_workflow.application.commands.process_workflow_job import (
     ProcessWorkflowJob,
+)
+from libs.research_workflow.dtos.evidence_explanation import (
+    EvidenceExplanationResult,
 )
 from libs.research_workflow.dtos.harvest_run_result import HarvestRunResult
 from libs.research_workflow.dtos.workflow_job import (
@@ -13,6 +18,7 @@ from libs.research_workflow.dtos.workflow_job import (
 
 
 NOW = datetime(2026, 9, 24, 0, 0, tzinfo=timezone.utc)
+UNIT = "unit:" + "d" * 64
 
 
 class Clock:
@@ -97,7 +103,7 @@ def test_harvest_job_uses_exact_scheduled_revisions_and_completes() -> None:
     store = Store(lease("harvest_window", harvest_payload()))
     query = object()
     builder = Mock(return_value=query)
-    progress = Mock(state="succeeded")
+    progress = Mock(state="succeeded", unit_id=UNIT)
     runner = Mock(
         return_value=HarvestRunResult(
             progress=progress,
@@ -107,12 +113,14 @@ def test_harvest_job_uses_exact_scheduled_revisions_and_completes() -> None:
             reused_captures=0,
         )
     )
+    source_catalog = Mock(return_value=Mock(state="succeeded"))
     command = ProcessWorkflowJob(
         store=store,
         builder=builder,
         harvest=runner,
         clock=Clock(),
         live_source_enabled=True,
+        source_catalog=source_catalog,
     )
 
     result = command("worker:test", lease_seconds=60)
@@ -124,6 +132,12 @@ def test_harvest_job_uses_exact_scheduled_revisions_and_completes() -> None:
     assert request.expected_domain_revision == 7
     assert request.source_id == "arxiv"
     runner.assert_called_once_with(query, max_pages=10, retry_failed=True)
+    source_catalog.assert_called_once_with(
+        "arxiv",
+        UNIT,
+        max_observations=100,
+        projected_at=NOW + timedelta(seconds=2),
+    )
     assert result.state == "succeeded"
     assert store.completed[0].state == "succeeded"
     assert store.completed[0].next_due_at is None
@@ -245,8 +259,14 @@ def test_pubmed_job_uses_dedicated_runner_and_create_date_basis() -> None:
     store = Store(lease("harvest_window", payload))
     query = object()
     builder = Mock(return_value=query)
-    pubmed = Mock(return_value=Mock(stop_reason="complete"))
+    pubmed = Mock(
+        return_value=Mock(
+            stop_reason="complete",
+            progress=Mock(state="succeeded", unit_id=UNIT),
+        )
+    )
     arxiv = Mock()
+    source_catalog = Mock(return_value=Mock(state="succeeded"))
     command = ProcessWorkflowJob(
         store=store,
         builder=builder,
@@ -254,6 +274,7 @@ def test_pubmed_job_uses_dedicated_runner_and_create_date_basis() -> None:
         clock=Clock(),
         live_source_enabled=True,
         pubmed=pubmed,
+        source_catalog=source_catalog,
     )
 
     result = command("worker:test", lease_seconds=60)
@@ -267,6 +288,12 @@ def test_pubmed_job_uses_dedicated_runner_and_create_date_basis() -> None:
     assert pubmed.call_args.args == (query,)
     assert pubmed.call_args.kwargs["max_batches"] == 10
     arxiv.assert_not_called()
+    source_catalog.assert_called_once_with(
+        "pubmed",
+        UNIT,
+        max_observations=100,
+        projected_at=NOW + timedelta(seconds=2),
+    )
     assert result.state == "succeeded"
 
 
@@ -375,3 +402,199 @@ def test_dispatch_digest_preserves_exact_prepare_context_for_rebuild() -> None:
     assert request.rebuild_request.cutoff_at == NOW
     assert request.rebuild_request.coverage_gaps[0].reason == "gap"
     assert result.state == "succeeded"
+
+
+def test_complete_arxiv_harvest_without_catalog_projector_is_not_success() -> None:
+    store = Store(lease("harvest_window", harvest_payload()))
+    runner = Mock(
+        return_value=HarvestRunResult(
+            progress=Mock(state="succeeded", unit_id=UNIT),
+            stop_reason="complete",
+            fetch_count=0,
+            processed_pages=0,
+            reused_captures=1,
+        )
+    )
+    command = ProcessWorkflowJob(
+        store=store,
+        builder=Mock(return_value=object()),
+        harvest=runner,
+        clock=Clock(),
+        live_source_enabled=True,
+        source_catalog=None,
+    )
+
+    result = command("worker:test", lease_seconds=60)
+
+    assert result.state == "awaiting_external"
+    assert store.completed[0].error_code == "source_catalog_projection_not_connected"
+
+
+def test_catalog_projection_budget_keeps_harvest_job_retryable() -> None:
+    store = Store(lease("harvest_window", harvest_payload()))
+    runner = Mock(
+        return_value=HarvestRunResult(
+            progress=Mock(state="succeeded", unit_id=UNIT),
+            stop_reason="complete",
+            fetch_count=0,
+            processed_pages=0,
+            reused_captures=1,
+        )
+    )
+    projector = Mock(return_value=Mock(state="budget_exhausted"))
+    command = ProcessWorkflowJob(
+        store=store,
+        builder=Mock(return_value=object()),
+        harvest=runner,
+        clock=Clock(),
+        live_source_enabled=True,
+        source_catalog=projector,
+    )
+
+    result = command("worker:test", lease_seconds=60)
+
+    assert result.state == "failed"
+    assert store.completed[0].error_code == "source_catalog_projection_budget"
+    assert store.completed[0].next_due_at == NOW + timedelta(minutes=1, seconds=2)
+
+
+def test_verified_empty_harvest_does_not_require_catalog_projector() -> None:
+    store = Store(lease("harvest_window", harvest_payload()))
+    runner = Mock(
+        return_value=HarvestRunResult(
+            progress=Mock(state="verified_empty", unit_id=UNIT),
+            stop_reason="complete",
+            fetch_count=0,
+            processed_pages=1,
+            reused_captures=0,
+        )
+    )
+    command = ProcessWorkflowJob(
+        store=store,
+        builder=Mock(return_value=object()),
+        harvest=runner,
+        clock=Clock(),
+        live_source_enabled=True,
+        source_catalog=None,
+    )
+
+    result = command("worker:test", lease_seconds=60)
+
+    assert result.state == "succeeded"
+    assert store.completed[0].state == "succeeded"
+
+
+def explanation_payload() -> str:
+    return (
+        '{"domain_id":"statistics","domain_revision":1,'
+        '"profile_id":"personal","profile_revision":3,'
+        '"revision_id":"revision:' + '2' * 64 + '",'
+        '"snapshot_id":"snapshot:' + '1' * 64 + '",'
+        '"work_id":"work:' + '3' * 64 + '"}'
+    )
+
+
+def test_explain_snapshot_without_runtime_awaits_external() -> None:
+    store = Store(lease("explain_snapshot", explanation_payload()))
+    command = ProcessWorkflowJob(
+        store=store,
+        builder=Mock(),
+        harvest=None,
+        clock=Clock(),
+        live_source_enabled=False,
+        explanation=None,
+    )
+
+    result = command("worker:test", lease_seconds=60)
+
+    assert result.state == "awaiting_external"
+    completion = store.completed[0]
+    assert completion.error_code == "explanation_runtime_not_connected"
+    assert completion.next_due_at == NOW + timedelta(hours=1, seconds=2)
+
+
+def test_explain_snapshot_uses_exact_frozen_payload_and_succeeds() -> None:
+    store = Store(lease("explain_snapshot", explanation_payload()))
+    pipeline = Mock(
+        return_value=EvidenceExplanationResult(
+            "succeeded",
+            "summary:" + "4" * 64,
+            "relevance:test",
+            None,
+        )
+    )
+    command = ProcessWorkflowJob(
+        store=store,
+        builder=Mock(),
+        harvest=None,
+        clock=Clock(),
+        live_source_enabled=False,
+        explanation=pipeline,
+    )
+
+    result = command("worker:test", lease_seconds=60)
+
+    request = pipeline.call_args.args[0]
+    assert request.snapshot_id == "snapshot:" + "1" * 64
+    assert request.revision_id == "revision:" + "2" * 64
+    assert request.work_id == "work:" + "3" * 64
+    assert request.profile_id == "personal"
+    assert request.profile_revision == 3
+    assert request.domain_id == "statistics"
+    assert request.domain_revision == 1
+    assert result.state == "succeeded"
+    assert store.completed[0].next_due_at is None
+
+
+@pytest.mark.parametrize(
+    "outcome_state,error_code,expected_state,expected_delay",
+    [
+        ("cancelled", "scheduled_input_stale", "cancelled", None),
+        (
+            "awaiting_external",
+            "budget_blocked",
+            "awaiting_external",
+            timedelta(hours=1, seconds=2),
+        ),
+        (
+            "failed",
+            "generation_database_error",
+            "failed",
+            timedelta(minutes=5, seconds=2),
+        ),
+    ],
+)
+def test_explain_snapshot_maps_pipeline_outcome_to_workflow_state(
+    outcome_state,
+    error_code,
+    expected_state,
+    expected_delay,
+) -> None:
+    store = Store(lease("explain_snapshot", explanation_payload()))
+    pipeline = Mock(
+        return_value=EvidenceExplanationResult(
+            outcome_state,
+            None,
+            "relevance:test",
+            error_code,
+        )
+    )
+    command = ProcessWorkflowJob(
+        store=store,
+        builder=Mock(),
+        harvest=None,
+        clock=Clock(),
+        live_source_enabled=False,
+        explanation=pipeline,
+    )
+
+    result = command("worker:test", lease_seconds=60)
+
+    assert result.state == expected_state
+    completion = store.completed[0]
+    assert completion.state == expected_state
+    assert completion.error_code == error_code
+    if expected_delay is None:
+        assert completion.next_due_at is None
+    else:
+        assert completion.next_due_at == NOW + expected_delay

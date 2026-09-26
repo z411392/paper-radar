@@ -8,6 +8,10 @@ from libs.paper_explanations.adapters.driven.sqlite_current_summary_store_adapte
     SqliteCurrentSummaryStoreAdapter,
 )
 from libs.paper_explanations.application.commands.publish_current_summary import PublishCurrentSummary
+from libs.paper_explanations.application.commands.publish_verified_current_summary import (
+    PublishVerifiedCurrentSummary,
+)
+from libs.paper_explanations.dtos.explanation_persistence import PersistedExplanation
 from libs.paper_explanations.exceptions.explanation_verification_error import ExplanationVerificationError
 
 WORK = "work:" + "1" * 64
@@ -243,3 +247,28 @@ def test_concurrent_publishers_with_same_expected_version_only_one_wins(tmp_path
         thread.join()
     assert outcomes.count("ok") == 1
     assert outcomes.count("current_summary_conflict") == 1
+
+
+def test_owner_can_read_pointer_and_publish_verified_persisted_summary(tmp_path: Path):
+    path, _ = _setup(tmp_path)
+    store = SqliteCurrentSummaryStoreAdapter(_connect(path))
+    assert store.read(WORK, "zh-TW", "plain-zh-TW-v1") is None
+
+    persisted = PersistedExplanation(
+        S1,
+        "snapshot:" + S1.split(":", 1)[1],
+        R1,
+        WORK,
+        F1,
+        RUN1,
+        "model_output:" + S1.split(":", 1)[1],
+        "passed",
+        "zh-TW",
+        "plain-zh-TW-v1",
+        True,
+    )
+    first = PublishVerifiedCurrentSummary(store)(persisted)
+    replay = PublishVerifiedCurrentSummary(store)(persisted)
+
+    assert first == replay
+    assert store.read(WORK, "zh-TW", "plain-zh-TW-v1") == first

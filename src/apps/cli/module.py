@@ -56,8 +56,20 @@ from libs.discovery.adapters.driven.sqlite_crossref_harvest_journal_adapter impo
     SqliteCrossrefHarvestJournalAdapter,
 )
 from libs.discovery.adapters.driven.sqlite_harvest_processing_adapter import SqliteHarvestProcessingAdapter
+from libs.discovery.adapters.driven.sqlite_harvest_unit_context_adapter import (
+    SqliteHarvestUnitContextAdapter,
+)
 from libs.discovery.adapters.driven.sqlite_harvest_resume_adapter import SqliteHarvestResumeAdapter
 from libs.discovery.adapters.driven.sqlite_harvest_store_adapter import SqliteHarvestStoreAdapter
+from libs.discovery.adapters.driven.sqlite_arxiv_observation_replay_adapter import (
+    SqliteArxivObservationReplayAdapter,
+)
+from libs.discovery.adapters.driven.sqlite_pubmed_observation_replay_adapter import (
+    SqlitePubmedObservationReplayAdapter,
+)
+from libs.discovery.adapters.driven.sqlite_source_observation_page_adapter import (
+    SqliteSourceObservationPageAdapter,
+)
 from libs.discovery.adapters.driven.sqlite_pubmed_harvest_store_adapter import (
     SqlitePubmedHarvestStoreAdapter,
 )
@@ -108,20 +120,66 @@ from libs.kernel.ports.set_workspace_external_effects_port import (
     SetWorkspaceExternalEffectsPort,
 )
 from libs.kernel.ports.workspace_bootstrap_port import WorkspaceBootstrapPort
+from libs.paper_explanations.adapters.driven.kernel_explanation_artifact_adapter import (
+    KernelExplanationArtifactAdapter,
+)
+from libs.paper_explanations.adapters.driven.kernel_generation_output_adapter import (
+    KernelGenerationOutputAdapter,
+)
+from libs.paper_explanations.adapters.driven.sqlite_current_summary_store_adapter import (
+    SqliteCurrentSummaryStoreAdapter,
+)
 from libs.paper_explanations.adapters.driven.sqlite_digest_current_summary_adapter import (
     SqliteDigestCurrentSummaryAdapter,
 )
+from libs.paper_explanations.adapters.driven.sqlite_generation_ledger_adapter import (
+    SqliteGenerationLedgerAdapter,
+)
+from libs.paper_explanations.adapters.driven.sqlite_verified_explanation_store_adapter import (
+    SqliteVerifiedExplanationStoreAdapter,
+)
+from libs.paper_explanations.application.commands.extract_tracked_paper_claims import (
+    ExtractTrackedPaperClaims,
+)
+from libs.paper_explanations.application.commands.generate_tracked_reading_card import (
+    GenerateTrackedReadingCard,
+)
+from libs.paper_explanations.application.commands.persist_verified_explanation import (
+    PersistVerifiedExplanation,
+)
+from libs.paper_explanations.application.commands.publish_verified_current_summary import (
+    PublishVerifiedCurrentSummary,
+)
+from libs.paper_explanations.application.commands.run_budgeted_generation import (
+    RunBudgetedGeneration,
+)
+from libs.paper_explanations.application.commands.verify_tracked_explanation import (
+    VerifyTrackedExplanation,
+)
+from libs.paper_explanations.dtos.generation_budget_policy import GenerationBudgetPolicy
+from libs.paper_explanations.ports.structured_generation_port import (
+    StructuredGenerationPort,
+)
 from libs.research_workflow.adapters.driven.python_runtime_version_adapter import PythonRuntimeVersionAdapter
 from libs.research_workflow.adapters.driven.sqlite_scheduler_input_adapter import SqliteSchedulerInputAdapter
+from libs.research_workflow.adapters.driven.sqlite_source_catalog_projection_store_adapter import (
+    SqliteSourceCatalogProjectionStoreAdapter,
+)
 from libs.research_workflow.adapters.driven.sqlite_workflow_job_store_adapter import (
     SqliteWorkflowJobStoreAdapter,
 )
 from libs.research_workflow.adapters.driven.system_harvest_runtime_adapter import SystemHarvestRuntimeAdapter
 from libs.research_workflow.adapters.driven.system_workflow_clock_adapter import SystemWorkflowClockAdapter
+from libs.research_workflow.application.commands.process_evidence_explanation import (
+    ProcessEvidenceExplanation,
+)
 from libs.research_workflow.application.commands.process_revision_notice import (
     ProcessRevisionNotice,
 )
 from libs.research_workflow.application.commands.process_workflow_job import ProcessWorkflowJob
+from libs.research_workflow.application.commands.project_source_catalog_unit import (
+    ProjectSourceCatalogUnit,
+)
 from libs.research_workflow.application.commands.run_harvest_slice import RunHarvestSlice
 from libs.research_workflow.application.commands.run_projected_crossref_harvest_window import (
     RunProjectedCrossrefHarvestWindow,
@@ -137,7 +195,13 @@ from libs.research_workflow.ports.build_crossref_window_plan_port import (
     BuildCrossrefWindowPlanPort,
 )
 from libs.research_workflow.ports.build_harvest_query_input_port import BuildHarvestQueryInputPort
+from libs.research_workflow.ports.process_evidence_explanation_port import (
+    ProcessEvidenceExplanationPort,
+)
 from libs.research_workflow.ports.process_workflow_job_port import ProcessWorkflowJobPort
+from libs.research_workflow.ports.project_source_catalog_unit_port import (
+    ProjectSourceCatalogUnitPort,
+)
 from libs.research_workflow.ports.read_runtime_version_port import ReadRuntimeVersionPort
 from libs.research_workflow.ports.run_crossref_harvest_window_port import (
     RunCrossrefHarvestWindowPort,
@@ -151,6 +215,12 @@ from libs.research_workflow.ports.run_worker_cycle_port import RunWorkerCyclePor
 from libs.research_workflow.ports.runtime_version_provider_port import RuntimeVersionProviderPort
 from libs.research_workflow.ports.workflow_clock_port import WorkflowClockPort
 from libs.research_workflow.ports.workflow_job_store_port import WorkflowJobStorePort
+from libs.scholarly_catalog.adapters.driven.kernel_evidence_object_adapter import (
+    KernelEvidenceObjectAdapter,
+)
+from libs.scholarly_catalog.adapters.driven.sqlite_evidence_snapshot_store_adapter import (
+    SqliteEvidenceSnapshotStoreAdapter,
+)
 from libs.scholarly_catalog.adapters.driven.sqlite_crossref_integrity_event_source_adapter import (
     SqliteCrossrefIntegrityEventSourceAdapter,
 )
@@ -178,6 +248,18 @@ from libs.scholarly_catalog.adapters.driven.sqlite_paper_identity_store_adapter 
 from libs.scholarly_catalog.application.commands.bind_crossref_integrity_works import (
     BindCrossrefIntegrityWorks,
 )
+from libs.scholarly_catalog.application.commands.prepare_abstract_evidence import (
+    PrepareAbstractEvidence,
+)
+from libs.scholarly_catalog.application.commands.prepare_evidence_snapshot import (
+    PrepareEvidenceSnapshot,
+)
+from libs.scholarly_catalog.application.commands.project_arxiv_observation import (
+    ProjectArxivObservation,
+)
+from libs.scholarly_catalog.application.commands.project_pubmed_observation import (
+    ProjectPubmedObservation,
+)
 from libs.scholarly_catalog.application.commands.project_crossref_pending_item import (
     ProjectCrossrefPendingItem,
 )
@@ -187,17 +269,31 @@ from libs.scholarly_catalog.application.commands.promote_crossref_integrity_even
 from libs.scholarly_catalog.application.commands.record_paper_revision import (
     RecordPaperRevision,
 )
+from libs.scholarly_catalog.application.commands.resolve_paper_identity import (
+    ResolvePaperIdentity,
+)
+from libs.scholarly_catalog.application.queries.read_evidence_snapshot import ReadEvidenceSnapshot
 from libs.scholarly_catalog.application.queries.read_paper_identity import ReadPaperIdentity
+from libs.scholarly_catalog.domain.services.evidence_snapshot_rules import EvidenceSnapshotRules
 from libs.scholarly_catalog.domain.services.normalize_paper_identifier import (
     NormalizePaperIdentifier,
 )
 from libs.watch_profiles.adapters.driven.sqlite_digest_relevance_adapter import (
     SqliteDigestRelevanceAdapter,
 )
+from libs.watch_profiles.adapters.driven.sqlite_relevance_assessment_store_adapter import (
+    SqliteRelevanceAssessmentStoreAdapter,
+)
 from libs.watch_profiles.adapters.driven.sqlite_watch_profile_store_adapter import (
     SqliteWatchProfileStoreAdapter,
 )
+from libs.watch_profiles.application.commands.assess_tracked_paper_relevance import (
+    AssessTrackedPaperRelevance,
+)
 from libs.watch_profiles.application.commands.import_domain_seeds import ImportDomainSeeds
+from libs.watch_profiles.application.commands.persist_relevance_assessment import (
+    PersistRelevanceAssessment,
+)
 from libs.watch_profiles.application.commands.publish_watch_profile import PublishWatchProfile
 from libs.watch_profiles.application.commands.set_watch_profile_lifecycle import SetWatchProfileLifecycle
 from libs.watch_profiles.application.queries.read_domain_definition import ReadDomainDefinition
@@ -253,7 +349,7 @@ class WorkspaceEffectsCliModule(Module):
         connection = SqliteSchemaConnectionFactory(
             Path(self._workspace),
             load_workspace_migrations(with_runtime=True),
-            minimum_version=23,
+            minimum_version=24,
         )
         adapter = SqliteWorkspaceExternalEffectsAdapter(connection.connect)
         command = SetWorkspaceExternalEffects(adapter)
@@ -422,6 +518,9 @@ class WorkerCliModule(Module):
         smtp_password: str | None = None,
         mail_sender: MailSenderPort | None = None,
         recipient_resolver: RecipientResolverPort | None = None,
+        explanation: ProcessEvidenceExplanationPort | None = None,
+        structured_generation: StructuredGenerationPort | None = None,
+        generation_budget_policy: GenerationBudgetPolicy | None = None,
     ) -> None:
         self._workspace = workspace
         self._allow_live_source = allow_live_source
@@ -443,17 +542,44 @@ class WorkerCliModule(Module):
         self._smtp_password = smtp_password
         self._mail_sender = mail_sender
         self._recipient_resolver = recipient_resolver
+        self._explanation = explanation
+        self._structured_generation = structured_generation
+        self._generation_budget_policy = generation_budget_policy
 
     def configure(self, binder: Binder) -> None:
         root = Path(self._workspace)
+        tracked_generation_requested = (
+            self._structured_generation is not None
+            or self._generation_budget_policy is not None
+        )
+        if (
+            (self._structured_generation is None)
+            != (self._generation_budget_policy is None)
+            or (self._explanation is not None and tracked_generation_requested)
+        ):
+            raise ValueError("invalid_explanation_runtime_configuration")
         crossref_requested = (
             self._allow_live_source
             and self._crossref_email is not None
             and self._crossref_rate_limit_dir is not None
         )
+        arxiv_requested = (
+            self._allow_live_source
+            and self._rate_limit_state is not None
+        )
+        pubmed_requested = (
+            self._allow_live_source
+            and self._ncbi_email is not None
+            and self._ncbi_rate_limit_state is not None
+        )
+        source_projection_requested = arxiv_requested or pubmed_requested
         minimum_version = 22 if crossref_requested else 10
         if self._allow_live_mail:
             minimum_version = max(minimum_version, 23)
+        if source_projection_requested:
+            minimum_version = max(minimum_version, 24)
+        if self._explanation is not None or tracked_generation_requested:
+            minimum_version = max(minimum_version, 24)
         connection = SqliteSchemaConnectionFactory(
             root,
             load_workspace_migrations(with_runtime=True),
@@ -471,8 +597,13 @@ class WorkerCliModule(Module):
         objects = SqliteObjectUnitOfWorkAdapter(object_connection)
         read_object = ReadObject(files, objects)
         publish_object = PublishObject(files, objects)
+        evidence_objects = KernelEvidenceObjectAdapter(
+            publish_object,
+            read_object,
+        )
 
         clock = SystemWorkflowClockAdapter()
+        jobs = SqliteWorkflowJobStoreAdapter(connection.connect)
 
         harvest = None
         if self._allow_live_source and self._rate_limit_state is not None:
@@ -508,6 +639,101 @@ class WorkerCliModule(Module):
                 ncbi_transport,
                 publish_object,
                 SqlitePubmedHarvestStoreAdapter(connection.connect),
+            )
+
+        source_catalog = None
+        if source_projection_requested:
+            identity_store = SqlitePaperIdentityStoreAdapter(connection.connect)
+            resolve_identity = ResolvePaperIdentity(
+                NormalizePaperIdentifier(),
+                identity_store,
+            )
+            record_revision = RecordPaperRevision(
+                SqliteResearchEventStoreAdapter(connection.connect)
+            )
+            abstract_evidence = PrepareAbstractEvidence(
+                PrepareEvidenceSnapshot(
+                    EvidenceSnapshotRules(),
+                    evidence_objects,
+                    SqliteEvidenceSnapshotStoreAdapter(connection.connect),
+                )
+            )
+            source_catalog = ProjectSourceCatalogUnit(
+                SqliteSourceObservationPageAdapter(connection.connect),
+                SqliteSourceCatalogProjectionStoreAdapter(connection.connect),
+                SqliteArxivObservationReplayAdapter(
+                    connection.connect,
+                    read_object,
+                ),
+                ProjectArxivObservation(
+                    resolve_identity,
+                    record_revision,
+                    abstract_evidence,
+                ),
+                SqlitePubmedObservationReplayAdapter(
+                    connection.connect,
+                    read_object,
+                ),
+                ProjectPubmedObservation(
+                    resolve_identity,
+                    record_revision,
+                    abstract_evidence,
+                ),
+                SqliteHarvestUnitContextAdapter(connection.connect),
+                jobs,
+            )
+
+        explanation = self._explanation
+        if tracked_generation_requested:
+            assert self._structured_generation is not None
+            assert self._generation_budget_policy is not None
+            evidence_reader = ReadEvidenceSnapshot(
+                EvidenceSnapshotRules(),
+                evidence_objects,
+                SqliteEvidenceSnapshotStoreAdapter(connection.connect),
+            )
+            generation = RunBudgetedGeneration(
+                self._structured_generation,
+                SqliteGenerationLedgerAdapter(
+                    connection.connect,
+                    KernelGenerationOutputAdapter(
+                        publish_object,
+                        read_object,
+                    ),
+                ),
+                clock.now,
+                self._generation_budget_policy,
+            )
+            explanation = ProcessEvidenceExplanation(
+                ExtractTrackedPaperClaims(
+                    evidence_reader,
+                    generation,
+                ),
+                AssessTrackedPaperRelevance(
+                    ReadWatchProfile(profile_store),
+                    ReadDomainDefinition(profile_store),
+                    generation,
+                ),
+                PersistRelevanceAssessment(
+                    SqliteRelevanceAssessmentStoreAdapter(
+                        connection.connect
+                    )
+                ),
+                GenerateTrackedReadingCard(
+                    evidence_reader,
+                    generation,
+                ),
+                VerifyTrackedExplanation(generation),
+                PersistVerifiedExplanation(
+                    KernelExplanationArtifactAdapter(publish_object),
+                    SqliteVerifiedExplanationStoreAdapter(
+                        connection.connect
+                    ),
+                ),
+                PublishVerifiedCurrentSummary(
+                    SqliteCurrentSummaryStoreAdapter(connection.connect)
+                ),
+                clock,
             )
 
         crossref_plan = None
@@ -701,7 +927,6 @@ class WorkerCliModule(Module):
             clock=clock.now,
         )
 
-        jobs = SqliteWorkflowJobStoreAdapter(connection.connect)
         scheduler = RunSchedulerTick(
             SqliteSchedulerInputAdapter(connection.connect),
             jobs,
@@ -717,6 +942,8 @@ class WorkerCliModule(Module):
             crossref_plan=crossref_plan,
             crossref=crossref,
             revision_notice=revision_notice,
+            source_catalog=source_catalog,
+            explanation=explanation,
         )
         cycle = RunWorkerCycle(scheduler, processor, clock)
 
@@ -729,6 +956,16 @@ class WorkerCliModule(Module):
             binder.bind(DispatchDigestPort, to=InstanceProvider(mail_dispatch))
         if pubmed is not None:
             binder.bind(RunPubmedHarvestWindowPort, to=InstanceProvider(pubmed))
+        if source_catalog is not None:
+            binder.bind(
+                ProjectSourceCatalogUnitPort,
+                to=InstanceProvider(source_catalog),
+            )
+        if explanation is not None:
+            binder.bind(
+                ProcessEvidenceExplanationPort,
+                to=InstanceProvider(explanation),
+            )
         if crossref is not None and crossref_plan is not None:
             binder.bind(
                 BuildCrossrefWindowPlanPort,

@@ -5,7 +5,19 @@ import pytest
 from injector import Injector, UnsatisfiedRequirement
 
 from apps.cli.adapters.driving.show_version import show_version
-from apps.cli.module import CliModule
+from apps.cli.module import CliModule, WorkerCliModule
+from libs.kernel.adapters.driven.bundled_workspace_migrations import (
+    load_workspace_migrations,
+)
+from libs.kernel.adapters.driven.sqlite_workspace_bootstrap_adapter import (
+    SqliteWorkspaceBootstrapAdapter,
+)
+from libs.paper_explanations.dtos.generation_budget_policy import (
+    GenerationBudgetPolicy,
+)
+from libs.research_workflow.ports.process_evidence_explanation_port import (
+    ProcessEvidenceExplanationPort,
+)
 from libs.research_workflow.ports.process_revision_notice_port import (
     ProcessRevisionNoticePort,
 )
@@ -31,14 +43,6 @@ def test_missing_binding_is_not_silently_autowired() -> None:
 def test_worker_composition_exposes_revision_notice_preflight_without_mail_sender(
     tmp_path: Path,
 ) -> None:
-    from apps.cli.module import WorkerCliModule
-    from libs.kernel.adapters.driven.bundled_workspace_migrations import (
-        load_workspace_migrations,
-    )
-    from libs.kernel.adapters.driven.sqlite_workspace_bootstrap_adapter import (
-        SqliteWorkspaceBootstrapAdapter,
-    )
-
     root = tmp_path / "runtime"
     SqliteWorkspaceBootstrapAdapter(
         root,
@@ -52,7 +56,6 @@ def test_worker_composition_exposes_revision_notice_preflight_without_mail_sende
 def test_worker_mail_override_requires_sender_and_recipient_resolver(
     tmp_path: Path,
 ) -> None:
-    from apps.cli.module import WorkerCliModule
     from libs.delivery.exceptions.mail_configuration_error import (
         MailConfigurationError,
     )
@@ -82,7 +85,6 @@ def test_worker_mail_override_requires_sender_and_recipient_resolver(
 def test_worker_mail_override_exposes_dispatch_port_without_network(
     tmp_path: Path,
 ) -> None:
-    from apps.cli.module import WorkerCliModule
     from libs.delivery.ports.dispatch_digest_port import DispatchDigestPort
 
     class Sender:
@@ -111,3 +113,91 @@ def test_worker_mail_override_exposes_dispatch_port_without_network(
     )
 
     assert injector.get(DispatchDigestPort) is not None
+
+
+def _generation_budget() -> GenerationBudgetPolicy:
+    return GenerationBudgetPolicy(
+        "2026-09",
+        "USD",
+        1_000_000,
+        10_000,
+        "a" * 64,
+    )
+
+
+class _NoCallStructuredGenerator:
+    def __call__(self, request):
+        del request
+        raise AssertionError("composition must not execute the model")
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"structured_generation": _NoCallStructuredGenerator()},
+        {"generation_budget_policy": _generation_budget()},
+    ],
+)
+def test_worker_tracked_explanation_requires_complete_runtime_pair(
+    tmp_path: Path,
+    kwargs,
+) -> None:
+    root = tmp_path / "runtime"
+    SqliteWorkspaceBootstrapAdapter(
+        root,
+        load_workspace_migrations(with_runtime=True),
+    ).initialize()
+
+    with pytest.raises(
+        ValueError,
+        match="invalid_explanation_runtime_configuration",
+    ):
+        Injector([WorkerCliModule(str(root), **kwargs)], auto_bind=False)
+
+
+def test_worker_rejects_custom_explanation_plus_tracked_runtime(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "runtime"
+    SqliteWorkspaceBootstrapAdapter(
+        root,
+        load_workspace_migrations(with_runtime=True),
+    ).initialize()
+
+    with pytest.raises(
+        ValueError,
+        match="invalid_explanation_runtime_configuration",
+    ):
+        Injector(
+            [
+                WorkerCliModule(
+                    str(root),
+                    explanation=object(),
+                    structured_generation=_NoCallStructuredGenerator(),
+                    generation_budget_policy=_generation_budget(),
+                )
+            ],
+            auto_bind=False,
+        )
+
+
+def test_worker_complete_tracked_runtime_binds_explanation_port_without_model_call(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "runtime"
+    SqliteWorkspaceBootstrapAdapter(
+        root,
+        load_workspace_migrations(with_runtime=True),
+    ).initialize()
+    injector = Injector(
+        [
+            WorkerCliModule(
+                str(root),
+                structured_generation=_NoCallStructuredGenerator(),
+                generation_budget_policy=_generation_budget(),
+            )
+        ],
+        auto_bind=False,
+    )
+
+    assert injector.get(ProcessEvidenceExplanationPort) is not None

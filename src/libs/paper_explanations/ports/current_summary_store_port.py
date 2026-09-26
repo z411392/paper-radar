@@ -4,6 +4,13 @@ from libs.paper_explanations.dtos.current_summary_pointer import CurrentSummaryP
 
 
 class CurrentSummaryStorePort(Protocol):
+    def read(
+        self,
+        work_id: str,
+        language: str,
+        explanation_profile: str,
+    ) -> CurrentSummaryPointer | None: ...
+
     def publish(
         self,
         summary_id: str,
