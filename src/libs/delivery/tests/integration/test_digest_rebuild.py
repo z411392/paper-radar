@@ -348,3 +348,45 @@ def test_rebuild_outbox_without_reason_is_rejected(tmp_path: Path) -> None:
                 rebuild_outbox_id="outbox:unexpected",
             )
         )
+
+
+def test_rebuilt_slot_rejects_stale_dispatch_snapshot_before_attempt(
+    tmp_path: Path,
+) -> None:
+    _, schema, store, first_object, second_object = _setup(tmp_path)
+    first = store.queue(
+        _request(_preview("event:correction", marker="first"), first_object)
+    )
+    stale = store.load_dispatch(first.outbox_id)
+
+    assert store.cancel_pending(first.outbox_id) == "cancelled"
+    store.queue(
+        _request(
+            _preview("event:correction", marker="second"),
+            second_object,
+            rebuild_reason="current_input_stale",
+            rebuild_outbox_id=first.outbox_id,
+        )
+    )
+
+    claim = store.claim_dispatch(
+        first.outbox_id,
+        NOW,
+        expected_rendered_object_id=stale.rendered_object_id,
+        expected_payload_sha256=stale.payload_sha256,
+        expected_idempotency_key=stale.idempotency_key,
+    )
+
+    assert claim.state == "snapshot_changed"
+    connection = schema.connect()
+    try:
+        assert connection.execute(
+            "SELECT state FROM delivery_outbox WHERE id=?",
+            (first.outbox_id,),
+        ).fetchone()[0] == "pending"
+        assert connection.execute(
+            "SELECT count(*) FROM delivery_attempts WHERE outbox_id=?",
+            (first.outbox_id,),
+        ).fetchone()[0] == 0
+    finally:
+        connection.close()
