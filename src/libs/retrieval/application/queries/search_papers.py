@@ -2,6 +2,7 @@ import math
 import re
 
 from libs.retrieval.domain.services.hybrid_rank_rules import HybridRankRules
+from libs.retrieval.dtos.active_index_artifact import ActiveIndexArtifacts
 from libs.retrieval.domain.services.search_query_rules import SearchQueryRules
 from libs.retrieval.dtos.search_hybrid import (
     SearchHybridQuery,
@@ -9,7 +10,11 @@ from libs.retrieval.dtos.search_hybrid import (
     SearchSemanticBatch,
 )
 from libs.retrieval.dtos.search_query import SearchLexicalQuery
+from libs.retrieval.exceptions.active_index_error import ActiveIndexError
 from libs.retrieval.exceptions.search_query_error import SearchQueryError
+from libs.retrieval.ports.active_index_artifact_reader_port import (
+    ActiveIndexArtifactReaderPort,
+)
 from libs.retrieval.ports.active_index_store_port import ActiveIndexStorePort
 from libs.retrieval.ports.search_lexical_index_port import SearchLexicalIndexPort
 from libs.retrieval.ports.search_query_embedding_port import SearchQueryEmbeddingPort
@@ -26,12 +31,14 @@ class SearchPapers:
         self,
         lexical: SearchLexicalIndexPort,
         active_indexes: ActiveIndexStorePort,
+        artifacts: ActiveIndexArtifactReaderPort,
         embeddings: SearchQueryEmbeddingPort,
         semantic: SearchSemanticIndexPort,
         resolver: SearchSemanticCandidateResolverPort,
     ) -> None:
         self._lexical = lexical
         self._active_indexes = active_indexes
+        self._artifacts = artifacts
         self._embeddings = embeddings
         self._semantic = semantic
         self._resolver = resolver
@@ -112,6 +119,24 @@ class SearchPapers:
                 degraded_mode="lexical_only",
             )
 
+        try:
+            artifacts = self._artifacts.read(pin)
+        except ActiveIndexError as exc:
+            raise SearchQueryError(
+                "semantic_index_artifact_invalid"
+            ) from exc
+        if (
+            not isinstance(artifacts, ActiveIndexArtifacts)
+            or artifacts.pin != pin
+            or not isinstance(artifacts.index_bytes, bytes)
+            or not artifacts.index_bytes
+            or not isinstance(artifacts.manifest_bytes, bytes)
+            or not artifacts.manifest_bytes
+            or not isinstance(artifacts.embedding_ids, tuple)
+            or len(artifacts.embedding_ids) != pin.vector_count
+        ):
+            raise SearchQueryError("semantic_index_artifact_invalid")
+
         query_vector = self._vector(
             pin,
             self._embeddings.embed(pin, value.text),
@@ -122,7 +147,7 @@ class SearchPapers:
         semantic_complete = False
         while True:
             batch = self._semantic.search(
-                pin,
+                artifacts,
                 query_vector,
                 maximum_candidates=limit,
             )

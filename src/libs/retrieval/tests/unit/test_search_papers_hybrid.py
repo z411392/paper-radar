@@ -4,6 +4,7 @@ import pytest
 
 from libs.retrieval.application.queries.search_papers import SearchPapers
 from libs.retrieval.dtos.active_index import ActiveIndexPin
+from libs.retrieval.dtos.active_index_artifact import ActiveIndexArtifacts
 from libs.retrieval.dtos.search_hybrid import (
     SearchHybridQuery,
     SearchResolvedSemanticHit,
@@ -58,6 +59,17 @@ class Active:
         return self.value
 
 
+class Artifacts:
+    def read(self, active):
+        assert active == pin()
+        return ActiveIndexArtifacts(
+            active,
+            b"index",
+            b"manifest",
+            tuple(range(1, active.vector_count + 1)),
+        )
+
+
 class Embeddings:
     def __init__(self):
         self.calls = 0
@@ -74,8 +86,8 @@ class Semantic:
         self.batches = iter(batches)
         self.limits = []
 
-    def search(self, active, query_vector, *, maximum_candidates):
-        assert active == pin()
+    def search(self, artifacts, query_vector, *, maximum_candidates):
+        assert artifacts.pin == pin()
         assert query_vector == (1.0, 0.0, 0.0, 0.0)
         self.limits.append(maximum_candidates)
         return next(self.batches)
@@ -111,6 +123,7 @@ def test_missing_active_index_degrades_explicitly_to_lexical() -> None:
     result = SearchPapers(
         Lexical(),
         Active(None),
+        NoCall(),
         NoCall(),
         NoCall(),
         NoCall(),
@@ -166,6 +179,7 @@ def test_semantic_candidates_expand_after_sqlite_current_filtering() -> None:
     result = SearchPapers(
         Lexical(),
         Active(pin()),
+        Artifacts(),
         Embeddings(),
         semantic,
         resolver,
@@ -200,6 +214,7 @@ def test_candidate_cap_marks_incomplete_instead_of_fake_complete() -> None:
     result = SearchPapers(
         Lexical(),
         Active(pin()),
+        Artifacts(),
         Embeddings(),
         semantic,
         Resolver(((resolved(1, "b", 0.9),),)),
@@ -242,6 +257,7 @@ def test_expanded_semantic_results_must_keep_previous_prefix() -> None:
     search = SearchPapers(
         Lexical(),
         Active(pin()),
+        Artifacts(),
         Embeddings(),
         semantic,
         Resolver(
