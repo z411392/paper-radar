@@ -285,3 +285,28 @@ def test_pubmed_observation_with_two_matching_batches_is_ambiguous(
         match="pubmed_observation_batch_ambiguous",
     ):
         adapter(observation_id)
+
+
+def test_disabled_binding_does_not_invalidate_saved_pubmed_observation(
+    tmp_path: Path,
+) -> None:
+    schema, body, object_id, observation_id = _setup(tmp_path)
+    connection = schema.connect()
+    try:
+        connection.execute(
+            "UPDATE source_bindings SET enabled=0 "
+            "WHERE id='binding:pubmed-replay'"
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    adapter = SqlitePubmedObservationReplayAdapter(
+        schema.connect,
+        lambda requested: body if requested == object_id else b"",
+    )
+
+    replay = adapter(observation_id)
+
+    assert replay.observation_id == observation_id
+    assert replay.record.pmid == PMID
