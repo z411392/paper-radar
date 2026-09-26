@@ -356,14 +356,14 @@ def test_old_epoch_outbox_cannot_send_after_restore_or_reenable(
     )
 
     first = dispatch(old_outbox, now=NOW)
-    assert first.state == "effects_disabled"
+    assert first.state == "reconciliation_required"
     assert sender.messages == []
 
     SetWorkspaceExternalEffects(
         SqliteWorkspaceExternalEffectsAdapter(restored.connect)
     )(True)
     second = dispatch(old_outbox, now=NOW)
-    assert second.state == "effects_disabled"
+    assert second.state == "reconciliation_required"
     assert sender.messages == []
 
     connection = restored.connect()
