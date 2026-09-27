@@ -5,6 +5,7 @@ from pathlib import Path
 from libs.research_workflow.adapters.driven.sqlite_scheduler_input_adapter import (
     SqliteSchedulerInputAdapter,
 )
+from libs.research_workflow.domain.services.plan_catchup_jobs import PlanCatchupJobs
 
 
 NOW = datetime(2026, 9, 24, 0, 0, tzinfo=timezone.utc)
@@ -247,3 +248,31 @@ def test_pending_queued_outbox_is_exposed_to_scheduler(tmp_path: Path) -> None:
     snapshot = adapter.read(NOW)
 
     assert snapshot.pending_delivery_outboxes == ("outbox:pending",)
+
+
+def test_pending_explanation_defers_due_daily_digest(tmp_path: Path) -> None:
+    path, adapter = _setup(tmp_path)
+    connection = sqlite3.connect(path)
+    connection.execute(
+        "UPDATE watch_profiles SET lifecycle='paused' WHERE id='personal'"
+    )
+    connection.execute(
+        "INSERT INTO workflow_jobs VALUES(?,?,?,?,?,'pending',?,NULL,NULL,0,0,?)",
+        (
+            "job:explain",
+            "explain_snapshot",
+            "explain:snapshot:pending",
+            '{"snapshot_id":"snapshot:pending"}',
+            "e" * 64,
+            NOW.isoformat(),
+            NOW.isoformat(),
+        ),
+    )
+    connection.commit()
+    connection.close()
+
+    snapshot = adapter.read(NOW)
+    plan = PlanCatchupJobs()(snapshot, now=NOW)
+
+    assert plan.digest_deferred is True
+    assert all(job.job_kind != "prepare_digest" for job in plan.jobs)
