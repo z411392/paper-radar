@@ -583,3 +583,145 @@ def test_two_workers_fence_one_durable_explanation_job(
         assert attempts == 1
     finally:
         connection.close()
+
+
+def test_daily_digest_waits_for_explanation_then_queues_generated_summary(
+    tmp_path: Path,
+) -> None:
+    root = _workspace(tmp_path)
+    connection = SqliteConnectionFactory(root).connect()
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        connection.execute(
+            "INSERT INTO delivery_subscriptions("
+            "id,reader_id,channel,enabled,timezone,schedule_json,max_items,"
+            "recipient_ref,policy_version,created_at"
+            ") VALUES(?,?,?,?,?,?,?,?,?,?)",
+            (
+                "subscription:daily",
+                "reader:local",
+                "email",
+                1,
+                "Asia/Taipei",
+                '{"kind":"daily","local_time":"08:00"}',
+                5,
+                "recipient:primary",
+                1,
+                NOW.isoformat(),
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    transport = FakeArxivTransport()
+    generator = FakeStructuredGenerator()
+    worker = Injector(
+        [
+            WorkerCliModule(
+                str(root),
+                allow_live_source=True,
+                rate_limit_state=str(tmp_path / "arxiv-rate-digest-ordering.json"),
+                transport=transport,
+                structured_generation=generator,
+                generation_budget_policy=GenerationBudgetPolicy(
+                    "2026-09",
+                    "USD",
+                    1_000_000,
+                    10_000,
+                    "e" * 64,
+                ),
+            )
+        ],
+        auto_bind=False,
+    ).get(RunWorkerCyclePort)
+
+    harvested = worker(
+        "worker:arxiv-digest-ordering",
+        max_new_jobs=10,
+        max_jobs=1,
+        lease_seconds=300,
+    )
+    assert harvested.scheduler.digest_deferred is True
+    assert [(job.job_kind, job.state) for job in harvested.jobs] == [
+        ("harvest_window", "succeeded"),
+    ]
+
+    connection = SqliteConnectionFactory(root).connect()
+    try:
+        assert connection.execute(
+            "SELECT state FROM workflow_jobs WHERE job_kind='explain_snapshot'"
+        ).fetchone()[0] == "pending"
+        assert connection.execute(
+            "SELECT count(*) FROM workflow_jobs WHERE job_kind='prepare_digest'"
+        ).fetchone()[0] == 0
+    finally:
+        connection.close()
+
+    explained = worker(
+        "worker:arxiv-digest-ordering",
+        max_new_jobs=10,
+        max_jobs=1,
+        lease_seconds=300,
+    )
+    assert explained.scheduler.new_jobs == 0
+    assert explained.scheduler.digest_deferred is True
+    assert [(job.job_kind, job.state) for job in explained.jobs] == [
+        ("explain_snapshot", "succeeded"),
+    ]
+
+    connection = SqliteConnectionFactory(root).connect()
+    try:
+        assert connection.execute(
+            "SELECT count(*) FROM current_summaries"
+        ).fetchone()[0] == 1
+        assert connection.execute(
+            "SELECT count(*) FROM relevance_assessments "
+            "WHERE execution_state='succeeded' AND decision='direct'"
+        ).fetchone()[0] == 1
+        assert connection.execute(
+            "SELECT count(*) FROM workflow_jobs WHERE job_kind='prepare_digest'"
+        ).fetchone()[0] == 0
+    finally:
+        connection.close()
+
+    digested = worker(
+        "worker:arxiv-digest-ordering",
+        max_new_jobs=10,
+        max_jobs=1,
+        lease_seconds=300,
+    )
+    assert digested.scheduler.new_jobs == 1
+    assert digested.scheduler.digest_deferred is False
+    assert [(job.job_kind, job.state) for job in digested.jobs] == [
+        ("prepare_digest", "succeeded"),
+    ]
+
+    connection = SqliteConnectionFactory(root).connect()
+    try:
+        digest = connection.execute(
+            "SELECT state,period_key FROM digests"
+        ).fetchone()
+        assert tuple(digest) == ("queued", "2026-09-24")
+        assert connection.execute(
+            "SELECT count(*) FROM digest_items"
+        ).fetchone()[0] == 1
+        assert connection.execute(
+            "SELECT count(*) FROM delivery_outbox"
+        ).fetchone()[0] == 1
+        assert connection.execute(
+            "SELECT count(*) FROM notification_ledger"
+        ).fetchone()[0] == 1
+        assert connection.execute(
+            "SELECT count(*) FROM delivery_attempts"
+        ).fetchone()[0] == 0
+    finally:
+        connection.close()
+
+    assert transport.calls == 1
+    assert generator.calls == [
+        "claim_extraction",
+        "relevance_assessment",
+        "abstract_reading_card",
+        "support_verification",
+    ]
