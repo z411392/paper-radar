@@ -1,14 +1,16 @@
 import hashlib
 import json
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from threading import Barrier
 
 from injector import Injector
 
 from apps.cli.module import WorkerCliModule
+from libs.delivery.dtos.delivery_dispatch import MailSendResult
 from libs.discovery.dtos.source_http_response import SourceHttpResponse
+from libs.paper_explanations.dtos.model_http_response import ModelHttpResponse
 from libs.paper_explanations.dtos.generation_budget_policy import (
     GenerationBudgetPolicy,
 )
@@ -886,3 +888,303 @@ def test_awaiting_explanation_allows_coverage_only_empty_digest_completion(
 
     assert transport.calls == 1
     assert generator.calls == 1
+
+
+
+class MvpArxivTransport:
+    def __init__(self, observed_at: datetime) -> None:
+        self.observed_at = observed_at
+        self.calls = 0
+
+    def get(self, request):
+        del request
+        self.calls += 1
+        body = (
+            "<feed xmlns='http://www.w3.org/2005/Atom' "
+            "xmlns:s='http://a9.com/-/spec/opensearch/1.1/'>"
+            "<s:totalResults>1</s:totalResults>"
+            "<s:startIndex>0</s:startIndex>"
+            "<s:itemsPerPage>1</s:itemsPerPage>"
+            "<entry>"
+            "<id>https://arxiv.org/abs/2609.00001v1</id>"
+            "<title>Synthetic arXiv study</title>"
+            "<summary>Abstract evidence from arXiv.</summary>"
+            "<author><name>Fixture Author</name></author>"
+            "<category term='stat.ML'/>"
+            "<published>2026-09-22T00:00:00Z</published>"
+            "<updated>2026-09-22T00:00:00Z</updated>"
+            "</entry></feed>"
+        ).encode()
+        return SourceHttpResponse(
+            200,
+            body,
+            (("content-type", "application/atom+xml"),),
+            self.observed_at,
+            None,
+        )
+
+
+class FakeOpenRouterHttpTransport:
+    def __init__(self) -> None:
+        self.schemas: list[str] = []
+
+    @staticmethod
+    def _canonical(value: object) -> str:
+        return json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+
+    def post(self, body: bytes) -> ModelHttpResponse:
+        request = json.loads(body.decode("utf-8"))
+        schema_name = request["response_format"]["json_schema"]["name"]
+        user = json.loads(request["messages"][1]["content"])
+        payload = user["data"]
+        input_fingerprint = user["input_fingerprint"]
+        self.schemas.append(schema_name)
+
+        if schema_name == "paper_claims":
+            content = {
+                "schema_version": "paper-claims-v1",
+                "snapshot_id": payload["snapshot_id"],
+                "input_fingerprint": input_fingerprint,
+                "claims": [
+                    {
+                        "claim_type": "result",
+                        "anchor_ids": [payload["anchors"][0]["anchor_id"]],
+                    }
+                ],
+                "not_reported_in_read_evidence": [],
+            }
+        elif schema_name == "paper_relevance":
+            content = {
+                "schema_version": "paper-relevance-v1",
+                "snapshot_id": payload["evidence"]["snapshot_id"],
+                "input_fingerprint": input_fingerprint,
+                "profile_id": payload["profile"]["profile_id"],
+                "domain_id": payload["domain"]["domain_id"],
+                "profile_revision": payload["profile"]["revision"],
+                "domain_revision": payload["domain"]["revision"],
+                "decision": "direct",
+                "recommendation_reason": "摘要內容直接符合統計學關注範圍。",
+                "anchor_ids": [payload["evidence"]["anchors"][0]["anchor_id"]],
+            }
+        elif schema_name == "reading_card":
+            content = {
+                "schema_version": "reading-card-v1",
+                "snapshot_id": payload["snapshot_id"],
+                "input_fingerprint": input_fingerprint,
+                "language": "zh-TW",
+                "faithful_translation": [
+                    {
+                        "text": "這份 arXiv 摘要提供研究證據。",
+                        "anchor_ids": [payload["anchors"][0]["anchor_id"]],
+                    }
+                ],
+                "plain_language_card": [
+                    {
+                        "claim_type": payload["claims"][0]["claim_type"],
+                        "text": "這份研究提供 arXiv 摘要證據。",
+                        "claim_ids": [payload["claims"][0]["claim_id"]],
+                    }
+                ],
+            }
+        elif schema_name == "support_verification":
+            content = {
+                "schema_version": "support-verification-v1",
+                "snapshot_id": payload["snapshot_id"],
+                "input_fingerprint": input_fingerprint,
+                "statements": [
+                    {
+                        "statement_index": item["statement_index"],
+                        "verdict": "supported",
+                        "claim_ids": item["claim_ids"],
+                    }
+                    for item in payload["statements"]
+                ],
+            }
+        else:
+            raise AssertionError("unexpected OpenRouter schema: " + schema_name)
+
+        envelope = {
+            "id": f"gen-mvp-{len(self.schemas)}",
+            "model": request["model"],
+            "provider": "Fixture Provider",
+            "choices": [
+                {
+                    "index": 0,
+                    "finish_reason": "stop",
+                    "message": {
+                        "role": "assistant",
+                        "content": self._canonical(content),
+                    },
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 10,
+                "completion_tokens": 5,
+                "total_tokens": 15,
+                "cost": 0.000001,
+            },
+        }
+        return ModelHttpResponse(
+            200,
+            self._canonical(envelope).encode("utf-8"),
+        )
+
+
+class CapturingMailSender:
+    def __init__(self) -> None:
+        self.messages = []
+
+    def send(self, message):
+        self.messages.append(message)
+        return MailSendResult("provider_accepted", "provider:mvp-fixture", None)
+
+
+class MvpRecipientResolver:
+    def resolve(self, recipient_ref):
+        assert recipient_ref == "recipient:primary"
+        return "reader@example.com"
+
+
+def test_mvp_one_arxiv_paper_becomes_one_traditional_chinese_email(
+    tmp_path: Path,
+) -> None:
+    root = _workspace(tmp_path)
+    setup_now = datetime.now(timezone.utc)
+    observed_at = setup_now - timedelta(minutes=2)
+    schedule_time = setup_now.strftime("%H:%M")
+
+    connection = SqliteConnectionFactory(root).connect()
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        connection.execute(
+            "INSERT INTO delivery_subscriptions("
+            "id,reader_id,channel,enabled,timezone,schedule_json,max_items,"
+            "recipient_ref,policy_version,created_at"
+            ") VALUES(?,?,?,?,?,?,?,?,?,?)",
+            (
+                "subscription:mvp-daily",
+                "reader:local",
+                "email",
+                1,
+                "UTC",
+                json.dumps(
+                    {"kind": "daily", "local_time": schedule_time},
+                    separators=(",", ":"),
+                ),
+                5,
+                "recipient:primary",
+                1,
+                setup_now.isoformat(),
+            ),
+        )
+        connection.execute(
+            "UPDATE workspace_metadata SET external_effects_enabled=1 "
+            "WHERE singleton=1"
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    source = MvpArxivTransport(observed_at)
+    model = FakeOpenRouterHttpTransport()
+    mail = CapturingMailSender()
+    worker = Injector(
+        [
+            WorkerCliModule(
+                str(root),
+                allow_live_source=True,
+                rate_limit_state=str(tmp_path / "arxiv-rate-mvp.json"),
+                transport=source,
+                allow_live_model=True,
+                model_api_key="sk-or-v1-fake-mvp-secret-000000",
+                model_http_transport=model,
+                generation_budget_policy=GenerationBudgetPolicy(
+                    setup_now.strftime("%Y-%m"),
+                    "USD",
+                    1_000_000,
+                    10_000,
+                    "1" * 64,
+                ),
+                allow_live_mail=True,
+                mail_sender=mail,
+                recipient_resolver=MvpRecipientResolver(),
+            )
+        ],
+        auto_bind=False,
+    ).get(RunWorkerCyclePort)
+
+    generated = worker(
+        "worker:mvp-paper-email",
+        max_new_jobs=10,
+        max_jobs=10,
+        lease_seconds=300,
+    )
+    assert [(job.job_kind, job.state) for job in generated.jobs] == [
+        ("harvest_window", "succeeded"),
+        ("explain_snapshot", "succeeded"),
+    ]
+
+    digested = worker(
+        "worker:mvp-paper-email",
+        max_new_jobs=10,
+        max_jobs=10,
+        lease_seconds=300,
+    )
+    assert [(job.job_kind, job.state) for job in digested.jobs] == [
+        ("prepare_digest", "succeeded"),
+    ]
+
+    delivered = worker(
+        "worker:mvp-paper-email",
+        max_new_jobs=10,
+        max_jobs=10,
+        lease_seconds=300,
+    )
+    assert [(job.job_kind, job.state) for job in delivered.jobs] == [
+        ("dispatch_digest", "succeeded"),
+    ]
+
+    assert source.calls == 1
+    assert model.schemas == [
+        "paper_claims",
+        "paper_relevance",
+        "reading_card",
+        "support_verification",
+    ]
+    assert len(mail.messages) == 1
+    message = mail.messages[0]
+    assert message.recipient == "reader@example.com"
+    assert "每日精選 1 篇" in message.subject
+    assert "Synthetic arXiv study" in message.text_body
+    assert "這份研究提供 arXiv 摘要證據。" in message.text_body
+
+    replay = worker(
+        "worker:mvp-paper-email",
+        max_new_jobs=10,
+        max_jobs=10,
+        lease_seconds=300,
+    )
+    assert replay.processed_jobs == 0
+    assert len(mail.messages) == 1
+
+    connection = SqliteConnectionFactory(root).connect()
+    try:
+        assert connection.execute(
+            "SELECT count(*) FROM current_summaries"
+        ).fetchone()[0] == 1
+        assert connection.execute(
+            "SELECT count(*) FROM digests"
+        ).fetchone()[0] == 1
+        assert connection.execute(
+            "SELECT state FROM delivery_outbox"
+        ).fetchone()[0] == "provider_accepted"
+        assert connection.execute(
+            "SELECT count(*) FROM delivery_attempts"
+        ).fetchone()[0] == 1
+    finally:
+        connection.close()
