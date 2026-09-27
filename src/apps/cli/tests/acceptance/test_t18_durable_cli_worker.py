@@ -169,3 +169,66 @@ def test_complete_live_model_commissioning_runs_idle_without_network(
     result = json.loads(worker.stdout)
     assert result["processed_jobs"] == 0
     assert result["jobs"] == []
+
+
+
+def _live_model_args(workspace: Path, key_file: Path) -> tuple[str, ...]:
+    return (
+        "run-worker",
+        "--workspace",
+        str(workspace),
+        "--once",
+        "--allow-live-model",
+        "--openrouter-api-key-file",
+        str(key_file),
+        "--model-period-key",
+        "2026-09",
+        "--model-currency",
+        "USD",
+        "--model-period-limit-micros",
+        "1000000",
+        "--model-reservation-micros",
+        "10000",
+        "--model-policy-fingerprint",
+        "a" * 64,
+    )
+
+
+def _runtime_workspace(tmp_path: Path, name: str) -> Path:
+    workspace = tmp_path / name
+    initialized = _run(
+        "init",
+        "--workspace",
+        str(workspace),
+        "--with-runtime",
+    )
+    assert initialized.returncode == 0
+    return workspace
+
+
+def test_live_model_rejects_group_readable_key_file(tmp_path: Path) -> None:
+    workspace = _runtime_workspace(tmp_path, "runtime-model-permissions")
+    key_file = tmp_path / "openrouter-readable.key"
+    secret = "sk-or-v1-fake-permission-secret-000000"
+    key_file.write_text(secret + "\n", encoding="utf-8")
+    key_file.chmod(0o640)
+
+    worker = _run(*_live_model_args(workspace, key_file))
+
+    assert worker.returncode == 1
+    assert json.loads(worker.stderr)["error"]["code"] == "secret_permissions_too_open"
+    assert secret not in worker.stdout + worker.stderr
+
+
+def test_live_model_invalid_credential_is_sanitized(tmp_path: Path) -> None:
+    workspace = _runtime_workspace(tmp_path, "runtime-model-invalid-key")
+    key_file = tmp_path / "openrouter-invalid.key"
+    secret = "invalid credential must never be printed"
+    key_file.write_text(secret + "\n", encoding="utf-8")
+    key_file.chmod(0o600)
+
+    worker = _run(*_live_model_args(workspace, key_file))
+
+    assert worker.returncode == 1
+    assert json.loads(worker.stderr)["error"]["code"] == "credential_invalid"
+    assert secret not in worker.stdout + worker.stderr
