@@ -86,5 +86,40 @@ def test_launchd_template_uses_same_cli_and_does_not_enable_live_source_by_defau
     assert "--ncbi-rate-limit-state" not in text
     assert "--crossref-email" not in text
     assert "--crossref-rate-limit-dir" not in text
+    assert "--allow-live-model" not in text
+    assert "--openrouter-api-key-file" not in text
+    assert "--model-period-limit-micros" not in text
     assert "__PYTHON__" in text
     assert "__WORKSPACE__" in text
+
+
+def test_model_options_require_explicit_live_model_gate(tmp_path: Path) -> None:
+    key_file = tmp_path / "openrouter.key"
+
+    worker = _run(
+        "run-worker",
+        "--workspace",
+        str(tmp_path / "runtime"),
+        "--once",
+        "--openrouter-api-key-file",
+        str(key_file),
+    )
+
+    assert worker.returncode == 2
+    assert "model options require --allow-live-model" in worker.stderr
+
+
+def test_live_model_requires_complete_budget_commissioning(tmp_path: Path) -> None:
+    worker = _run(
+        "run-worker",
+        "--workspace",
+        str(tmp_path / "runtime"),
+        "--once",
+        "--allow-live-model",
+    )
+
+    assert worker.returncode == 2
+    assert (
+        "--allow-live-model requires API key file and complete model budget policy"
+        in worker.stderr
+    )
