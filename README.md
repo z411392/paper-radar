@@ -56,4 +56,24 @@ uv run --locked python -m apps.cli profile resume --workspace "$HOME/paper-radar
 
 JSON 是匯入格式，SQLite 才是發布後權威；重新匯入種子只補缺，不能用範例覆蓋新定義。空領域清單是沒有選取領域，不表示選全部。暫停後發布不會偷偷重啟；`resume` 不寄信、不清除歷史。當前沒有 domain 新修訂、active profile 列表、rename 或明示還原舊設定的命令。
 
+
+## 每日 Email 設定
+
+不需要後台，也不需要手工改 SQLite。runtime workspace 建好後，可直接建立每日 Email subscription：
+
+```bash
+uv run --locked python -m apps.cli digest subscribe-email \
+  --workspace "$HOME/paper-radar-data" \
+  --reader-id local \
+  --recipient-ref recipient:primary \
+  --timezone UTC \
+  --local-time 08:00 \
+  --max-items 5
+```
+
+同一組設定重跑是 idempotent；修改時間、收件人 reference 或篇數時會遞增
+`policy_version`。實際 Email 地址仍只放在 worker 的本機 recipient-map 檔，不寫進
+`delivery_subscriptions`；`recipient:primary` 是兩者之間的本機 reference。
+
+
 設定檔須為普通 UTF-8 檔案，最多 1,000,000 bytes，不接受最終 symlink 或 FIFO。全部參數先解析，錯誤非零退出；成功才輸出 JSON。真正安裝 wheel 後也能在 repo 外執行，SQL 不依賴目前目錄；範例檔仍須用自己可存取的路徑指定。
