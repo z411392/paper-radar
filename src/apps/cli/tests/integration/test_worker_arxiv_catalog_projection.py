@@ -1280,6 +1280,7 @@ def _seed_live_arxiv_mvp(root: Path) -> None:
         connection.close()
 
 
+@pytest.mark.live_external
 @pytest.mark.skipif(
     os.environ.get("PAPER_RADAR_LIVE_ARXIV") != "1",
     reason="set PAPER_RADAR_LIVE_ARXIV=1 for the bounded public arXiv smoke",
