@@ -5,6 +5,9 @@ from injector import Binder, InstanceProvider, Module, singleton
 from libs.delivery.adapters.driven.json_recipient_resolver_adapter import (
     JsonRecipientResolverAdapter,
 )
+from libs.delivery.adapters.driven.sqlite_email_subscription_adapter import (
+    SqliteEmailSubscriptionAdapter,
+)
 from libs.delivery.adapters.driven.kernel_digest_artifact_adapter import KernelDigestArtifactAdapter
 from libs.delivery.adapters.driven.smtp_mail_sender_adapter import SmtpMailSenderAdapter
 from libs.delivery.adapters.driven.sqlite_delivery_store_adapter import SqliteDeliveryStoreAdapter
@@ -18,6 +21,9 @@ from libs.delivery.application.commands.dispatch_digest import DispatchDigest
 from libs.delivery.application.commands.prepare_scheduled_digest import PrepareScheduledDigest
 from libs.delivery.application.commands.queue_digest import QueueDigest
 from libs.delivery.exceptions.mail_configuration_error import MailConfigurationError
+from libs.delivery.ports.configure_email_subscription_port import (
+    ConfigureEmailSubscriptionPort,
+)
 from libs.delivery.ports.dispatch_digest_port import DispatchDigestPort
 from libs.delivery.ports.mail_sender_port import MailSenderPort
 from libs.delivery.ports.prepare_scheduled_digest_port import PrepareScheduledDigestPort
@@ -350,6 +356,26 @@ class CliModule(Module):
             binder.bind(InitializeWorkspacePort, to=InstanceProvider(command), scope=singleton)
 
 
+
+
+class DeliveryCliModule(Module):
+    """Configure local digest delivery preferences without external I/O."""
+
+    def __init__(self, workspace: str) -> None:
+        self._workspace = workspace
+
+    def configure(self, binder: Binder) -> None:
+        connection = SqliteSchemaConnectionFactory(
+            Path(self._workspace),
+            load_workspace_migrations(with_runtime=True),
+            minimum_version=7,
+        )
+        binder.bind(
+            ConfigureEmailSubscriptionPort,
+            to=InstanceProvider(
+                SqliteEmailSubscriptionAdapter(connection.connect)
+            ),
+        )
 
 
 class WorkspaceEffectsCliModule(Module):
