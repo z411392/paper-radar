@@ -125,7 +125,6 @@ def test_live_model_requires_complete_budget_commissioning(tmp_path: Path) -> No
     )
 
 
-
 def test_complete_live_model_commissioning_runs_idle_without_network(
     tmp_path: Path,
 ) -> None:
@@ -169,7 +168,6 @@ def test_complete_live_model_commissioning_runs_idle_without_network(
     result = json.loads(worker.stdout)
     assert result["processed_jobs"] == 0
     assert result["jobs"] == []
-
 
 
 def _live_model_args(workspace: Path, key_file: Path) -> tuple[str, ...]:
