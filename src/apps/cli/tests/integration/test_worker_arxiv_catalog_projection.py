@@ -10,10 +10,10 @@ from injector import Injector
 from apps.cli.module import WorkerCliModule
 from libs.delivery.dtos.delivery_dispatch import MailSendResult
 from libs.discovery.dtos.source_http_response import SourceHttpResponse
-from libs.paper_explanations.dtos.model_http_response import ModelHttpResponse
 from libs.paper_explanations.dtos.generation_budget_policy import (
     GenerationBudgetPolicy,
 )
+from libs.paper_explanations.dtos.model_http_response import ModelHttpResponse
 from libs.paper_explanations.dtos.structured_generation_result import (
     GenerationReceipt,
     StructuredGenerationResult,
@@ -888,7 +888,6 @@ def test_awaiting_explanation_allows_coverage_only_empty_digest_completion(
 
     assert transport.calls == 1
     assert generator.calls == 1
-
 
 
 class MvpArxivTransport:
