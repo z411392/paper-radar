@@ -160,8 +160,6 @@ def test_complete_live_model_commissioning_runs_idle_without_network(
         "1000000",
         "--model-reservation-micros",
         "10000",
-        "--model-policy-fingerprint",
-        "a" * 64,
     )
 
     assert worker.returncode == 0, worker.stdout + worker.stderr
