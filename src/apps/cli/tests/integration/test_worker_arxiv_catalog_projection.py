@@ -1,14 +1,23 @@
 import hashlib
 import json
+import os
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from threading import Barrier
 
+import pytest
 from injector import Injector
 
 from apps.cli.module import WorkerCliModule
 from libs.delivery.dtos.delivery_dispatch import MailSendResult
+from libs.delivery.dtos.scheduled_digest import ScheduledDigestRequest
+from libs.delivery.ports.prepare_scheduled_digest_port import (
+    PrepareScheduledDigestPort,
+)
+from libs.discovery.adapters.driven.http_client_arxiv_transport_adapter import (
+    HttpClientArxivTransportAdapter,
+)
 from libs.discovery.dtos.source_http_response import SourceHttpResponse
 from libs.paper_explanations.dtos.generation_budget_policy import (
     GenerationBudgetPolicy,
@@ -27,6 +36,10 @@ from libs.kernel.adapters.driven.sqlite_connection_factory import (
 )
 from libs.kernel.adapters.driven.sqlite_workspace_bootstrap_adapter import (
     SqliteWorkspaceBootstrapAdapter,
+)
+from libs.research_workflow.dtos.revision_notice import RevisionNoticeRequest
+from libs.research_workflow.ports.process_revision_notice_port import (
+    ProcessRevisionNoticePort,
 )
 from libs.research_workflow.ports.process_workflow_job_port import (
     ProcessWorkflowJobPort,
@@ -249,7 +262,7 @@ class FakeStructuredGenerator:
                 "language": "zh-TW",
                 "faithful_translation": [
                     {
-                        "text": "這份 arXiv 摘要提供研究證據。",
+                        "text": "繁中翻譯測試：" + payload["source_text"],
                         "anchor_ids": [payload["anchors"][0]["anchor_id"]],
                     }
                 ],
@@ -1187,3 +1200,178 @@ def test_mvp_one_arxiv_paper_becomes_one_traditional_chinese_email(
         ).fetchone()[0] == 1
     finally:
         connection.close()
+
+
+
+LIVE_ARXIV_CURSOR = datetime(2017, 6, 12, 0, 0, tzinfo=timezone.utc)
+
+
+def _seed_live_arxiv_mvp(root: Path) -> None:
+    definition = {
+        "aliases": ["Attention Is All You Need"],
+        "exclude": [],
+        "include": [],
+        "source_categories": {"arxiv": []},
+        "sources": ["arxiv"],
+    }
+    input_json = json.dumps(
+        {
+            "binding_key": "personal:1:statistics:1:arxiv",
+            "window_end": LIVE_ARXIV_CURSOR.isoformat(),
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    fingerprint = hashlib.sha256(input_json.encode("utf-8")).hexdigest()
+    connection = SqliteConnectionFactory(root).connect()
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        connection.execute(
+            "UPDATE domain_definitions SET definition_json=? "
+            "WHERE id='statistics' AND revision=1",
+            (
+                json.dumps(
+                    definition,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
+            ),
+        )
+        connection.execute(
+            "INSERT INTO workflow_jobs("
+            "id,job_kind,business_key,input_json,input_fingerprint,state,"
+            "due_at,lease_owner,lease_until,fencing_token,attempt_count,created_at"
+            ") VALUES(?,?,?,?,?,'succeeded',?,NULL,NULL,1,1,?)",
+            (
+                "job:live-arxiv-cursor",
+                "harvest_window",
+                "harvest:live-arxiv-cursor",
+                input_json,
+                fingerprint,
+                LIVE_ARXIV_CURSOR.isoformat(),
+                LIVE_ARXIV_CURSOR.isoformat(),
+            ),
+        )
+        connection.execute(
+            "INSERT INTO delivery_subscriptions("
+            "id,reader_id,channel,enabled,timezone,schedule_json,max_items,"
+            "recipient_ref,policy_version,created_at"
+            ") VALUES(?,?,?,?,?,?,?,?,?,?)",
+            (
+                "subscription:live-arxiv",
+                "reader:local",
+                "email",
+                1,
+                "UTC",
+                '{"kind":"daily","local_time":"08:00"}',
+                5,
+                "recipient:primary",
+                1,
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+        connection.execute(
+            "UPDATE workspace_metadata SET external_effects_enabled=1 "
+            "WHERE singleton=1"
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+
+@pytest.mark.skipif(
+    os.environ.get("PAPER_RADAR_LIVE_ARXIV") != "1",
+    reason="set PAPER_RADAR_LIVE_ARXIV=1 for the bounded public arXiv smoke",
+)
+def test_live_arxiv_attention_paper_reaches_fake_email(tmp_path: Path) -> None:
+    root = _workspace(tmp_path)
+    _seed_live_arxiv_mvp(root)
+    model = FakeOpenRouterHttpTransport()
+    mail = CapturingMailSender()
+    injector = Injector(
+        [
+            WorkerCliModule(
+                str(root),
+                allow_live_source=True,
+                rate_limit_state=str(tmp_path / "arxiv-rate-live-mvp.json"),
+                transport=HttpClientArxivTransportAdapter(
+                    enabled=True,
+                    timeout_seconds=30,
+                ),
+                allow_live_model=True,
+                model_api_key="sk-or-v1-fake-live-secret-000000",
+                model_http_transport=model,
+                generation_budget_policy=GenerationBudgetPolicy(
+                    datetime.now(timezone.utc).strftime("%Y-%m"),
+                    "USD",
+                    1_000_000,
+                    10_000,
+                    "2" * 64,
+                ),
+                allow_live_mail=True,
+                mail_sender=mail,
+                recipient_resolver=MvpRecipientResolver(),
+            )
+        ],
+        auto_bind=False,
+    )
+    worker = injector.get(RunWorkerCyclePort)
+
+    generated = worker(
+        "worker:mvp-live-arxiv",
+        max_new_jobs=10,
+        max_jobs=10,
+        lease_seconds=300,
+    )
+
+    assert [(job.job_kind, job.state) for job in generated.jobs] == [
+        ("harvest_window", "succeeded"),
+        ("explain_snapshot", "succeeded"),
+    ]
+    assert model.schemas == [
+        "paper_claims",
+        "paper_relevance",
+        "reading_card",
+        "support_verification",
+    ]
+
+    connection = SqliteConnectionFactory(root).connect()
+    try:
+        paper = connection.execute(
+            "SELECT e.observed_at,r.title "
+            "FROM research_events e "
+            "JOIN paper_revisions r ON r.id=e.revision_id "
+            "WHERE lower(r.title) LIKE '%attention is all you need%' "
+            "ORDER BY e.observed_at DESC LIMIT 1"
+        ).fetchone()
+        assert paper is not None
+        observed_at = datetime.fromisoformat(paper["observed_at"])
+    finally:
+        connection.close()
+
+    cutoff = datetime.now(timezone.utc)
+    assert cutoff >= observed_at
+    prepared = injector.get(PrepareScheduledDigestPort)(
+        ScheduledDigestRequest(
+            "subscription:live-arxiv",
+            "live-arxiv-smoke",
+            observed_at - timedelta(minutes=1),
+            cutoff,
+        ),
+        created_at=cutoff,
+    )
+    assert prepared.state == "queued"
+    assert prepared.item_count == 1
+    assert prepared.outbox_id is not None
+
+    delivered = injector.get(ProcessRevisionNoticePort)(
+        RevisionNoticeRequest(prepared.outbox_id)
+    )
+    assert delivered.state == "succeeded"
+    assert len(mail.messages) == 1
+    message = mail.messages[0]
+    assert message.recipient == "reader@example.com"
+    assert "Attention Is All You Need" in message.text_body
+    assert "這份研究提供 arXiv 摘要證據。" in message.text_body
