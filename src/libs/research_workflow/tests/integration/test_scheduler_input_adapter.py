@@ -276,3 +276,65 @@ def test_pending_explanation_defers_due_daily_digest(tmp_path: Path) -> None:
 
     assert plan.digest_deferred is True
     assert all(job.job_kind != "prepare_digest" for job in plan.jobs)
+
+
+def _plan_with_explanation_state(
+    tmp_path: Path,
+    state: str,
+):
+    path, adapter = _setup(tmp_path)
+    connection = sqlite3.connect(path)
+    connection.execute(
+        "UPDATE watch_profiles SET lifecycle='paused' WHERE id='personal'"
+    )
+    connection.execute(
+        "INSERT INTO workflow_jobs VALUES(?,?,?,?,?,?,?,NULL,NULL,0,0,?)",
+        (
+            "job:explain:" + state,
+            "explain_snapshot",
+            "explain:snapshot:" + state,
+            '{"snapshot_id":"snapshot:' + state + '"}',
+            "f" * 64,
+            state,
+            NOW.isoformat(),
+            NOW.isoformat(),
+        ),
+    )
+    connection.commit()
+    connection.close()
+
+    return PlanCatchupJobs()(adapter.read(NOW), now=NOW)
+
+
+def test_failed_explanation_becomes_coverage_gap_without_blocking_digest(
+    tmp_path: Path,
+) -> None:
+    plan = _plan_with_explanation_state(tmp_path, "failed")
+
+    assert plan.digest_deferred is False
+    digest = next(job for job in plan.jobs if job.job_kind == "prepare_digest")
+    payload = PlanCatchupJobs.decode(digest.input_json)
+    assert payload["coverage_gaps"] == [
+        {
+            "identity": "explain:snapshot:failed",
+            "kind": "explanation",
+            "reason": "explanation_failed",
+        }
+    ]
+
+
+def test_awaiting_explanation_becomes_coverage_gap_without_blocking_digest(
+    tmp_path: Path,
+) -> None:
+    plan = _plan_with_explanation_state(tmp_path, "awaiting_external")
+
+    assert plan.digest_deferred is False
+    digest = next(job for job in plan.jobs if job.job_kind == "prepare_digest")
+    payload = PlanCatchupJobs.decode(digest.input_json)
+    assert payload["coverage_gaps"] == [
+        {
+            "identity": "explain:snapshot:awaiting_external",
+            "kind": "explanation",
+            "reason": "explanation_awaiting_external",
+        }
+    ]
