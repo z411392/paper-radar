@@ -3,6 +3,9 @@ from unittest.mock import Mock
 import pytest
 
 from libs.paper_explanations.adapters.driven.https_openrouter_transport import HttpsOpenRouterTransport
+from libs.paper_explanations.adapters.driven.static_model_credential_adapter import (
+    StaticModelCredentialAdapter,
+)
 from libs.paper_explanations.dtos.openrouter_policy import OpenRouterPolicy
 from libs.paper_explanations.exceptions.model_gateway_error import ModelGatewayError
 
@@ -113,3 +116,48 @@ def test_json_escaped_credential_echo_is_rejected(monkeypatch):
     transport, _, _ = setup_transport(monkeypatch, content=body)
     with pytest.raises(ModelGatewayError, match='credential_echo_rejected'):
         transport.post(b'{}')
+
+
+
+def test_injected_credential_bypasses_process_environment(monkeypatch):
+    read_env = Mock(side_effect=AssertionError("must not read process environment"))
+    monkeypatch.setattr(MODULE + ".os.environ.get", read_env)
+    connection = Mock()
+    response = connection.getresponse.return_value
+    response.status = 200
+    response.getheader.return_value = None
+    response.read.return_value = b'{"ok":true}'
+    constructor = Mock(return_value=connection)
+    monkeypatch.setattr(MODULE + ".http.client.HTTPSConnection", constructor)
+    credential = Mock(return_value=SENTINEL)
+    policy = OpenRouterPolicy(768, "1", "5", enabled=True, max_response_bytes=1024)
+    transport = HttpsOpenRouterTransport(policy, credential)
+
+    result = transport.post(b"{}")
+
+    assert result.status == 200
+    credential.assert_called_once_with()
+    read_env.assert_not_called()
+    assert connection.request.call_args.kwargs["headers"]["Authorization"] == (
+        "Bearer " + SENTINEL
+    )
+
+
+def test_disabled_injected_transport_does_not_read_credential():
+    credential = Mock(side_effect=AssertionError("must not read credential"))
+    policy = OpenRouterPolicy(768, "1", "5", enabled=False)
+    transport = HttpsOpenRouterTransport(policy, credential)
+
+    with pytest.raises(ModelGatewayError, match="model_disabled"):
+        transport.post(b"{}")
+
+    credential.assert_not_called()
+
+
+def test_static_credential_validation_never_exposes_secret_in_repr():
+    credential = StaticModelCredentialAdapter(SENTINEL)
+
+    assert credential() == SENTINEL
+    assert SENTINEL not in repr(credential)
+    with pytest.raises(ModelGatewayError, match="credential_invalid"):
+        StaticModelCredentialAdapter("short")
