@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from libs.research_workflow.dtos.scheduler import (
     CoverageGap,
     DeliverySchedule,
+    ExplanationWorkflowJob,
     HarvestBindingSchedule,
     KnownWorkflowJob,
     PendingDeliveryDispatch,
@@ -143,16 +144,36 @@ class SqliteSchedulerInputAdapter:
     def _workflow_history(
         cls,
         connection: sqlite3.Connection,
-    ) -> tuple[dict[str, datetime], tuple[KnownWorkflowJob, ...], dict[str, datetime]]:
+    ) -> tuple[
+        dict[str, datetime],
+        tuple[KnownWorkflowJob, ...],
+        dict[str, datetime],
+        tuple[ExplanationWorkflowJob, ...],
+    ]:
         last_harvest: dict[str, datetime] = {}
         known: list[KnownWorkflowJob] = []
         last_digest: dict[str, datetime] = {}
+        explanations: list[ExplanationWorkflowJob] = []
         rows = connection.execute(
             "SELECT job_kind,business_key,input_json,state FROM workflow_jobs "
-            "WHERE job_kind IN ('harvest_window','prepare_digest') "
+            "WHERE job_kind IN ('harvest_window','prepare_digest','explain_snapshot') "
             "ORDER BY business_key"
         ).fetchall()
         for row in rows:
+            if row["job_kind"] == "explain_snapshot":
+                if row["state"] in {
+                    "pending",
+                    "running",
+                    "failed",
+                    "awaiting_external",
+                }:
+                    explanations.append(
+                        ExplanationWorkflowJob(
+                            row["business_key"],
+                            row["state"],
+                        )
+                    )
+                continue
             try:
                 data = cls._strict_json(row["input_json"], "corrupt_scheduler_job")
             except WorkflowJobError:
@@ -186,7 +207,7 @@ class SqliteSchedulerInputAdapter:
                 prior = last_digest.get(subscription_id)
                 if prior is None or cutoff > prior:
                     last_digest[subscription_id] = cutoff
-        return last_harvest, tuple(known), last_digest
+        return last_harvest, tuple(known), last_digest, tuple(explanations)
 
     @classmethod
     def _delivery_schedules(
@@ -309,7 +330,9 @@ class SqliteSchedulerInputAdapter:
             connection.execute("BEGIN")
             gaps: list[CoverageGap] = []
             bindings = self._active_bindings(connection, gaps)
-            last_harvest, known, last_digest = self._workflow_history(connection)
+            last_harvest, known, last_digest, explanations = self._workflow_history(
+                connection
+            )
             schedules = self._delivery_schedules(connection, last_digest, gaps)
             pending_outboxes = self._pending_delivery_outboxes(connection)
             bindings = [
@@ -333,6 +356,7 @@ class SqliteSchedulerInputAdapter:
                     sorted(gaps, key=lambda gap: (gap.kind, gap.identity, gap.reason))
                 ),
                 pending_delivery_outboxes=pending_outboxes,
+                explanation_jobs=explanations,
             )
         except WorkflowJobError:
             if connection is not None and connection.in_transaction:
