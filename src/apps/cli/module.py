@@ -120,8 +120,17 @@ from libs.kernel.ports.set_workspace_external_effects_port import (
     SetWorkspaceExternalEffectsPort,
 )
 from libs.kernel.ports.workspace_bootstrap_port import WorkspaceBootstrapPort
+from libs.paper_explanations.adapters.driven.https_openrouter_transport import (
+    HttpsOpenRouterTransport,
+)
 from libs.paper_explanations.adapters.driven.kernel_explanation_artifact_adapter import (
     KernelExplanationArtifactAdapter,
+)
+from libs.paper_explanations.adapters.driven.openrouter_structured_adapter import (
+    OpenRouterStructuredAdapter,
+)
+from libs.paper_explanations.adapters.driven.static_model_credential_adapter import (
+    StaticModelCredentialAdapter,
 )
 from libs.paper_explanations.adapters.driven.kernel_generation_output_adapter import (
     KernelGenerationOutputAdapter,
@@ -157,6 +166,10 @@ from libs.paper_explanations.application.commands.verify_tracked_explanation imp
     VerifyTrackedExplanation,
 )
 from libs.paper_explanations.dtos.generation_budget_policy import GenerationBudgetPolicy
+from libs.paper_explanations.dtos.openrouter_policy import OpenRouterPolicy
+from libs.paper_explanations.ports.model_http_transport_port import (
+    ModelHttpTransportPort,
+)
 from libs.paper_explanations.ports.structured_generation_port import (
     StructuredGenerationPort,
 )
@@ -518,6 +531,9 @@ class WorkerCliModule(Module):
         smtp_password: str | None = None,
         mail_sender: MailSenderPort | None = None,
         recipient_resolver: RecipientResolverPort | None = None,
+        allow_live_model: bool = False,
+        model_api_key: str | None = None,
+        model_http_transport: ModelHttpTransportPort | None = None,
         explanation: ProcessEvidenceExplanationPort | None = None,
         structured_generation: StructuredGenerationPort | None = None,
         generation_budget_policy: GenerationBudgetPolicy | None = None,
@@ -542,19 +558,56 @@ class WorkerCliModule(Module):
         self._smtp_password = smtp_password
         self._mail_sender = mail_sender
         self._recipient_resolver = recipient_resolver
+        self._allow_live_model = allow_live_model
+        self._model_api_key = model_api_key
+        self._model_http_transport = model_http_transport
         self._explanation = explanation
         self._structured_generation = structured_generation
         self._generation_budget_policy = generation_budget_policy
 
     def configure(self, binder: Binder) -> None:
         root = Path(self._workspace)
+        structured_generation = self._structured_generation
+        generation_budget_policy = self._generation_budget_policy
+        live_model_requested = (
+            self._allow_live_model
+            or self._model_api_key is not None
+            or self._model_http_transport is not None
+        )
+        if live_model_requested:
+            if (
+                not self._allow_live_model
+                or self._model_api_key is None
+                or generation_budget_policy is None
+                or structured_generation is not None
+                or self._explanation is not None
+            ):
+                raise ValueError("invalid_live_model_configuration")
+            credential = StaticModelCredentialAdapter(self._model_api_key)
+            openrouter_policy = OpenRouterPolicy(
+                768,
+                "1",
+                "5",
+                enabled=True,
+            )
+            model_transport = (
+                self._model_http_transport
+                or HttpsOpenRouterTransport(
+                    openrouter_policy,
+                    credential,
+                )
+            )
+            structured_generation = OpenRouterStructuredAdapter(
+                model_transport,
+                openrouter_policy,
+            )
         tracked_generation_requested = (
-            self._structured_generation is not None
-            or self._generation_budget_policy is not None
+            structured_generation is not None
+            or generation_budget_policy is not None
         )
         if (
-            (self._structured_generation is None)
-            != (self._generation_budget_policy is None)
+            (structured_generation is None)
+            != (generation_budget_policy is None)
             or (self._explanation is not None and tracked_generation_requested)
         ):
             raise ValueError("invalid_explanation_runtime_configuration")
@@ -685,15 +738,15 @@ class WorkerCliModule(Module):
 
         explanation = self._explanation
         if tracked_generation_requested:
-            assert self._structured_generation is not None
-            assert self._generation_budget_policy is not None
+            assert structured_generation is not None
+            assert generation_budget_policy is not None
             evidence_reader = ReadEvidenceSnapshot(
                 EvidenceSnapshotRules(),
                 evidence_objects,
                 SqliteEvidenceSnapshotStoreAdapter(connection.connect),
             )
             generation = RunBudgetedGeneration(
-                self._structured_generation,
+                structured_generation,
                 SqliteGenerationLedgerAdapter(
                     connection.connect,
                     KernelGenerationOutputAdapter(
@@ -702,7 +755,7 @@ class WorkerCliModule(Module):
                     ),
                 ),
                 clock.now,
-                self._generation_budget_policy,
+                generation_budget_policy,
             )
             explanation = ProcessEvidenceExplanation(
                 ExtractTrackedPaperClaims(
