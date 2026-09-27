@@ -251,6 +251,35 @@ class PlanCatchupJobs:
             )
         ]
         blocks_digest = False
+        for explanation in sorted(
+            snapshot.explanation_jobs,
+            key=lambda item: item.business_key,
+        ):
+            if explanation.state not in {
+                "pending",
+                "running",
+                "failed",
+                "awaiting_external",
+            }:
+                raise WorkflowJobError("invalid_scheduler_job_state")
+            if explanation.state in {"pending", "running"}:
+                blocks_digest = True
+            elif explanation.state == "failed":
+                gaps.append(
+                    CoverageGap(
+                        "explanation",
+                        explanation.business_key,
+                        "explanation_failed",
+                    )
+                )
+            else:
+                gaps.append(
+                    CoverageGap(
+                        "explanation",
+                        explanation.business_key,
+                        "explanation_awaiting_external",
+                    )
+                )
 
         for schedule in sorted(snapshot.harvest_bindings, key=self._binding_order):
             if schedule.source_id not in self.SUPPORTED_SOURCES:
