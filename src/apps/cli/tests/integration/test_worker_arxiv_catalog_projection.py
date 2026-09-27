@@ -16,6 +16,7 @@ from libs.paper_explanations.dtos.structured_generation_result import (
     GenerationReceipt,
     StructuredGenerationResult,
 )
+from libs.paper_explanations.exceptions.model_gateway_error import ModelGatewayError
 from libs.kernel.adapters.driven.bundled_workspace_migrations import (
     load_workspace_migrations,
 )
@@ -725,3 +726,163 @@ def test_daily_digest_waits_for_explanation_then_queues_generated_summary(
         "abstract_reading_card",
         "support_verification",
     ]
+
+
+class UnavailableStructuredGenerator:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def __call__(self, request):
+        self.calls += 1
+        raise ModelGatewayError("endpoint_unavailable")
+
+
+def test_awaiting_explanation_allows_coverage_only_empty_digest_completion(
+    tmp_path: Path,
+) -> None:
+    root = _workspace(tmp_path)
+    connection = SqliteConnectionFactory(root).connect()
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        connection.execute(
+            "INSERT INTO delivery_subscriptions("
+            "id,reader_id,channel,enabled,timezone,schedule_json,max_items,"
+            "recipient_ref,policy_version,created_at"
+            ") VALUES(?,?,?,?,?,?,?,?,?,?)",
+            (
+                "subscription:daily",
+                "reader:local",
+                "email",
+                1,
+                "Asia/Taipei",
+                '{"kind":"daily","local_time":"08:00"}',
+                5,
+                "recipient:primary",
+                1,
+                NOW.isoformat(),
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    transport = FakeArxivTransport()
+    generator = UnavailableStructuredGenerator()
+    worker = Injector(
+        [
+            WorkerCliModule(
+                str(root),
+                allow_live_source=True,
+                rate_limit_state=str(tmp_path / "arxiv-rate-digest-awaiting.json"),
+                transport=transport,
+                structured_generation=generator,
+                generation_budget_policy=GenerationBudgetPolicy(
+                    "2026-09",
+                    "USD",
+                    1_000_000,
+                    10_000,
+                    "f" * 64,
+                ),
+            )
+        ],
+        auto_bind=False,
+    ).get(RunWorkerCyclePort)
+
+    harvested = worker(
+        "worker:arxiv-digest-awaiting",
+        max_new_jobs=10,
+        max_jobs=1,
+        lease_seconds=300,
+    )
+    assert harvested.scheduler.digest_deferred is True
+    assert [(job.job_kind, job.state) for job in harvested.jobs] == [
+        ("harvest_window", "succeeded"),
+    ]
+
+    explanation = worker(
+        "worker:arxiv-digest-awaiting",
+        max_new_jobs=10,
+        max_jobs=1,
+        lease_seconds=300,
+    )
+    assert explanation.scheduler.digest_deferred is True
+    assert [(job.job_kind, job.state) for job in explanation.jobs] == [
+        ("explain_snapshot", "awaiting_external"),
+    ]
+    assert generator.calls == 1
+
+    connection = SqliteConnectionFactory(root).connect()
+    try:
+        explanation_job = connection.execute(
+            "SELECT business_key,state FROM workflow_jobs "
+            "WHERE job_kind='explain_snapshot'"
+        ).fetchone()
+        assert explanation_job["state"] == "awaiting_external"
+        explanation_key = explanation_job["business_key"]
+        assert connection.execute(
+            "SELECT count(*) FROM current_summaries"
+        ).fetchone()[0] == 0
+        assert connection.execute(
+            "SELECT count(*) FROM relevance_assessments"
+        ).fetchone()[0] == 0
+        run = connection.execute(
+            "SELECT task_kind,state,error_code FROM model_runs"
+        ).fetchone()
+        assert tuple(run) == (
+            "claim_extraction",
+            "failed",
+            "endpoint_unavailable",
+        )
+    finally:
+        connection.close()
+
+    digested = worker(
+        "worker:arxiv-digest-awaiting",
+        max_new_jobs=10,
+        max_jobs=1,
+        lease_seconds=300,
+    )
+    assert digested.scheduler.digest_deferred is False
+    assert [
+        (gap.kind, gap.identity, gap.reason)
+        for gap in digested.scheduler.coverage_gaps
+    ] == [
+        (
+            "explanation",
+            explanation_key,
+            "explanation_awaiting_external",
+        )
+    ]
+    assert [(job.job_kind, job.state) for job in digested.jobs] == [
+        ("prepare_digest", "succeeded"),
+    ]
+
+    connection = SqliteConnectionFactory(root).connect()
+    try:
+        digest_job = connection.execute(
+            "SELECT input_json FROM workflow_jobs "
+            "WHERE job_kind='prepare_digest'"
+        ).fetchone()
+        digest_input = json.loads(digest_job["input_json"])
+        assert digest_input["coverage_gaps"] == [
+            {
+                "identity": explanation_key,
+                "kind": "explanation",
+                "reason": "explanation_awaiting_external",
+            }
+        ]
+        for table in (
+            "digests",
+            "digest_items",
+            "delivery_outbox",
+            "notification_ledger",
+            "delivery_attempts",
+        ):
+            assert connection.execute(
+                f"SELECT count(*) FROM {table}"
+            ).fetchone()[0] == 0
+    finally:
+        connection.close()
+
+    assert transport.calls == 1
+    assert generator.calls == 1
