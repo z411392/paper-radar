@@ -8,7 +8,7 @@ class ConfigureEmailSubscriptionPort(Protocol):
         self,
         reader_id: str,
         recipient_ref: str,
-        timezone: str,
+        timezone_name: str,
         local_time: str,
         *,
         max_items: int = 5,
