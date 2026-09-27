@@ -8,14 +8,34 @@ from libs.paper_explanations.adapters.driven.openrouter_structured_adapter impor
 from libs.paper_explanations.dtos.model_http_response import ModelHttpResponse
 from libs.paper_explanations.dtos.openrouter_policy import OpenRouterPolicy
 from libs.paper_explanations.exceptions.model_gateway_error import ModelGatewayError
+from libs.paper_explanations.ports.model_credential_port import ModelCredentialPort
 
 
 class HttpsOpenRouterTransport:
     """Fixed endpoint, no redirect/retry/proxy support; credentials are read only on an authorized call."""
 
-    def __init__(self, policy: OpenRouterPolicy) -> None:
+    def __init__(
+        self,
+        policy: OpenRouterPolicy,
+        credential: ModelCredentialPort | None = None,
+    ) -> None:
         OpenRouterStructuredAdapter.validate_policy(policy)
         self._policy = policy
+        self._credential = credential
+
+    def _key(self) -> str:
+        if self._credential is None:
+            key = os.environ.get("OPENROUTER_API_KEY")
+        else:
+            try:
+                key = self._credential()
+            except Exception:
+                raise ModelGatewayError("credential_unavailable") from None
+        if not key:
+            raise ModelGatewayError("credential_missing")
+        if re.fullmatch(r"[A-Za-z0-9_-]{16,512}", key) is None:
+            raise ModelGatewayError("credential_invalid")
+        return key
 
     @staticmethod
     def _credential_echo(content: bytes, key: str) -> bool:
@@ -50,11 +70,7 @@ class HttpsOpenRouterTransport:
             raise ModelGatewayError('model_disabled')
         if not isinstance(body, bytes) or not 1 <= len(body) <= self._policy.max_request_bytes:
             raise ModelGatewayError('request_too_large')
-        key = os.environ.get('OPENROUTER_API_KEY')
-        if not key:
-            raise ModelGatewayError('credential_missing')
-        if re.fullmatch(r'[A-Za-z0-9_-]{16,512}', key) is None:
-            raise ModelGatewayError('credential_invalid')
+        key = self._key()
         connection = None
         try:
             connection = http.client.HTTPSConnection(
