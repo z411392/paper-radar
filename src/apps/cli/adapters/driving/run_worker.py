@@ -20,6 +20,9 @@ from libs.delivery.exceptions.mail_configuration_error import MailConfigurationE
 from libs.discovery.exceptions.source_fetch_error import SourceFetchError
 from libs.discovery.exceptions.source_query_error import SourceQueryError
 from libs.kernel.exceptions.storage_error import StorageError
+from libs.paper_explanations.dtos.generation_budget_policy import (
+    GenerationBudgetPolicy,
+)
 from libs.research_workflow.exceptions.workflow_job_error import WorkflowJobError
 from libs.research_workflow.ports.run_worker_cycle_port import RunWorkerCyclePort
 
@@ -30,6 +33,19 @@ def _bounded_integer(value: str, maximum: int, label: str) -> int:
     number = int(value)
     if not 1 <= number <= maximum:
         raise argparse.ArgumentTypeError(f"{label} must be an integer from 1 to {maximum}")
+    return number
+
+
+def _budget_micros(value: str, label: str) -> int:
+    if re.fullmatch(r"[0-9]{1,19}", value) is None:
+        raise argparse.ArgumentTypeError(
+            f"{label} must be an integer from 1 to {2**63 - 1}"
+        )
+    number = int(value)
+    if not 1 <= number < 2**63:
+        raise argparse.ArgumentTypeError(
+            f"{label} must be an integer from 1 to {2**63 - 1}"
+        )
     return number
 
 
@@ -59,6 +75,22 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--allow-live-source", action="store_true")
     parser.add_argument("--allow-live-mail", action="store_true")
+    parser.add_argument("--allow-live-model", action="store_true")
+    parser.add_argument(
+        "--openrouter-api-key-file",
+        help="Absolute owner-only file containing the OpenRouter API key; never printed.",
+    )
+    parser.add_argument("--model-period-key")
+    parser.add_argument("--model-currency")
+    parser.add_argument(
+        "--model-period-limit-micros",
+        type=lambda value: _budget_micros(value, "model period limit micros"),
+    )
+    parser.add_argument(
+        "--model-reservation-micros",
+        type=lambda value: _budget_micros(value, "model reservation micros"),
+    )
+    parser.add_argument("--model-policy-fingerprint")
     parser.add_argument(
         "--recipient-map-file",
         help="Absolute path to local recipient-ref JSON used only when mail is commissioned.",
@@ -209,6 +241,60 @@ def run_worker_cli(argv: list[str]) -> None:
                 "--crossref-rate-limit-dir must be an absolute path without NUL characters"
             )
 
+    model_values = (
+        arguments.openrouter_api_key_file,
+        arguments.model_period_key,
+        arguments.model_currency,
+        arguments.model_period_limit_micros,
+        arguments.model_reservation_micros,
+        arguments.model_policy_fingerprint,
+    )
+    if any(value is not None for value in model_values) and not arguments.allow_live_model:
+        parser.error("model options require --allow-live-model")
+
+    generation_budget_policy = None
+    if arguments.allow_live_model:
+        if any(value is None for value in model_values):
+            parser.error(
+                "--allow-live-model requires API key file and complete model budget policy"
+            )
+        assert arguments.openrouter_api_key_file is not None
+        assert arguments.model_period_key is not None
+        assert arguments.model_currency is not None
+        assert arguments.model_period_limit_micros is not None
+        assert arguments.model_reservation_micros is not None
+        assert arguments.model_policy_fingerprint is not None
+        if (
+            "\0" in arguments.openrouter_api_key_file
+            or not Path(arguments.openrouter_api_key_file).is_absolute()
+        ):
+            parser.error(
+                "--openrouter-api-key-file must be an absolute path without NUL characters"
+            )
+        if re.fullmatch(
+            r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}",
+            arguments.model_period_key,
+        ) is None:
+            parser.error("--model-period-key has an invalid format")
+        if re.fullmatch(r"[A-Z]{3}", arguments.model_currency) is None:
+            parser.error("--model-currency must be a three-letter uppercase code")
+        if arguments.model_reservation_micros > arguments.model_period_limit_micros:
+            parser.error(
+                "--model-reservation-micros must not exceed --model-period-limit-micros"
+            )
+        if re.fullmatch(
+            r"[0-9a-f]{64}",
+            arguments.model_policy_fingerprint,
+        ) is None:
+            parser.error("--model-policy-fingerprint must be 64 lowercase hex characters")
+        generation_budget_policy = GenerationBudgetPolicy(
+            arguments.model_period_key,
+            arguments.model_currency,
+            arguments.model_period_limit_micros,
+            arguments.model_reservation_micros,
+            arguments.model_policy_fingerprint,
+        )
+
     mail_values = (
         arguments.recipient_map_file,
         arguments.smtp_host,
@@ -261,6 +347,13 @@ def run_worker_cli(argv: list[str]) -> None:
             raise SystemExit(1) from None
 
     owner_id = "worker:" + uuid4().hex
+    if generation_budget_policy is not None:
+        _error(
+            "live_model_transport_not_connected",
+            "Live model policy is valid, but credential transport wiring is not commissioned yet.",
+        )
+        raise SystemExit(1)
+
     try:
         injector = Injector(
             [
