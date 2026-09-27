@@ -123,3 +123,49 @@ def test_live_model_requires_complete_budget_commissioning(tmp_path: Path) -> No
         "--allow-live-model requires API key file and complete model budget policy"
         in worker.stderr
     )
+
+
+
+def test_complete_live_model_commissioning_runs_idle_without_network(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "runtime-model"
+    initialized = _run(
+        "init",
+        "--workspace",
+        str(workspace),
+        "--with-runtime",
+    )
+    assert initialized.returncode == 0
+
+    key_file = tmp_path / "openrouter.key"
+    key_file.write_text(
+        "sk-or-v1-fake-not-a-real-secret-000000\n",
+        encoding="utf-8",
+    )
+    key_file.chmod(0o600)
+
+    worker = _run(
+        "run-worker",
+        "--workspace",
+        str(workspace),
+        "--once",
+        "--allow-live-model",
+        "--openrouter-api-key-file",
+        str(key_file),
+        "--model-period-key",
+        "2026-09",
+        "--model-currency",
+        "USD",
+        "--model-period-limit-micros",
+        "1000000",
+        "--model-reservation-micros",
+        "10000",
+        "--model-policy-fingerprint",
+        "a" * 64,
+    )
+
+    assert worker.returncode == 0, worker.stdout + worker.stderr
+    result = json.loads(worker.stdout)
+    assert result["processed_jobs"] == 0
+    assert result["jobs"] == []
