@@ -23,6 +23,7 @@ from libs.kernel.exceptions.storage_error import StorageError
 from libs.paper_explanations.dtos.generation_budget_policy import (
     GenerationBudgetPolicy,
 )
+from libs.paper_explanations.exceptions.model_gateway_error import ModelGatewayError
 from libs.research_workflow.exceptions.workflow_job_error import WorkflowJobError
 from libs.research_workflow.ports.run_worker_cycle_port import RunWorkerCyclePort
 
@@ -346,14 +347,19 @@ def run_worker_cli(argv: list[str]) -> None:
             _error("mail_configuration_io_error")
             raise SystemExit(1) from None
 
-    owner_id = "worker:" + uuid4().hex
+    model_api_key = None
     if generation_budget_policy is not None:
-        _error(
-            "live_model_transport_not_connected",
-            "Live model policy is valid, but credential transport wiring is not commissioned yet.",
-        )
-        raise SystemExit(1)
+        assert arguments.openrouter_api_key_file is not None
+        try:
+            model_api_key = read_secret_file(arguments.openrouter_api_key_file)
+        except ConfigurationFileError as exc:
+            _error(str(exc))
+            raise SystemExit(1) from None
+        except OSError:
+            _error("model_configuration_io_error")
+            raise SystemExit(1) from None
 
+    owner_id = "worker:" + uuid4().hex
     try:
         injector = Injector(
             [
@@ -373,6 +379,9 @@ def run_worker_cli(argv: list[str]) -> None:
                     smtp_sender=arguments.smtp_sender,
                     smtp_username=arguments.smtp_username,
                     smtp_password=smtp_password,
+                    allow_live_model=arguments.allow_live_model,
+                    model_api_key=model_api_key,
+                    generation_budget_policy=generation_budget_policy,
                 )
             ],
             auto_bind=False,
@@ -406,5 +415,8 @@ def run_worker_cli(argv: list[str]) -> None:
         _error(exc.code)
         raise SystemExit(1) from None
     except MailConfigurationError as exc:
+        _error(exc.code)
+        raise SystemExit(1) from None
+    except ModelGatewayError as exc:
         _error(exc.code)
         raise SystemExit(1) from None
