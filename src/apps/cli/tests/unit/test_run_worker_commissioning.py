@@ -136,3 +136,9 @@ def test_live_mail_rejects_relative_local_file_paths(capsys) -> None:
             ]
         )
     assert "--recipient-map-file must be an absolute path" in capsys.readouterr().err
+
+
+
+def test_model_policy_fingerprint_is_not_an_operator_argument() -> None:
+    with pytest.raises(SystemExit):
+        parse("--model-policy-fingerprint", "a" * 64)
