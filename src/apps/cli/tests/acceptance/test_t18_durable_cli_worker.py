@@ -185,8 +185,6 @@ def _live_model_args(workspace: Path, key_file: Path) -> tuple[str, ...]:
         "1000000",
         "--model-reservation-micros",
         "10000",
-        "--model-policy-fingerprint",
-        "a" * 64,
     )
 
 
