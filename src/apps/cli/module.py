@@ -2,6 +2,8 @@ from pathlib import Path
 
 from injector import Binder, InstanceProvider, Module, singleton
 
+from apps.cli.model_commissioning import COMMISSIONED_OPENROUTER_POLICY
+
 from libs.delivery.adapters.driven.json_recipient_resolver_adapter import (
     JsonRecipientResolverAdapter,
 )
@@ -172,7 +174,6 @@ from libs.paper_explanations.application.commands.verify_tracked_explanation imp
     VerifyTrackedExplanation,
 )
 from libs.paper_explanations.dtos.generation_budget_policy import GenerationBudgetPolicy
-from libs.paper_explanations.dtos.openrouter_policy import OpenRouterPolicy
 from libs.paper_explanations.ports.model_http_transport_port import (
     ModelHttpTransportPort,
 )
@@ -610,12 +611,7 @@ class WorkerCliModule(Module):
             ):
                 raise ValueError("invalid_live_model_configuration")
             credential = StaticModelCredentialAdapter(self._model_api_key)
-            openrouter_policy = OpenRouterPolicy(
-                768,
-                "1",
-                "5",
-                enabled=True,
-            )
+            openrouter_policy = COMMISSIONED_OPENROUTER_POLICY
             model_transport = (
                 self._model_http_transport
                 or HttpsOpenRouterTransport(
