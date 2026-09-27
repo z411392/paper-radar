@@ -1202,7 +1202,6 @@ def test_mvp_one_arxiv_paper_becomes_one_traditional_chinese_email(
         connection.close()
 
 
-
 LIVE_ARXIV_CURSOR = datetime(2017, 6, 12, 0, 0, tzinfo=timezone.utc)
 
 
