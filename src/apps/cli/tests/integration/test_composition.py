@@ -201,3 +201,55 @@ def test_worker_complete_tracked_runtime_binds_explanation_port_without_model_ca
     )
 
     assert injector.get(ProcessEvidenceExplanationPort) is not None
+
+
+
+class _NoCallModelHttpTransport:
+    def post(self, body):
+        del body
+        raise AssertionError("composition must not call OpenRouter HTTP")
+
+
+def test_worker_live_model_composition_binds_explanation_without_http_call(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "runtime"
+    SqliteWorkspaceBootstrapAdapter(
+        root,
+        load_workspace_migrations(with_runtime=True),
+    ).initialize()
+
+    injector = Injector(
+        [
+            WorkerCliModule(
+                str(root),
+                allow_live_model=True,
+                model_api_key="sk-or-v1-fake-not-a-real-secret-000000",
+                model_http_transport=_NoCallModelHttpTransport(),
+                generation_budget_policy=_generation_budget(),
+            )
+        ],
+        auto_bind=False,
+    )
+
+    assert injector.get(ProcessEvidenceExplanationPort) is not None
+
+
+def test_worker_live_model_requires_key_and_budget_pair(tmp_path: Path) -> None:
+    root = tmp_path / "runtime"
+    SqliteWorkspaceBootstrapAdapter(
+        root,
+        load_workspace_migrations(with_runtime=True),
+    ).initialize()
+
+    with pytest.raises(ValueError, match="invalid_live_model_configuration"):
+        Injector(
+            [
+                WorkerCliModule(
+                    str(root),
+                    allow_live_model=True,
+                    generation_budget_policy=_generation_budget(),
+                )
+            ],
+            auto_bind=False,
+        )
