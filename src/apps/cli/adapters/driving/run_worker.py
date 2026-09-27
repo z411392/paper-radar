@@ -15,6 +15,9 @@ from injector import Injector
 from apps.cli.exceptions.configuration_file_error import ConfigurationFileError
 from apps.cli.helpers.read_configuration_file import read_configuration_file
 from apps.cli.helpers.read_secret_file import read_secret_file
+from apps.cli.model_commissioning import (
+    commissioned_openrouter_execution_policy_fingerprint,
+)
 from apps.cli.module import WorkerCliModule
 from libs.delivery.exceptions.mail_configuration_error import MailConfigurationError
 from libs.discovery.exceptions.source_fetch_error import SourceFetchError
@@ -91,7 +94,6 @@ def _parser() -> argparse.ArgumentParser:
         "--model-reservation-micros",
         type=lambda value: _budget_micros(value, "model reservation micros"),
     )
-    parser.add_argument("--model-policy-fingerprint")
     parser.add_argument(
         "--recipient-map-file",
         help="Absolute path to local recipient-ref JSON used only when mail is commissioned.",
@@ -248,7 +250,6 @@ def run_worker_cli(argv: list[str]) -> None:
         arguments.model_currency,
         arguments.model_period_limit_micros,
         arguments.model_reservation_micros,
-        arguments.model_policy_fingerprint,
     )
     if any(value is not None for value in model_values) and not arguments.allow_live_model:
         parser.error("model options require --allow-live-model")
@@ -264,7 +265,6 @@ def run_worker_cli(argv: list[str]) -> None:
         assert arguments.model_currency is not None
         assert arguments.model_period_limit_micros is not None
         assert arguments.model_reservation_micros is not None
-        assert arguments.model_policy_fingerprint is not None
         if (
             "\0" in arguments.openrouter_api_key_file
             or not Path(arguments.openrouter_api_key_file).is_absolute()
@@ -283,17 +283,12 @@ def run_worker_cli(argv: list[str]) -> None:
             parser.error(
                 "--model-reservation-micros must not exceed --model-period-limit-micros"
             )
-        if re.fullmatch(
-            r"[0-9a-f]{64}",
-            arguments.model_policy_fingerprint,
-        ) is None:
-            parser.error("--model-policy-fingerprint must be 64 lowercase hex characters")
         generation_budget_policy = GenerationBudgetPolicy(
             arguments.model_period_key,
             arguments.model_currency,
             arguments.model_period_limit_micros,
             arguments.model_reservation_micros,
-            arguments.model_policy_fingerprint,
+            commissioned_openrouter_execution_policy_fingerprint(),
         )
 
     mail_values = (
