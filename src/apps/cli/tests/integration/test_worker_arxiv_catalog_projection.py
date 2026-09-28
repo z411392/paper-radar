@@ -1171,7 +1171,7 @@ class FakeOpenRouterHttpTransport:
                 "language": "zh-TW",
                 "faithful_translation": [
                     {
-                        "text": "這份 arXiv 摘要提供研究證據。",
+                        "text": "繁中翻譯測試：" + payload["source_text"],
                         "anchor_ids": [payload["anchors"][0]["anchor_id"]],
                     }
                 ],
