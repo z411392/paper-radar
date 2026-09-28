@@ -55,6 +55,9 @@ from libs.research_workflow.ports.process_workflow_job_port import (
 )
 from libs.research_workflow.ports.run_worker_cycle_port import RunWorkerCyclePort
 from libs.research_workflow.ports.workflow_job_store_port import WorkflowJobStorePort
+from libs.watch_profiles.adapters.driven.sqlite_watch_profile_store_adapter import (
+    SqliteWatchProfileStoreAdapter,
+)
 
 
 NOW = datetime(2026, 9, 24, 0, 0, tzinfo=timezone.utc)
@@ -1659,6 +1662,12 @@ def test_live_mvp_seed_uses_semantic_machine_learning_domain(
     assert decoded["name"] == "機器學習"
     assert decoded["sources"] == ["arxiv", "crossref"]
     assert decoded["source_categories"]["arxiv"] == ["cs.LG", "stat.ML"]
+
+    domain = SqliteWatchProfileStoreAdapter(
+        SqliteConnectionFactory(root).connect
+    ).read_domain("machine_learning", 1)
+    assert domain.domain_id == "machine_learning"
+    assert domain.name == "機器學習"
 
 
 class MutableWorkflowClock:
