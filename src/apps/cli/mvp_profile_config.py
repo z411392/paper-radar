@@ -5,6 +5,16 @@ from importlib.resources import files
 from apps.cli.exceptions.configuration_file_error import ConfigurationFileError
 
 
+MVP_ARXIV_DOMAINS = frozenset(
+    {
+        "software_engineering",
+        "deep_learning",
+        "machine_learning",
+        "statistics",
+    }
+)
+
+
 def bundled_domain_seeds_json() -> str:
     try:
         return (
@@ -35,6 +45,7 @@ def mvp_profile_json(domains_csv: str, scope_text: str) -> str:
         or len(domains) != len(set(domains))
         or any(
             re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", value) is None
+            or value not in MVP_ARXIV_DOMAINS
             for value in domains
         )
     ):
