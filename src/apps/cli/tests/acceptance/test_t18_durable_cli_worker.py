@@ -497,3 +497,63 @@ def test_worker_env_live_mail_fails_fast_when_effects_disabled(
         ).fetchone()[0]
 
     assert subscriptions == 0
+
+
+
+def test_worker_env_restores_historical_profile_revision(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "runtime-profile-restore"
+    initialized = _run(
+        "init",
+        "--workspace",
+        str(workspace),
+        "--with-runtime",
+    )
+    assert initialized.returncode == 0
+
+    env_file = tmp_path / "profile.env"
+
+    def run_scope(scope: str) -> subprocess.CompletedProcess[str]:
+        env_file.write_text(
+            "\n".join(
+                (
+                    f"PAPER_RADAR_WORKSPACE={workspace}",
+                    "PAPER_RADAR_PROFILE_DOMAINS=machine_learning",
+                    f"PAPER_RADAR_PROFILE_SCOPE={scope}",
+                )
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        env_file.chmod(0o600)
+        return _run(
+            "run-worker",
+            "--env-file",
+            str(env_file),
+            "--once",
+        )
+
+    first = run_scope("關注機器學習。")
+    second = run_scope("關注機器學習與表示學習。")
+    restored = run_scope("關注機器學習。")
+
+    assert first.returncode == second.returncode == restored.returncode == 0
+
+    import sqlite3
+
+    with sqlite3.connect(workspace / "state/app.sqlite3") as connection:
+        profile = connection.execute(
+            "SELECT published_revision FROM watch_profiles "
+            "WHERE id='personal'"
+        ).fetchone()
+        revisions = connection.execute(
+            "SELECT revision,scope_text FROM watch_profile_revisions "
+            "WHERE profile_id='personal' ORDER BY revision"
+        ).fetchall()
+
+    assert profile == (1,)
+    assert revisions == [
+        (1, "關注機器學習。"),
+        (2, "關注機器學習與表示學習。"),
+    ]
