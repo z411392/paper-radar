@@ -165,3 +165,37 @@ def test_worker_env_rejects_example_secrets_before_workspace_access(
 
     assert not workspace.exists()
     assert "example_secret_not_replaced" in capsys.readouterr().err
+
+
+def test_worker_env_rejects_monthly_budget_below_commissioned_reservation(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    workspace = tmp_path / "must-not-be-created-for-budget"
+    path = _write(
+        tmp_path / "worker.env",
+        "\n".join(
+            (
+                f"PAPER_RADAR_WORKSPACE={workspace}",
+                "PAPER_RADAR_ALLOW_LIVE_MODEL=true",
+                "PAPER_RADAR_OPENROUTER_API_KEY=sk-or-v1-fake-budget-key-000000",
+                "PAPER_RADAR_MODEL_MONTHLY_BUDGET_USD=0.10",
+            )
+        )
+        + "\n",
+    )
+
+    with pytest.raises(SystemExit):
+        run_worker_cli(
+            [
+                "run-worker",
+                "--env-file",
+                str(path),
+                "--once",
+            ]
+        )
+
+    assert not workspace.exists()
+    assert "below the commissioned single-request reservation" in (
+        capsys.readouterr().err
+    )
