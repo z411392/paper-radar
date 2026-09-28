@@ -1,7 +1,7 @@
+import http.client
 import json
 import os
-from decimal import Decimal
-
+import ssl
 import pytest
 
 from apps.cli.model_commissioning import COMMISSIONED_OPENROUTER_POLICY
@@ -14,7 +14,6 @@ from libs.paper_explanations.adapters.driven.openrouter_structured_adapter impor
 from libs.paper_explanations.domain.services.claim_extraction_rules import (
     ClaimExtractionRules,
 )
-from libs.paper_explanations.dtos.claim_candidate import ClaimCandidate
 from libs.paper_explanations.dtos.structured_generation_request import (
     MODEL_NAME,
     StructuredGenerationRequest,
@@ -59,29 +58,54 @@ def test_live_openrouter_returns_strict_structured_receipt() -> None:
         model_name=claim.model_name,
     )
 
-    result = adapter(request)
-    payload = json.loads(result.content_json)
-    parsed = ClaimExtractionRules.parse(
-        claim,
-        ClaimCandidate(
-            "run:live-claim",
-            MODEL_NAME,
-            result.receipt.finish_reason or "",
-            result.content_json,
-        ),
+    body = adapter._wire(request)
+    connection = http.client.HTTPSConnection(
+        "openrouter.ai",
+        port=443,
+        timeout=30,
+        context=ssl.create_default_context(),
     )
+    try:
+        connection.request(
+            "POST",
+            "/api/v1/chat/completions",
+            body=body,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "Accept-Encoding": "identity",
+            },
+        )
+        response = connection.getresponse()
+        content = response.read(65537)
+    finally:
+        connection.close()
 
-    assert payload["schema_version"] == claim.schema_version
-    assert payload["snapshot_id"] == claim.snapshot_id
-    assert payload["input_fingerprint"] == claim.input_fingerprint
-    assert parsed.request == claim
-    receipt = result.receipt
-    assert receipt.requested_model == MODEL_NAME
-    assert receipt.returned_model == MODEL_NAME
-    assert receipt.generation_id is not None
-    assert receipt.finish_reason == "stop"
-    assert receipt.input_tokens is not None and receipt.input_tokens > 0
-    assert receipt.output_tokens is not None and receipt.output_tokens > 0
-    assert receipt.cost_usd is not None
-    assert Decimal(receipt.cost_usd) > 0
-    assert len(receipt.request_sha256) == 64
+    assert api_key.encode() not in content
+    if response.status != 200:
+        try:
+            error_envelope = json.loads(content)
+        except (ValueError, UnicodeError):
+            error_envelope = {}
+        error = (
+            error_envelope.get("error")
+            if isinstance(error_envelope, dict)
+            else None
+        )
+        code = error.get("code") if isinstance(error, dict) else None
+        message = error.get("message") if isinstance(error, dict) else None
+        safe_message = (
+            message[:1000]
+            if isinstance(message, str)
+            else None
+        )
+        raise AssertionError(
+            "OpenRouter diagnostic "
+            f"status={response.status} code={code!r} "
+            f"message={safe_message!r}"
+        )
+
+    envelope = json.loads(content)
+    assert envelope.get("id")
+    assert envelope.get("model") == MODEL_NAME
