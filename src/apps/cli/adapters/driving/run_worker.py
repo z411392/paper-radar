@@ -289,6 +289,8 @@ def run_worker_cli(argv: list[str]) -> None:
     env_digest_max_items = None
     env_profile_domains = None
     env_profile_scope = None
+    env_profile_document = None
+    env_profile_domain_count = 1
     if arguments.env_file is not None:
         runtime_options = {
             "--workspace",
@@ -453,6 +455,20 @@ def run_worker_cli(argv: list[str]) -> None:
     ):
         _error("incomplete_profile_config")
         raise SystemExit(1) from None
+    if profile_config_present:
+        assert env_profile_domains is not None
+        assert env_profile_scope is not None
+        try:
+            env_profile_document = mvp_profile_json(
+                env_profile_domains,
+                env_profile_scope,
+            )
+            env_profile_domain_count = len(
+                json.loads(env_profile_document)["domains"]
+            )
+        except ConfigurationFileError as exc:
+            _error(exc.code)
+            raise SystemExit(1) from None
     if (
         arguments.env_file is not None
         and arguments.allow_live_source
@@ -583,11 +599,13 @@ def run_worker_cli(argv: list[str]) -> None:
         if arguments.env_file is not None:
             if (
                 arguments.model_period_limit_micros
-                < commissioned_verified_summary_reservation_micros()
+                < commissioned_verified_summary_reservation_micros(
+                    env_profile_domain_count
+                )
             ):
                 parser.error(
                     "PAPER_RADAR_MODEL_MONTHLY_BUDGET_USD cannot cover one "
-                    "commissioned verified-summary workflow"
+                    f"paper across {env_profile_domain_count} selected domains"
                 )
         elif arguments.model_reservation_micros > arguments.model_period_limit_micros:
             parser.error(
@@ -748,11 +766,9 @@ def run_worker_cli(argv: list[str]) -> None:
                     if exc.code != "profile_missing":
                         raise
                     expected_revision = None
+                assert env_profile_document is not None
                 published = configuration.get(PublishWatchProfilePort)(
-                    mvp_profile_json(
-                        env_profile_domains,
-                        env_profile_scope,
-                    ),
+                    env_profile_document,
                     expected_revision=expected_revision,
                 )
                 if published.revision != published.current_revision:
