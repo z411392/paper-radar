@@ -5,6 +5,8 @@ from dataclasses import asdict
 
 from injector import Injector
 
+from apps.cli.exceptions.configuration_file_error import ConfigurationFileError
+from apps.cli.helpers.read_worker_env_file import read_worker_env_file
 from apps.cli.module import WorkspaceEffectsCliModule
 from libs.kernel.exceptions.storage_error import StorageError
 from libs.kernel.ports.set_workspace_external_effects_port import (
@@ -20,13 +22,50 @@ def run_workspace_effects_cli(argv: list[str]) -> None:
     commands = parser.add_subparsers(dest="operation", required=True)
     for operation in ("enable", "disable"):
         command = commands.add_parser(operation, allow_abbrev=False)
-        command.add_argument("--workspace", required=True)
+        source = command.add_mutually_exclusive_group(required=True)
+        source.add_argument("--workspace")
+        source.add_argument(
+            "--env-file",
+            help=(
+                "Owner-only worker .env file; effects uses only "
+                "PAPER_RADAR_WORKSPACE from it."
+            ),
+        )
     arguments = parser.parse_args(argv[1:])
-    if not arguments.workspace.strip() or "\0" in arguments.workspace:
+
+    workspace = arguments.workspace
+    if arguments.env_file is not None:
+        try:
+            values = read_worker_env_file(arguments.env_file)
+            workspace = values.get("PAPER_RADAR_WORKSPACE")
+        except ConfigurationFileError as exc:
+            print(
+                json.dumps(
+                    {"error": {"code": exc.code}},
+                    ensure_ascii=False,
+                ),
+                file=sys.stderr,
+            )
+            raise SystemExit(1) from None
+        except OSError:
+            print(
+                json.dumps(
+                    {"error": {"code": "env_configuration_io_error"}},
+                    ensure_ascii=False,
+                ),
+                file=sys.stderr,
+            )
+            raise SystemExit(1) from None
+
+    if (
+        not isinstance(workspace, str)
+        or not workspace.strip()
+        or "\0" in workspace
+    ):
         parser.error("workspace must be a non-empty path")
     try:
         injector = Injector(
-            [WorkspaceEffectsCliModule(arguments.workspace)],
+            [WorkspaceEffectsCliModule(workspace)],
             auto_bind=False,
         )
         result = injector.get(SetWorkspaceExternalEffectsPort)(
