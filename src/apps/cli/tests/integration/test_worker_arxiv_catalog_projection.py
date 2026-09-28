@@ -1316,12 +1316,9 @@ def test_mvp_one_arxiv_paper_becomes_one_traditional_chinese_email(
         max_jobs=10,
         lease_seconds=300,
     )
-    assert [
-        (job.job_kind, job.state, job.error_code)
-        for job in generated.jobs
-    ] == [
-        ("harvest_window", "succeeded", None),
-        ("explain_snapshot", "succeeded", None),
+    assert [(job.job_kind, job.state) for job in generated.jobs] == [
+        ("harvest_window", "succeeded"),
+        ("explain_snapshot", "succeeded"),
     ]
 
     digested = worker(
@@ -1511,9 +1508,12 @@ def test_live_arxiv_attention_paper_reaches_fake_email(tmp_path: Path) -> None:
         lease_seconds=300,
     )
 
-    assert [(job.job_kind, job.state) for job in generated.jobs] == [
-        ("harvest_window", "succeeded"),
-        ("explain_snapshot", "succeeded"),
+    assert [
+        (job.job_kind, job.state, job.error_code)
+        for job in generated.jobs
+    ] == [
+        ("harvest_window", "succeeded", None),
+        ("explain_snapshot", "succeeded", None),
     ]
     assert model.schemas == [
         "paper_claims",
