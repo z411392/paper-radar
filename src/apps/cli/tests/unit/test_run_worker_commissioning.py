@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 
 import pytest
 
+import apps.cli.model_commissioning as commissioning
 from apps.cli.adapters.driving.run_worker import _parser, run_worker_cli
 from apps.cli.model_commissioning import (
     commissioned_openrouter_budget_period,
@@ -253,6 +254,22 @@ def test_model_budget_usd_converts_exactly(
 def test_model_budget_usd_rejects_ambiguous_values(value: str) -> None:
     with pytest.raises(ValueError, match="invalid_model_budget_usd"):
         model_budget_usd_to_micros(value)
+
+
+def test_execution_policy_fingerprint_versions_provider_schema(
+    monkeypatch,
+) -> None:
+    current = commissioning.commissioned_openrouter_execution_policy_fingerprint()
+    monkeypatch.setattr(
+        commissioning,
+        "PROVIDER_SCHEMA_PROFILE",
+        "gemini-structured-subset-v2",
+    )
+
+    assert (
+        commissioning.commissioned_openrouter_execution_policy_fingerprint()
+        != current
+    )
 
 
 def test_commissioned_openrouter_reservation_matches_policy_bounds() -> None:
