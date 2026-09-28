@@ -111,6 +111,20 @@ SMTP 明確回覆 4xx transient rejection 時，Paper Radar 會保留同一 outb
 則維持 terminal failed。timeout、socket 中斷或其他無法確定 provider 是否已接受郵件的情況仍標成
 `unknown`，不自動重寄，以避免重複郵件。
 
+### GitHub Actions live OpenRouter smoke
+
+若要驗證真實模型 provider，在 repository Actions secrets 建立：
+
+- `PAPER_RADAR_OPENROUTER_API_KEY`
+
+之後在 Actions 選 `Live OpenRouter smoke`，選擇要測的 branch 並按 `Run workflow`。
+workflow 只有手動 `workflow_dispatch`，不會在 push/PR 自動產生付費模型請求；
+每次 run 只執行一個 bounded structured-generation request。
+
+live smoke 使用 production HTTPS transport、固定 `google/gemini-3.8-flash` 與 commissioned
+provider policy，並驗證 strict JSON 回應、returned model、finish reason、token usage 與非零
+cost receipt。API key 只由 GitHub secret 注入，不寫入 repo 或 log。
+
 
 ## MVP worker：一份 .env 啟動
 
