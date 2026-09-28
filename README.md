@@ -104,10 +104,15 @@ workflow clock 與一筆已 catch-up 的 harvest history marker；production 預
 
 - `PAPER_RADAR_OPENROUTER_API_KEY`
 
-每次手動 run 最多為單一 `statistics` domain 執行 4 次 real model-backed stage
-（claims、relevance、reading card、support verification），使用 $2 的本次 test budget
-admission，最後只寄一封 digest smoke。這是會產生實際 OpenRouter 費用與真實 email 的
-live_external 驗證；未手動執行前不代表 full-live PASS。
+每次手動 run 先做 1 次 bounded OpenRouter structured-generation smoke；只有這個
+provider boundary PASS 才繼續完整 MVP job。完整路徑使用 canonical `machine_learning`
+domain，再執行 4 次 real model-backed stage（claims、relevance、reading card、support
+verification），最後只寄一封 digest smoke。因此一次成功的手動 run 最多 5 次 real
+OpenRouter request；第一個 provider smoke 失敗時不會繼續燒後續 4 次或寄信。
+
+full-live stage 使用 $2 的 test budget admission。這是會產生實際 OpenRouter 費用與真實
+email 的 `live_external` 驗證；只需要執行一次 `Live MVP paper email smoke`，不需要先
+另外跑 `Live OpenRouter smoke`。未手動執行前不代表 full-live PASS。
 
 ### GitHub Actions live SMTP smoke
 
