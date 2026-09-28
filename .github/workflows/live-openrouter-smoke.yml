@@ -1,0 +1,46 @@
+name: Live OpenRouter smoke
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-openrouter-smoke-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  openrouter-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      UV_PYTHON: "3.13.5"
+      PAPER_RADAR_LIVE_OPENROUTER: "1"
+      PAPER_RADAR_OPENROUTER_API_KEY: ${{ secrets.PAPER_RADAR_OPENROUTER_API_KEY }}
+    steps:
+      - name: Check required repository secret
+        shell: bash
+        run: |
+          if [[ -z "${PAPER_RADAR_OPENROUTER_API_KEY:-}" ]]; then
+            echo "::error::Missing repository secret: PAPER_RADAR_OPENROUTER_API_KEY"
+            exit 1
+          fi
+
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: 0.10.0
+          enable-cache: false
+
+      - name: Install the locked development environment
+        run: uv sync --locked
+
+      - name: Run one live OpenRouter structured generation
+        run: >-
+          uv run --locked pytest -q
+          src/libs/paper_explanations/tests/integration/test_live_openrouter.py
+          -m live_external
