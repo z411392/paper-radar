@@ -335,3 +335,63 @@ def test_worker_env_file_commissions_single_user_runtime(
         "recipient:primary",
         1,
     )
+
+
+
+def test_worker_env_file_bootstraps_mvp_profile_without_profile_cli(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "runtime-profile-env"
+    initialized = _run(
+        "init",
+        "--workspace",
+        str(workspace),
+        "--with-runtime",
+    )
+    assert initialized.returncode == 0
+
+    env_file = tmp_path / "profile.env"
+    env_file.write_text(
+        "\n".join(
+            (
+                f"PAPER_RADAR_WORKSPACE={workspace}",
+                "PAPER_RADAR_PROFILE_DOMAINS=machine_learning,statistics",
+                "PAPER_RADAR_PROFILE_SCOPE=關注機器學習與統計方法的新 arXiv 論文。",
+            )
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    env_file.chmod(0o600)
+
+    worker = _run(
+        "run-worker",
+        "--env-file",
+        str(env_file),
+        "--once",
+    )
+
+    assert worker.returncode == 0, worker.stdout + worker.stderr
+
+    import sqlite3
+
+    with sqlite3.connect(workspace / "state/app.sqlite3") as connection:
+        profile = connection.execute(
+            "SELECT reader_id,name,lifecycle,published_revision "
+            "FROM watch_profiles WHERE id='personal'"
+        ).fetchone()
+        domains = connection.execute(
+            "SELECT domain_id,domain_revision FROM watch_profile_domains "
+            "WHERE profile_id='personal' AND revision=1 ORDER BY domain_id"
+        ).fetchall()
+        filters = connection.execute(
+            "SELECT filters_json FROM watch_profile_revisions "
+            "WHERE profile_id='personal' AND revision=1"
+        ).fetchone()
+
+    assert profile == ("local", "我的 arXiv 論文雷達", "active", 1)
+    assert domains == [
+        ("machine_learning", 1),
+        ("statistics", 1),
+    ]
+    assert json.loads(filters[0])["sources"] == ["arxiv"]
