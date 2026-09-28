@@ -286,7 +286,6 @@ def test_concurrent_same_identity_reservation_creates_one_live_attempt(tmp_path:
     assert len(rows(db, "model_runs")) == len(rows(db, "usage_reservations")) == 1
 
 
-
 def test_cached_object_is_bound_to_full_generation_identity(tmp_path: Path) -> None:
     _, objects, connect, ledger = setup(tmp_path)
     first_identity = GenerationExecutionRules.identity(request(), policy())
