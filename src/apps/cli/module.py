@@ -316,6 +316,9 @@ from libs.watch_profiles.application.commands.persist_relevance_assessment impor
     PersistRelevanceAssessment,
 )
 from libs.watch_profiles.application.commands.publish_watch_profile import PublishWatchProfile
+from libs.watch_profiles.application.commands.select_watch_profile_revision import (
+    SelectWatchProfileRevision,
+)
 from libs.watch_profiles.application.commands.set_watch_profile_lifecycle import SetWatchProfileLifecycle
 from libs.watch_profiles.application.queries.read_domain_definition import ReadDomainDefinition
 from libs.watch_profiles.application.queries.read_watch_profile import ReadWatchProfile
@@ -324,6 +327,9 @@ from libs.watch_profiles.ports.import_domain_seeds_port import ImportDomainSeeds
 from libs.watch_profiles.ports.publish_watch_profile_port import PublishWatchProfilePort
 from libs.watch_profiles.ports.read_domain_definition_port import ReadDomainDefinitionPort
 from libs.watch_profiles.ports.read_watch_profile_port import ReadWatchProfilePort
+from libs.watch_profiles.ports.select_watch_profile_revision_port import (
+    SelectWatchProfileRevisionPort,
+)
 from libs.watch_profiles.ports.set_watch_profile_lifecycle_port import SetWatchProfileLifecyclePort
 
 
@@ -397,6 +403,10 @@ class RuntimeConfigurationCliModule(Module):
         binder.bind(
             ReadWatchProfilePort,
             to=InstanceProvider(ReadWatchProfile(store)),
+        )
+        binder.bind(
+            SelectWatchProfileRevisionPort,
+            to=InstanceProvider(SelectWatchProfileRevision(store)),
         )
         binder.bind(
             ConfigureEmailSubscriptionPort,
