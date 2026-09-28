@@ -127,3 +127,42 @@ def test_live_source_env_requires_profile_config(
         )
 
     assert "requires profile domains and scope" in capsys.readouterr().err
+
+
+
+@pytest.mark.parametrize(
+    "secret_line",
+    [
+        "PAPER_RADAR_OPENROUTER_API_KEY=replace-with-openrouter-api-key",
+        "PAPER_RADAR_SMTP_PASSWORD=replace-with-smtp-password",
+    ],
+)
+def test_worker_env_rejects_example_secrets_before_workspace_access(
+    tmp_path: Path,
+    capsys,
+    secret_line: str,
+) -> None:
+    workspace = tmp_path / "must-not-be-created"
+    path = _write(
+        tmp_path / "worker.env",
+        "\n".join(
+            (
+                f"PAPER_RADAR_WORKSPACE={workspace}",
+                secret_line,
+            )
+        )
+        + "\n",
+    )
+
+    with pytest.raises(SystemExit):
+        run_worker_cli(
+            [
+                "run-worker",
+                "--env-file",
+                str(path),
+                "--once",
+            ]
+        )
+
+    assert not workspace.exists()
+    assert "example_secret_not_replaced" in capsys.readouterr().err
