@@ -167,7 +167,7 @@ def test_worker_env_rejects_example_secrets_before_workspace_access(
     assert "example_secret_not_replaced" in capsys.readouterr().err
 
 
-def test_worker_env_rejects_monthly_budget_below_commissioned_reservation(
+def test_worker_env_rejects_budget_that_cannot_complete_one_verified_summary(
     tmp_path: Path,
     capsys,
 ) -> None:
@@ -179,7 +179,7 @@ def test_worker_env_rejects_monthly_budget_below_commissioned_reservation(
                 f"PAPER_RADAR_WORKSPACE={workspace}",
                 "PAPER_RADAR_ALLOW_LIVE_MODEL=true",
                 "PAPER_RADAR_OPENROUTER_API_KEY=sk-or-v1-fake-budget-key-000000",
-                "PAPER_RADAR_MODEL_MONTHLY_BUDGET_USD=0.10",
+                "PAPER_RADAR_MODEL_MONTHLY_BUDGET_USD=1.00",
             )
         )
         + "\n",
@@ -196,6 +196,6 @@ def test_worker_env_rejects_monthly_budget_below_commissioned_reservation(
         )
 
     assert not workspace.exists()
-    assert "below the commissioned single-request reservation" in (
+    assert "cannot cover one commissioned verified-summary workflow" in (
         capsys.readouterr().err
     )
