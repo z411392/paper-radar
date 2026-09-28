@@ -9,6 +9,7 @@ from libs.research_workflow.dtos.scheduler import (
     DeliverySchedule,
     HarvestBindingSchedule,
     KnownWorkflowJob,
+    PendingDeliveryDispatch,
     SchedulerSnapshot,
 )
 from libs.research_workflow.dtos.workflow_job import EnqueuedWorkflowJob
@@ -300,7 +301,9 @@ def test_pending_delivery_outbox_is_scheduled_even_when_harvest_blocks_new_diges
         delivery_schedules=(delivery(NOW - timedelta(days=1)),),
         known_jobs=(),
         input_gaps=(),
-        pending_delivery_outboxes=("outbox:status",),
+        pending_delivery_outboxes=(
+            PendingDeliveryDispatch("outbox:status", None),
+        ),
     )
 
     plan = PlanCatchupJobs()(snapshot, now=NOW)
@@ -321,7 +324,10 @@ def test_multiple_pending_outboxes_have_stable_business_identity_order() -> None
         delivery_schedules=(),
         known_jobs=(),
         input_gaps=(),
-        pending_delivery_outboxes=("outbox:b", "outbox:a"),
+        pending_delivery_outboxes=(
+            PendingDeliveryDispatch("outbox:b", None),
+            PendingDeliveryDispatch("outbox:a", None),
+        ),
     )
 
     plan = PlanCatchupJobs()(snapshot, now=NOW)
