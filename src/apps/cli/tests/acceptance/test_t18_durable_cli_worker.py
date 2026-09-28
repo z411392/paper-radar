@@ -69,16 +69,23 @@ def test_worker_stays_in_apps_cli_and_driving_handler_has_no_scheduler_business_
     assert "RunWorkerCyclePort" in source
 
 
-def test_launchd_template_uses_same_cli_and_does_not_enable_live_source_by_default() -> None:
+def test_launchd_template_uses_same_env_file_runtime_contract() -> None:
     path = ROOT / "deploy/macos/com.paper-radar.worker.plist.example"
     root = ET.parse(path).getroot()
     text = ET.tostring(root, encoding="unicode")
 
     assert "apps.cli" in text
     assert "run-worker" in text
+    assert "--env-file" in text
+    assert "__ENV_FILE__" in text
+    assert "__PYTHON__" in text
+    assert "__WORKSPACE__" not in text
+    assert "--workspace" not in text
+    assert "--poll-seconds" not in text
     assert "--with-runtime" not in text
     assert "--allow-live-source" not in text
     assert "--allow-live-mail" not in text
+    assert "--recipient-email" not in text
     assert "--recipient-map-file" not in text
     assert "--smtp-password-file" not in text
     assert "--ncbi-email" not in text
@@ -89,8 +96,6 @@ def test_launchd_template_uses_same_cli_and_does_not_enable_live_source_by_defau
     assert "--allow-live-model" not in text
     assert "--openrouter-api-key-file" not in text
     assert "--model-period-limit-micros" not in text
-    assert "__PYTHON__" in text
-    assert "__WORKSPACE__" in text
 
 
 def test_live_mail_single_recipient_commissioning_runs_idle_without_network(
