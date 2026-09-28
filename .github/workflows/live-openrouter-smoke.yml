@@ -2,9 +2,6 @@ name: Live OpenRouter smoke
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - ops/openrouter-claim-once
 
 permissions:
   contents: read
