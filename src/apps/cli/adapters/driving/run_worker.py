@@ -673,7 +673,7 @@ def run_worker_cli(argv: list[str]) -> None:
             ):
                 _error(
                     "external_effects_disabled",
-                    "Run effects enable --workspace PATH before starting live mail.",
+                    "Run effects enable --env-file FILE before starting live mail.",
                 )
                 raise SystemExit(1)
             if profile_config_present:
