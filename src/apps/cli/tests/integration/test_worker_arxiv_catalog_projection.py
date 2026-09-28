@@ -1387,6 +1387,8 @@ LIVE_ARXIV_CURSOR = datetime(2017, 6, 12, 0, 0, tzinfo=timezone.utc)
 
 def _seed_live_arxiv_mvp(root: Path) -> None:
     definition = {
+        "id": "statistics",
+        "name": "統計學",
         "aliases": ["Attention Is All You Need"],
         "exclude": [],
         "include": [],
