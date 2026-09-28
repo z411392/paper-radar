@@ -2,11 +2,14 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
+
 from libs.research_workflow.adapters.driven.sqlite_scheduler_input_adapter import (
     SqliteSchedulerInputAdapter,
 )
 from libs.research_workflow.domain.services.plan_catchup_jobs import PlanCatchupJobs
 from libs.research_workflow.dtos.scheduler import PendingDeliveryDispatch
+from libs.research_workflow.exceptions.workflow_job_error import WorkflowJobError
 
 
 NOW = datetime(2026, 9, 24, 0, 0, tzinfo=timezone.utc)
@@ -316,7 +319,7 @@ def test_pending_outbox_with_terminal_dispatch_job_is_corrupt(
     connection.close()
 
     with pytest.raises(
-        Exception,
+        WorkflowJobError,
         match="delivery_outbox_state_corrupt",
     ):
         adapter.read(NOW)
