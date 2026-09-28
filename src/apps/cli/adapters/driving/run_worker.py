@@ -666,7 +666,16 @@ def run_worker_cli(argv: list[str]) -> None:
                 [RuntimeConfigurationCliModule(arguments.workspace)],
                 auto_bind=False,
             )
-            configuration.get(ReadWorkspaceInfoPort)()
+            workspace_info = configuration.get(ReadWorkspaceInfoPort)()
+            if (
+                arguments.allow_live_mail
+                and not workspace_info.external_effects_enabled
+            ):
+                _error(
+                    "external_effects_disabled",
+                    "Run effects enable --workspace PATH before starting live mail.",
+                )
+                raise SystemExit(1)
             if profile_config_present:
                 assert env_profile_domains is not None
                 assert env_profile_scope is not None
