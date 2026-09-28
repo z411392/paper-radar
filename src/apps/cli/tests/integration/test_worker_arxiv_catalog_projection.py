@@ -1614,6 +1614,39 @@ def _seed_live_arxiv_mvp(root: Path) -> None:
         connection.close()
 
 
+def test_live_mvp_seed_uses_semantic_machine_learning_domain(
+    tmp_path: Path,
+) -> None:
+    root = _workspace(tmp_path)
+
+    _seed_live_arxiv_mvp(root)
+
+    connection = SqliteConnectionFactory(root).connect()
+    try:
+        profile = connection.execute(
+            "SELECT scope_text FROM watch_profile_revisions "
+            "WHERE profile_id='personal' AND revision=1"
+        ).fetchone()
+        domains = connection.execute(
+            "SELECT domain_id FROM watch_profile_domains "
+            "WHERE profile_id='personal' AND revision=1"
+        ).fetchall()
+        definition = connection.execute(
+            "SELECT definition_json FROM domain_definitions "
+            "WHERE id='machine_learning' AND revision=1"
+        ).fetchone()
+    finally:
+        connection.close()
+
+    assert "機器學習" in profile["scope_text"]
+    assert [row["domain_id"] for row in domains] == ["machine_learning"]
+    decoded = json.loads(definition["definition_json"])
+    assert decoded["id"] == "machine_learning"
+    assert decoded["name"] == "機器學習"
+    assert decoded["sources"] == ["arxiv", "crossref"]
+    assert decoded["source_categories"]["arxiv"] == ["cs.LG", "stat.ML"]
+
+
 class MutableWorkflowClock:
     def __init__(self, current: datetime) -> None:
         self.current = current
