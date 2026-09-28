@@ -168,6 +168,29 @@ def test_disabled_subscription_is_cancelled_before_dispatch():
     dispatch.assert_not_called()
 
 
+def test_retryable_delivery_requests_workflow_backoff():
+    store = Store(snapshot(status()))
+    usecase, summaries, history, dispatch = command(
+        store,
+        dispatch_state="retryable",
+    )
+
+    result = usecase(RevisionNoticeRequest("outbox:test"))
+
+    assert (result.state, result.error_code) == (
+        "failed",
+        "delivery_retryable",
+    )
+    summaries.assert_not_called()
+    history.contains.assert_called_once_with(
+        "reader:test",
+        "email",
+        "work:status",
+    )
+    dispatch.assert_called_once_with("outbox:test", now=NOW)
+    assert store.cancelled == []
+
+
 def test_unknown_delivery_is_never_automatically_resent():
     store = Store(snapshot(status(), outbox_state="unknown", digest_state="unknown"))
     usecase, summaries, history, dispatch = command(store)
