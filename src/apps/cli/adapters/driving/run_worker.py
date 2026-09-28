@@ -111,7 +111,10 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--rate-limit-state",
-        help="Absolute path to the shared local arXiv rate-limit state file.",
+        help=(
+            "Optional absolute override for the arXiv rate-limit state file; "
+            "defaults to WORKSPACE/state/arxiv-rate-limit.json."
+        ),
     )
     parser.add_argument(
         "--ncbi-email",
