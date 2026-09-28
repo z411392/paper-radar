@@ -20,6 +20,7 @@ from apps.cli.model_commissioning import (
     commissioned_openrouter_budget_period,
     commissioned_openrouter_execution_policy_fingerprint,
     commissioned_openrouter_reservation_micros,
+    commissioned_verified_summary_reservation_micros,
     model_budget_usd_to_micros,
 )
 from apps.cli.module import RuntimeConfigurationCliModule, WorkerCliModule
@@ -576,12 +577,16 @@ def run_worker_cli(argv: list[str]) -> None:
             parser.error(
                 "--openrouter-api-key-file must be an absolute path without NUL characters"
             )
-        if arguments.model_reservation_micros > arguments.model_period_limit_micros:
-            if arguments.env_file is not None:
+        if arguments.env_file is not None:
+            if (
+                arguments.model_period_limit_micros
+                < commissioned_verified_summary_reservation_micros()
+            ):
                 parser.error(
-                    "PAPER_RADAR_MODEL_MONTHLY_BUDGET_USD is below the "
-                    "commissioned single-request reservation"
+                    "PAPER_RADAR_MODEL_MONTHLY_BUDGET_USD cannot cover one "
+                    "commissioned verified-summary workflow"
                 )
+        elif arguments.model_reservation_micros > arguments.model_period_limit_micros:
             parser.error(
                 "--model-reservation-micros must not exceed --model-period-limit-micros"
             )
