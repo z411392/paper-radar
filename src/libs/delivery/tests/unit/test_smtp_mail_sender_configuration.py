@@ -141,3 +141,145 @@ def test_starttls_send_upgrades_transport_before_authentication(
         "login",
         "send",
     ]
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        __import__("smtplib").SMTPDataError(451, b"try later"),
+        __import__("smtplib").SMTPSenderRefused(
+            450,
+            b"mailbox busy",
+            "paper-radar@example.com",
+        ),
+        __import__("smtplib").SMTPAuthenticationError(
+            454,
+            b"temporary auth failure",
+        ),
+    ],
+)
+def test_smtp_4xx_response_is_retryable(
+    monkeypatch,
+    error,
+) -> None:
+    class FakeSmtp:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback) -> None:
+            return None
+
+        def login(self, username: str, password: str) -> None:
+            if isinstance(error, __import__("smtplib").SMTPAuthenticationError):
+                raise error
+
+        def send_message(self, message):
+            raise error
+
+    monkeypatch.setattr(
+        "libs.delivery.adapters.driven.smtp_mail_sender_adapter.smtplib.SMTP_SSL",
+        FakeSmtp,
+    )
+
+    result = SmtpMailSenderAdapter(**valid()).send(
+        MailMessage(
+            recipient="reader@example.com",
+            subject="Paper Radar",
+            text_body="text",
+            html_body="<p>text</p>",
+            idempotency_key="digest:retryable",
+        )
+    )
+
+    assert result.state == "retryable"
+
+
+def test_smtp_recipient_4xx_is_retryable(monkeypatch) -> None:
+    error = __import__("smtplib").SMTPRecipientsRefused(
+        {"reader@example.com": (450, b"mailbox busy")}
+    )
+
+    class FakeSmtp:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback) -> None:
+            return None
+
+        def login(self, username: str, password: str) -> None:
+            pass
+
+        def send_message(self, message):
+            raise error
+
+    monkeypatch.setattr(
+        "libs.delivery.adapters.driven.smtp_mail_sender_adapter.smtplib.SMTP_SSL",
+        FakeSmtp,
+    )
+
+    result = SmtpMailSenderAdapter(**valid()).send(
+        MailMessage(
+            recipient="reader@example.com",
+            subject="Paper Radar",
+            text_body="text",
+            html_body="<p>text</p>",
+            idempotency_key="digest:recipient-retryable",
+        )
+    )
+
+    assert result.state == "retryable"
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        __import__("smtplib").SMTPDataError(550, b"rejected"),
+        __import__("smtplib").SMTPAuthenticationError(
+            535,
+            b"bad credentials",
+        ),
+    ],
+)
+def test_smtp_5xx_response_is_terminal_rejection(
+    monkeypatch,
+    error,
+) -> None:
+    class FakeSmtp:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback) -> None:
+            return None
+
+        def login(self, username: str, password: str) -> None:
+            if isinstance(error, __import__("smtplib").SMTPAuthenticationError):
+                raise error
+
+        def send_message(self, message):
+            raise error
+
+    monkeypatch.setattr(
+        "libs.delivery.adapters.driven.smtp_mail_sender_adapter.smtplib.SMTP_SSL",
+        FakeSmtp,
+    )
+
+    result = SmtpMailSenderAdapter(**valid()).send(
+        MailMessage(
+            recipient="reader@example.com",
+            subject="Paper Radar",
+            text_body="text",
+            html_body="<p>text</p>",
+            idempotency_key="digest:terminal",
+        )
+    )
+
+    assert result.state == "rejected"
