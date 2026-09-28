@@ -15,6 +15,7 @@ def valid(**changes):
         "sender": "paper-radar@example.com",
         "username": "mailer@example.com",
         "password": "secret value",
+        "security": "ssl",
         "timeout_seconds": 20.0,
     }
     values.update(changes)
@@ -39,6 +40,7 @@ def test_valid_smtp_configuration_only_constructs_adapter() -> None:
         {"username": "bad\nuser"},
         {"password": ""},
         {"password": "bad\nsecret"},
+        {"security": "plain"},
         {"timeout_seconds": 0},
         {"timeout_seconds": float("inf")},
         {"timeout_seconds": True},
@@ -52,3 +54,16 @@ def test_invalid_smtp_configuration_fails_before_any_network(
         match="invalid_smtp_configuration",
     ):
         SmtpMailSenderAdapter(**valid(**changes))
+
+
+
+def test_starttls_smtp_configuration_is_valid() -> None:
+    assert (
+        SmtpMailSenderAdapter(
+            **valid(
+                port=587,
+                security="starttls",
+            )
+        )
+        is not None
+    )
