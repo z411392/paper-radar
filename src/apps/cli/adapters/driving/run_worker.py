@@ -464,6 +464,7 @@ def run_worker_cli(argv: list[str]) -> None:
         arguments.smtp_sender,
         arguments.smtp_username,
         arguments.smtp_password_file,
+        env_smtp_password,
     )
     if any(value is not None for value in mail_values) and not arguments.allow_live_mail:
         parser.error("mail options require --allow-live-mail")
