@@ -1665,6 +1665,10 @@ def test_live_mvp_seed_uses_semantic_machine_learning_domain(
             "SELECT definition_json FROM domain_definitions "
             "WHERE id='machine_learning' AND revision=1"
         ).fetchone()
+        filters = connection.execute(
+            "SELECT filters_json FROM watch_profile_revisions "
+            "WHERE profile_id='personal' AND revision=1"
+        ).fetchone()
     finally:
         connection.close()
 
@@ -1675,6 +1679,9 @@ def test_live_mvp_seed_uses_semantic_machine_learning_domain(
     assert decoded["name"] == "機器學習"
     assert decoded["sources"] == ["arxiv", "crossref"]
     assert decoded["source_categories"]["arxiv"] == ["cs.LG", "stat.ML"]
+    assert json.loads(filters["filters_json"])["include"] == [
+        "Attention Is All You Need"
+    ]
 
     domain = SqliteWatchProfileStoreAdapter(
         SqliteConnectionFactory(root).connect
