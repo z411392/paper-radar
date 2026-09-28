@@ -84,6 +84,11 @@ SMTP transport 必須明示加密模式：implicit TLS（常見 port 465）使�
 `PAPER_RADAR_SMTP_SECURITY=ssl`；需要 STARTTLS（常見 port 587）的 provider 改成
 `PAPER_RADAR_SMTP_SECURITY=starttls`。不支援 plaintext SMTP。
 
+SMTP 明確回覆 4xx transient rejection 時，Paper Radar 會保留同一 outbox／idempotency identity，
+把本次 delivery attempt 記為 failed，並由 workflow 在 5 分鐘後安全重試；5xx permanent rejection
+則維持 terminal failed。timeout、socket 中斷或其他無法確定 provider 是否已接受郵件的情況仍標成
+`unknown`，不自動重寄，以避免重複郵件。
+
 
 ## MVP worker：一份 .env 啟動
 
