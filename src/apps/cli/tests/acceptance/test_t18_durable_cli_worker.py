@@ -43,6 +43,41 @@ def test_runtime_workspace_can_run_one_idle_worker_cycle_and_restart(tmp_path: P
     assert left["scheduler"]["digest_deferred"] is False
 
 
+def test_effects_enable_can_use_worker_env_file(tmp_path: Path) -> None:
+    workspace = tmp_path / "runtime-effects-env"
+    initialized = _run(
+        "init",
+        "--workspace",
+        str(workspace),
+        "--with-runtime",
+    )
+    assert initialized.returncode == 0
+
+    env_file = tmp_path / "worker.env"
+    env_file.write_text(
+        f"PAPER_RADAR_WORKSPACE={workspace}\n",
+        encoding="utf-8",
+    )
+    env_file.chmod(0o600)
+
+    enabled = _run(
+        "effects",
+        "enable",
+        "--env-file",
+        str(env_file),
+    )
+    disabled = _run(
+        "effects",
+        "disable",
+        "--env-file",
+        str(env_file),
+    )
+
+    assert enabled.returncode == disabled.returncode == 0
+    assert json.loads(enabled.stdout)["external_effects_enabled"] is True
+    assert json.loads(disabled.stdout)["external_effects_enabled"] is False
+
+
 def test_worker_never_auto_upgrades_a_discovery_only_workspace(tmp_path: Path) -> None:
     workspace = tmp_path / "discovery"
     initialized = _run(
