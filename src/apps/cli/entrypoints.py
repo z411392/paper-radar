@@ -1,4 +1,5 @@
 import argparse
+import json
 import sys
 from functools import partial
 
@@ -6,6 +7,8 @@ from fire import Fire
 from injector import Injector
 
 from apps.cli.adapters.driving.initialize_workspace import initialize_workspace
+from apps.cli.exceptions.configuration_file_error import ConfigurationFileError
+from apps.cli.helpers.read_worker_env_file import read_worker_env_file
 from apps.cli.adapters.driving.manage_digest import run_digest_cli
 from apps.cli.adapters.driving.manage_harvest import run_harvest_cli
 from apps.cli.adapters.driving.manage_watch_profiles import run_watch_cli
@@ -38,7 +41,18 @@ def run() -> None:
         return
     if sys.argv[1:2] == ["init"]:
         parser = argparse.ArgumentParser(prog="paper-radar init", allow_abbrev=False)
-        parser.add_argument("--workspace", required=True, help="Dedicated local workspace directory")
+        source = parser.add_mutually_exclusive_group(required=True)
+        source.add_argument(
+            "--workspace",
+            help="Dedicated local workspace directory",
+        )
+        source.add_argument(
+            "--env-file",
+            help=(
+                "Owner-only worker .env file. Init uses "
+                "PAPER_RADAR_WORKSPACE and installs the current runtime schema."
+            ),
+        )
         schema = parser.add_mutually_exclusive_group()
         schema.add_argument(
             "--with-profiles",
@@ -56,11 +70,50 @@ def run() -> None:
             help="Explicitly install the current runtime schema bundle",
         )
         arguments = parser.parse_args(sys.argv[2:])
+        workspace = arguments.workspace
+        with_runtime = arguments.with_runtime
+        if arguments.env_file is not None:
+            if (
+                arguments.with_profiles
+                or arguments.with_discovery
+                or arguments.with_runtime
+            ):
+                parser.error(
+                    "--env-file implies the current runtime schema and cannot "
+                    "be combined with --with-* schema flags"
+                )
+            try:
+                values = read_worker_env_file(arguments.env_file)
+            except ConfigurationFileError as exc:
+                print(
+                    json.dumps(
+                        {"error": {"code": exc.code}},
+                        ensure_ascii=False,
+                    ),
+                    file=sys.stderr,
+                )
+                raise SystemExit(1) from None
+            except OSError:
+                print(
+                    json.dumps(
+                        {"error": {"code": "env_configuration_io_error"}},
+                        ensure_ascii=False,
+                    ),
+                    file=sys.stderr,
+                )
+                raise SystemExit(1) from None
+            workspace = values.get("PAPER_RADAR_WORKSPACE")
+            if not isinstance(workspace, str):
+                parser.error(
+                    "PAPER_RADAR_WORKSPACE is required in --env-file"
+                )
+            with_runtime = True
+        assert isinstance(workspace, str)
         initialize_workspace(
-            arguments.workspace,
+            workspace,
             with_profiles=arguments.with_profiles,
             with_discovery=arguments.with_discovery,
-            with_runtime=arguments.with_runtime,
+            with_runtime=with_runtime,
         )
         return
     if sys.argv[1:2] in (["domains"], ["profile"]):
