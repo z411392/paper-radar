@@ -96,6 +96,25 @@ class RunBudgetedGeneration:
                 finished_at=self._clock(),
             )
             raise GenerationLedgerError("invalid_generation_result")
+        if result.receipt.cost_usd is not None:
+            actual_micros = GenerationExecutionRules.cost_micros(
+                result.receipt.cost_usd
+            )
+            if actual_micros > identity.reservation_micros:
+                self._ledger.complete_failure(
+                    run_id,
+                    identity,
+                    "cost_exceeded_reservation",
+                    result.receipt,
+                    no_charge=False,
+                    finished_at=self._clock(),
+                )
+                raise ModelGatewayError(
+                    "cost_exceeded_reservation",
+                    result.receipt,
+                    run_id=run_id,
+                    generation_fingerprint=identity.generation_fingerprint,
+                )
         self._ledger.complete_success(run_id, identity, result, self._clock())
         return BudgetedGenerationExecution(
             run_id,
