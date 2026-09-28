@@ -16,6 +16,7 @@ from apps.cli.model_commissioning import (
     commissioned_openrouter_execution_policy_fingerprint,
     commissioned_openrouter_reservation_micros,
 )
+from apps.cli.mvp_profile_config import bundled_domain_seeds_json
 from apps.cli.module import WorkerCliModule
 from libs.delivery.dtos.delivery_dispatch import MailSendResult
 from libs.delivery.dtos.scheduled_digest import ScheduledDigestRequest
@@ -1538,18 +1539,15 @@ LIVE_ARXIV_CURSOR = datetime(2017, 6, 12, 0, 0, tzinfo=timezone.utc)
 
 
 def _seed_live_arxiv_mvp(root: Path) -> None:
-    definition = {
-        "id": "statistics",
-        "name": "統計學",
-        "aliases": ["Attention Is All You Need"],
-        "exclude": [],
-        "include": [],
-        "source_categories": {"arxiv": []},
-        "sources": ["arxiv"],
-    }
+    seeds = json.loads(bundled_domain_seeds_json())["domains"]
+    definition = next(
+        item
+        for item in seeds
+        if item["id"] == "machine_learning"
+    )
     input_json = json.dumps(
         {
-            "binding_key": "personal:1:statistics:1:arxiv",
+            "binding_key": "personal:1:machine_learning:1:arxiv",
             "window_end": LIVE_ARXIV_CURSOR.isoformat(),
         },
         ensure_ascii=False,
@@ -1561,16 +1559,32 @@ def _seed_live_arxiv_mvp(root: Path) -> None:
     try:
         connection.execute("BEGIN IMMEDIATE")
         connection.execute(
-            "UPDATE domain_definitions SET definition_json=? "
-            "WHERE id='statistics' AND revision=1",
+            "INSERT INTO domain_definitions VALUES(?,?,?,?,?)",
             (
+                definition["id"],
+                definition["name"],
                 json.dumps(
                     definition,
                     ensure_ascii=False,
                     sort_keys=True,
                     separators=(",", ":"),
                 ),
+                1,
+                NOW.isoformat(),
             ),
+        )
+        connection.execute(
+            "UPDATE watch_profile_revisions SET scope_text=? "
+            "WHERE profile_id='personal' AND revision=1",
+            ("關注機器學習、深度學習與 Transformer 架構。",),
+        )
+        connection.execute(
+            "DELETE FROM watch_profile_domains "
+            "WHERE profile_id='personal' AND revision=1"
+        )
+        connection.execute(
+            "INSERT INTO watch_profile_domains VALUES(?,?,?,?)",
+            ("personal", 1, "machine_learning", 1),
         )
         connection.execute(
             "INSERT INTO workflow_jobs("
@@ -1661,7 +1675,7 @@ def _mark_live_arxiv_caught_up(
 ) -> None:
     input_json = json.dumps(
         {
-            "binding_key": "personal:1:statistics:1:arxiv",
+            "binding_key": "personal:1:machine_learning:1:arxiv",
             "window_end": window_end.isoformat(),
         },
         ensure_ascii=False,
