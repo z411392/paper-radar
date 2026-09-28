@@ -73,6 +73,52 @@ class SmtpMailSenderAdapter:
             raise ValueError("invalid_email_address")
         return value
 
+    @staticmethod
+    def _response_state(code: object) -> str:
+        return (
+            "retryable"
+            if type(code) is int and 400 <= code < 500
+            else "rejected"
+        )
+
+    @classmethod
+    def _response_error(
+        cls,
+        exc: smtplib.SMTPResponseException,
+    ) -> MailSendResult:
+        code = exc.smtp_code
+        suffix = str(code) if type(code) is int else "unknown"
+        return MailSendResult(
+            cls._response_state(code),
+            None,
+            f"{exc.__class__.__name__}:{suffix}",
+        )
+
+    @classmethod
+    def _recipients_error(
+        cls,
+        exc: smtplib.SMTPRecipientsRefused,
+    ) -> MailSendResult:
+        codes = []
+        for value in exc.recipients.values():
+            if (
+                isinstance(value, tuple)
+                and len(value) >= 1
+                and type(value[0]) is int
+            ):
+                codes.append(value[0])
+        state = (
+            "retryable"
+            if codes and all(400 <= code < 500 for code in codes)
+            else "rejected"
+        )
+        suffix = str(min(codes)) if codes else "unknown"
+        return MailSendResult(
+            state,
+            None,
+            f"{exc.__class__.__name__}:{suffix}",
+        )
+
     def send(self, message: MailMessage) -> MailSendResult:
         if not isinstance(message, MailMessage):
             raise ValueError("invalid_mail_message")
@@ -114,12 +160,9 @@ class SmtpMailSenderAdapter:
             if refused:
                 return MailSendResult("rejected", None, "recipient_rejected")
             return MailSendResult("provider_accepted", None, None)
-        except (
-            smtplib.SMTPRecipientsRefused,
-            smtplib.SMTPSenderRefused,
-            smtplib.SMTPDataError,
-            smtplib.SMTPAuthenticationError,
-        ) as exc:
-            return MailSendResult("rejected", None, exc.__class__.__name__)
+        except smtplib.SMTPRecipientsRefused as exc:
+            return self._recipients_error(exc)
+        except smtplib.SMTPResponseException as exc:
+            return self._response_error(exc)
         except (TimeoutError, OSError, smtplib.SMTPException) as exc:
             return MailSendResult("unknown", None, exc.__class__.__name__)
