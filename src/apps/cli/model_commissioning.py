@@ -66,12 +66,23 @@ def commissioned_openrouter_reservation_micros() -> int:
     return result
 
 
-COMMISSIONED_VERIFIED_SUMMARY_MODEL_CALLS = 4
+COMMISSIONED_DOMAIN_INDEPENDENT_MODEL_CALLS = 3
 
 
-def commissioned_verified_summary_reservation_micros() -> int:
+def commissioned_verified_summary_reservation_micros(
+    selected_domain_count: int = 1,
+) -> int:
+    if (
+        type(selected_domain_count) is not int
+        or not 1 <= selected_domain_count <= 16
+    ):
+        raise ValueError("invalid_selected_domain_count")
     reservation = commissioned_openrouter_reservation_micros()
-    result = reservation * COMMISSIONED_VERIFIED_SUMMARY_MODEL_CALLS
+    calls = (
+        COMMISSIONED_DOMAIN_INDEPENDENT_MODEL_CALLS
+        + selected_domain_count
+    )
+    result = reservation * calls
     if not 1 <= result < 2**63:
         raise ValueError("invalid_commissioned_summary_reservation")
     return result
