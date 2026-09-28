@@ -1684,11 +1684,15 @@ def test_live_mvp_seed_uses_semantic_machine_learning_domain(
 
 
 class MutableWorkflowClock:
-    def __init__(self, current: datetime) -> None:
+    def __init__(self, current: datetime | None = None) -> None:
         self.current = current
 
     def now(self) -> datetime:
-        return self.current
+        return (
+            datetime.now(timezone.utc)
+            if self.current is None
+            else self.current
+        )
 
 
 def test_mutable_workflow_clock_uses_wall_time_until_pinned() -> None:
@@ -1775,7 +1779,7 @@ def test_live_arxiv_openrouter_gmail_e2e(tmp_path: Path) -> None:
 
     period_key, currency = commissioned_openrouter_budget_period()
     recipient = _required_live_mvp("PAPER_RADAR_SMTP_RECIPIENT")
-    clock = MutableWorkflowClock(datetime.now(timezone.utc))
+    clock = MutableWorkflowClock()
     injector = Injector(
         [
             WorkerCliModule(
