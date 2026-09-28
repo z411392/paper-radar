@@ -63,21 +63,18 @@ JSON 是匯入格式，SQLite 才是發布後權威；重新匯入種子只補�
 
 ## 每日 Email 設定
 
-不需要後台，也不需要手工改 SQLite。runtime workspace 建好後，可直接建立每日 Email subscription：
+正常 MVP 不需要先跑額外的 digest 設定指令。daily digest 的 timezone、寄送時間與篇數都放在
+owner-only worker `.env`：
 
-```bash
-uv run --locked python -m apps.cli digest subscribe-email \
-  --workspace "$HOME/paper-radar-data" \
-  --reader-id local \
-  --recipient-ref recipient:primary \
-  --timezone UTC \
-  --local-time 08:00 \
-  --max-items 5
+```dotenv
+PAPER_RADAR_DIGEST_TIMEZONE=Asia/Taipei
+PAPER_RADAR_DIGEST_LOCAL_TIME=08:00
+PAPER_RADAR_DIGEST_MAX_ITEMS=5
 ```
 
-同一組設定重跑是 idempotent；修改時間、收件人 reference 或篇數時會遞增
-`policy_version`。SQLite 只保存 `recipient:primary` 這個 subscription reference；
-實際 Email 地址與 SMTP/OpenRouter secrets 放在 owner-only worker `.env`。
+`run-worker --env-file ...` 每次啟動都會 idempotent 對齊本機
+`local / recipient:primary` email subscription；設定沒變就不增加 `policy_version`，
+設定有變才更新。舊的 `digest subscribe-email` CLI 保留作相容與手動管理，不是正常 quickstart。
 
 
 ## MVP worker：一份 .env 啟動
