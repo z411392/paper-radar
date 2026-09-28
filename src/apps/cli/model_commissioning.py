@@ -2,7 +2,7 @@ import hashlib
 import json
 import re
 from datetime import datetime, timezone
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_CEILING
 
 from libs.paper_explanations.dtos.openrouter_policy import OpenRouterPolicy
 from libs.paper_explanations.dtos.structured_generation_request import MODEL_NAME
@@ -43,6 +43,27 @@ def commissioned_openrouter_execution_policy_fingerprint() -> str:
         separators=(",", ":"),
     )
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def commissioned_openrouter_reservation_micros() -> int:
+    policy = COMMISSIONED_OPENROUTER_POLICY
+    try:
+        prompt_price = Decimal(policy.max_prompt_price)
+        completion_price = Decimal(policy.max_completion_price)
+        # max_price is USD per million tokens. In micro-USD, the 1e6
+        # conversion cancels, so token_count * price_per_million is
+        # directly the reservation in micros. The serialized request-byte
+        # ceiling is a conservative upper bound for prompt text tokens.
+        micros = (
+            Decimal(policy.max_request_bytes) * prompt_price
+            + Decimal(policy.max_output_tokens) * completion_price
+        ).to_integral_value(rounding=ROUND_CEILING)
+        result = int(micros)
+    except (InvalidOperation, ValueError, OverflowError):
+        raise ValueError("invalid_commissioned_model_reservation") from None
+    if not 1 <= result < 2**63:
+        raise ValueError("invalid_commissioned_model_reservation")
+    return result
 
 
 def commissioned_openrouter_budget_period(
