@@ -7,7 +7,7 @@ def parse(*args: str):
     return _parser().parse_args(["--workspace", "/tmp/workspace", *args])
 
 
-def test_live_master_switch_does_not_implicitly_enable_a_provider() -> None:
+def test_live_source_parser_leaves_provider_overrides_optional() -> None:
     value = parse("--allow-live-source")
     assert value.rate_limit_state is None
     assert value.ncbi_email is None
