@@ -622,6 +622,7 @@ class WorkerCliModule(Module):
         explanation: ProcessEvidenceExplanationPort | None = None,
         structured_generation: StructuredGenerationPort | None = None,
         generation_budget_policy: GenerationBudgetPolicy | None = None,
+        workflow_clock: WorkflowClockPort | None = None,
     ) -> None:
         self._workspace = workspace
         self._allow_live_source = allow_live_source
@@ -656,6 +657,7 @@ class WorkerCliModule(Module):
         self._explanation = explanation
         self._structured_generation = structured_generation
         self._generation_budget_policy = generation_budget_policy
+        self._workflow_clock = workflow_clock
 
     def configure(self, binder: Binder) -> None:
         root = Path(self._workspace)
@@ -742,7 +744,7 @@ class WorkerCliModule(Module):
             read_object,
         )
 
-        clock = SystemWorkflowClockAdapter()
+        clock = self._workflow_clock or SystemWorkflowClockAdapter()
         jobs = SqliteWorkflowJobStoreAdapter(connection.connect)
 
         harvest = None
