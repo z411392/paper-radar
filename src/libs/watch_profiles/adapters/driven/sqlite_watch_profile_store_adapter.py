@@ -245,6 +245,53 @@ class SqliteWatchProfileStoreAdapter:
         with self._transaction() as connection:
             return self._read(connection, profile_id, revision)
 
+    def select_current_revision(
+        self,
+        profile_id: str,
+        revision: int,
+        *,
+        expected_current_revision: int,
+    ) -> ProfileRevision:
+        self._revision(revision)
+        self._revision(expected_current_revision)
+        if (
+            not isinstance(profile_id, str)
+            or re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", profile_id) is None
+        ):
+            raise WatchConfigurationError("invalid_identifier")
+        with self._transaction(write=True) as connection:
+            current = connection.execute(
+                "SELECT lifecycle,published_revision FROM watch_profiles "
+                "WHERE id=?",
+                (profile_id,),
+            ).fetchone()
+            if current is None or current[1] is None:
+                raise WatchConfigurationError("profile_missing")
+            if current[0] == "archived":
+                raise WatchConfigurationError("profile_archived")
+            if current[1] != expected_current_revision:
+                raise WatchConfigurationError("revision_conflict")
+            target = connection.execute(
+                "SELECT 1 FROM watch_profile_revisions "
+                "WHERE profile_id=? AND revision=?",
+                (profile_id, revision),
+            ).fetchone()
+            if target is None:
+                raise WatchConfigurationError("revision_missing")
+            if revision != current[1]:
+                updated = connection.execute(
+                    "UPDATE watch_profiles SET published_revision=? "
+                    "WHERE id=? AND published_revision=?",
+                    (
+                        revision,
+                        profile_id,
+                        expected_current_revision,
+                    ),
+                ).rowcount
+                if updated != 1:
+                    raise WatchConfigurationError("revision_conflict")
+            return self._read(connection, profile_id, revision)
+
     def set_lifecycle(self, profile_id: str, lifecycle: str) -> None:
         if lifecycle not in {"active", "paused"}:
             raise WatchConfigurationError("invalid_lifecycle")
