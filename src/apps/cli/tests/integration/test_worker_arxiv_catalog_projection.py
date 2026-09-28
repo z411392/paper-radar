@@ -1589,10 +1589,25 @@ def _seed_live_arxiv_mvp(root: Path) -> None:
                 NOW.isoformat(),
             ),
         )
+        current_filters = json.loads(
+            connection.execute(
+                "SELECT filters_json FROM watch_profile_revisions "
+                "WHERE profile_id='personal' AND revision=1"
+            ).fetchone()["filters_json"]
+        )
+        current_filters["include"] = ["Attention Is All You Need"]
         connection.execute(
-            "UPDATE watch_profile_revisions SET scope_text=? "
+            "UPDATE watch_profile_revisions SET scope_text=?,filters_json=? "
             "WHERE profile_id='personal' AND revision=1",
-            ("關注機器學習、深度學習與 Transformer 架構。",),
+            (
+                "關注機器學習、深度學習與 Transformer 架構。",
+                json.dumps(
+                    current_filters,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
+            ),
         )
         connection.execute(
             "DELETE FROM watch_profile_domains "
