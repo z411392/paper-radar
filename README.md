@@ -48,7 +48,9 @@ PAPER_RADAR_PROFILE_SCOPE=關注軟體工程、深度學習、機器學習與統
 目前 arXiv-only MVP 可選的 domain 是 `software_engineering`、`deep_learning`、
 `machine_learning`、`statistics`。worker 啟動時會先驗證 runtime schema v24，
 從 wheel 內建的 canonical `domain-seeds.json` idempotent 匯入 domain，再建立或更新
-`personal` profile；相同設定重跑不新增 revision。
+`personal` profile；相同設定重跑不新增 revision。若 `.env` 改回先前已發布過的設定，
+worker 會明確把那個歷史 revision 設回 current，而不是新增一份重複 revision 或繼續沿用
+較新的設定。
 
 舊的 `domains` / `profile` CLI 與 JSON 範例保留作手動管理、歷史 revision 與未來多來源設定，
 不是正常 MVP quickstart：
