@@ -207,6 +207,7 @@ class ArxivAtomParserAdapter:
         source_url = self._text(entry, ATOM + "id", digest, required=True)
         assert source_url is not None
         identity, base, version = self._identity(source_url, digest)
+        source_url = "https://arxiv.org/abs/" + identity
         title = self._text(entry, ATOM + "title", digest, required=True)
         assert title is not None
         abstract = self._text(entry, ATOM + "summary", digest, preserve_space=True)
