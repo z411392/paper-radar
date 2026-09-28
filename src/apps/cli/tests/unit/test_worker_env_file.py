@@ -129,7 +129,6 @@ def test_live_source_env_requires_profile_config(
     assert "requires profile domains and scope" in capsys.readouterr().err
 
 
-
 @pytest.mark.parametrize(
     "secret_line",
     [
