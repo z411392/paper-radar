@@ -130,6 +130,37 @@ def _workspace(tmp_path: Path) -> Path:
     return root
 
 
+
+
+def test_worker_arxiv_uses_workspace_rate_limit_state_by_default(
+    tmp_path: Path,
+) -> None:
+    root = _workspace(tmp_path)
+    transport = FakeArxivTransport()
+    worker = Injector(
+        [
+            WorkerCliModule(
+                str(root),
+                allow_live_source=True,
+                transport=transport,
+            )
+        ],
+        auto_bind=False,
+    ).get(RunWorkerCyclePort)
+
+    result = worker(
+        "worker:arxiv-default-rate-state",
+        max_new_jobs=10,
+        max_jobs=10,
+        lease_seconds=300,
+    )
+
+    assert [(job.job_kind, job.state) for job in result.jobs] == [
+        ("harvest_window", "succeeded"),
+    ]
+    assert transport.calls == 1
+    assert (root / "state/arxiv-rate-limit.json").is_file()
+
 def test_worker_arxiv_harvest_projects_versioned_preprint_and_evidence(
     tmp_path: Path,
 ) -> None:
