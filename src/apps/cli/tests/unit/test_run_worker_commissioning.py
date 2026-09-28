@@ -1,6 +1,9 @@
+from datetime import datetime, timezone
+
 import pytest
 
 from apps.cli.adapters.driving.run_worker import _parser, run_worker_cli
+from apps.cli.model_commissioning import commissioned_openrouter_budget_period
 
 
 def parse(*args: str):
@@ -157,3 +160,10 @@ def test_model_accounting_identity_is_not_an_operator_argument(
 ) -> None:
     with pytest.raises(SystemExit):
         parse(option, value)
+
+
+
+def test_openrouter_budget_period_uses_utc_month_and_usd() -> None:
+    assert commissioned_openrouter_budget_period(
+        datetime(2026, 9, 28, 7, 0, tzinfo=timezone.utc)
+    ) == ("2026-09", "USD")
