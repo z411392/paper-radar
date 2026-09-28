@@ -101,7 +101,7 @@ file，且 group/other 不可讀寫。
 
 ```bash
 uv run --locked python -m apps.cli effects enable \
-  --workspace "$HOME/paper-radar-data"
+  --env-file "$HOME/.config/paper-radar/worker.env"
 
 # smoke / 手動跑一輪
 uv run --locked python -m apps.cli run-worker \
