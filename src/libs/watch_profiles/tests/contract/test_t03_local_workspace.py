@@ -12,6 +12,7 @@ from libs.watch_profiles.adapters.driven.sqlite_watch_profile_store_adapter impo
 )
 from libs.watch_profiles.application.commands.import_domain_seeds import ImportDomainSeeds
 from libs.watch_profiles.application.commands.publish_watch_profile import PublishWatchProfile
+from libs.watch_profiles.application.commands.select_watch_profile_revision import SelectWatchProfileRevision
 from libs.watch_profiles.application.commands.set_watch_profile_lifecycle import SetWatchProfileLifecycle
 from libs.watch_profiles.application.queries.read_watch_profile import ReadWatchProfile
 from libs.watch_profiles.domain.services.normalize_watch_configuration import NormalizeWatchConfiguration
@@ -163,6 +164,54 @@ def test_atomic_publish_replay_and_no_stale_pointer_rollback(store, normalizer):
     assert ReadWatchProfile(adapter)("personal", revision=1).scope_text == "關注統計方法"
     with connect() as con:
         assert con.execute("SELECT COUNT(*) FROM watch_profile_revisions").fetchone()[0] == 2
+
+
+def test_explicit_revision_selection_can_restore_historical_configuration(
+    store,
+    normalizer,
+):
+    adapter, _ = store
+    seed(adapter, normalizer)
+    publish = PublishWatchProfile(normalizer, adapter)
+    v1 = publish(profile(), expected_revision=None)
+    v2 = publish(
+        profile(scope_text="關注因果推論"),
+        expected_revision=1,
+    )
+
+    restored = SelectWatchProfileRevision(adapter)(
+        "personal",
+        v1.revision,
+        expected_current_revision=v2.revision,
+    )
+
+    assert restored.revision == 1
+    assert restored.current_revision == 1
+    assert restored.scope_text == "關注統計方法"
+    assert ReadWatchProfile(adapter)("personal").revision == 1
+
+
+def test_explicit_revision_selection_uses_current_revision_cas(
+    store,
+    normalizer,
+):
+    adapter, _ = store
+    seed(adapter, normalizer)
+    publish = PublishWatchProfile(normalizer, adapter)
+    publish(profile(), expected_revision=None)
+    publish(
+        profile(scope_text="關注因果推論"),
+        expected_revision=1,
+    )
+
+    with pytest.raises(WatchConfigurationError, match="revision_conflict"):
+        SelectWatchProfileRevision(adapter)(
+            "personal",
+            1,
+            expected_current_revision=1,
+        )
+
+    assert ReadWatchProfile(adapter)("personal").revision == 2
 
 
 def test_missing_domain_revision_rolls_back_everything(store, normalizer):
