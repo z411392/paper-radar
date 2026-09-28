@@ -93,7 +93,6 @@ def test_launchd_template_uses_same_cli_and_does_not_enable_live_source_by_defau
     assert "__WORKSPACE__" in text
 
 
-
 def test_live_mail_single_recipient_commissioning_runs_idle_without_network(
     tmp_path: Path,
 ) -> None:
@@ -262,7 +261,6 @@ def test_live_model_invalid_credential_is_sanitized(tmp_path: Path) -> None:
     assert secret not in worker.stdout + worker.stderr
 
 
-
 def test_worker_env_file_commissions_single_user_runtime(
     tmp_path: Path,
 ) -> None:
@@ -335,7 +333,6 @@ def test_worker_env_file_commissions_single_user_runtime(
         "recipient:primary",
         1,
     )
-
 
 
 def test_worker_env_file_bootstraps_mvp_profile_without_profile_cli(
