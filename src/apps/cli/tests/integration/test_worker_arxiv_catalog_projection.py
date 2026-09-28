@@ -1474,6 +1474,14 @@ def _required_live_mvp(name: str) -> str:
     return value
 
 
+def test_live_full_mvp_uses_worker_cycles_for_digest_and_dispatch() -> None:
+    source = inspect.getsource(test_live_arxiv_openrouter_gmail_e2e)
+
+    assert "PrepareScheduledDigestPort" not in source
+    assert "ProcessRevisionNoticePort" not in source
+    assert source.count("worker(") >= 3
+
+
 @pytest.mark.live_external
 @pytest.mark.skipif(
     os.environ.get("PAPER_RADAR_LIVE_MVP_E2E") != "1",
