@@ -1411,6 +1411,11 @@ def test_worker_env_active_pipeline_reaches_one_email(
     finally:
         connection.close()
 
+    initial_clock = datetime.now(timezone.utc).replace(
+        second=0,
+        microsecond=0,
+    )
+    digest_clock = initial_clock + timedelta(hours=2)
     env_file = tmp_path / "worker.env"
     env_file.write_text(
         "\n".join(
@@ -1432,7 +1437,8 @@ def test_worker_env_active_pipeline_reaches_one_email(
                 "PAPER_RADAR_SMTP_PASSWORD=fake-smtp-password",
                 "PAPER_RADAR_SMTP_SECURITY=ssl",
                 "PAPER_RADAR_DIGEST_TIMEZONE=UTC",
-                "PAPER_RADAR_DIGEST_LOCAL_TIME=08:00",
+                "PAPER_RADAR_DIGEST_LOCAL_TIME="
+                + digest_clock.strftime("%H:%M"),
                 "PAPER_RADAR_DIGEST_MAX_ITEMS=5",
                 "PAPER_RADAR_MAX_NEW_JOBS=10",
                 "PAPER_RADAR_MAX_JOBS=10",
@@ -1443,11 +1449,13 @@ def test_worker_env_active_pipeline_reaches_one_email(
     )
     env_file.chmod(0o600)
 
-    observed_at = datetime(2026, 9, 24, 0, 0, tzinfo=timezone.utc)
-    clock = MutableWorkflowClock(
-        datetime(2026, 9, 24, 8, 1, tzinfo=timezone.utc)
-    )
-    source = MvpArxivTransport(observed_at)
+    class RuntimeTimestampMvpArxivTransport(MvpArxivTransport):
+        def get(self, request):
+            self.observed_at = datetime.now(timezone.utc)
+            return super().get(request)
+
+    clock = MutableWorkflowClock(initial_clock)
+    source = RuntimeTimestampMvpArxivTransport(initial_clock)
     model = FakeOpenRouterHttpTransport()
     mail = CapturingMailSender()
 
@@ -1463,7 +1471,9 @@ def test_worker_env_active_pipeline_reaches_one_email(
         )
 
     outputs = []
-    for _ in range(4):
+    for index in range(4):
+        if index == 1:
+            clock.current = digest_clock + timedelta(minutes=1)
         run_worker_cli(
             [
                 "run-worker",
