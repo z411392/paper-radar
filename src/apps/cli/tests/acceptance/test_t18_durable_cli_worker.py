@@ -323,7 +323,7 @@ def test_worker_env_file_commissions_single_user_runtime(
                 "PAPER_RADAR_ALLOW_LIVE_MODEL=true",
                 "PAPER_RADAR_ALLOW_LIVE_MAIL=true",
                 f"PAPER_RADAR_OPENROUTER_API_KEY={secret}",
-                "PAPER_RADAR_MODEL_MONTHLY_BUDGET_USD=1.00",
+                "PAPER_RADAR_MODEL_MONTHLY_BUDGET_USD=2.00",
                 "PAPER_RADAR_RECIPIENT_EMAIL=reader@example.com",
                 "PAPER_RADAR_SMTP_HOST=smtp.example.com",
                 "PAPER_RADAR_SMTP_PORT=587",
