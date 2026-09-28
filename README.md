@@ -85,6 +85,25 @@ SMTP transport 必須明示加密模式：implicit TLS（常見 port 465）使�
 `PAPER_RADAR_SMTP_SECURITY=starttls`。不支援 plaintext SMTP。
 
 
+### GitHub Actions full live MVP smoke
+
+SMTP 與 public arXiv 各自已有獨立 live smoke；要驗證完整產品主線時，使用
+`Live MVP paper email smoke`。這個 workflow 只有手動 `workflow_dispatch`，不會在
+push/PR 自動執行。
+
+它會用固定的 public arXiv 論文 `Attention Is All You Need` 跑完整 production path：
+
+`real arXiv -> real OpenRouter -> verified zh-TW summary -> real Gmail SMTP`
+
+除了既有 7 個 SMTP Repository secrets，還需要：
+
+- `PAPER_RADAR_OPENROUTER_API_KEY`
+
+每次手動 run 最多為單一 `statistics` domain 執行 4 次 real model-backed stage
+（claims、relevance、reading card、support verification），使用 $2 的本次 test budget
+admission，最後只寄一封 digest smoke。這是會產生實際 OpenRouter 費用與真實 email 的
+live_external 驗證；未手動執行前不代表 full-live PASS。
+
 ### GitHub Actions live SMTP smoke
 
 若要從 GitHub-hosted runner 驗證真實 SMTP，可在 repository
