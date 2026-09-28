@@ -102,6 +102,20 @@ def _env_integer(
         raise ConfigurationFileError("invalid_env_value") from None
 
 
+def _env_secret(
+    values: dict[str, str],
+    key: str,
+    *,
+    example_value: str,
+) -> str | None:
+    value = values.get(key)
+    if value is None:
+        return None
+    if value == example_value:
+        raise ConfigurationFileError("example_secret_not_replaced")
+    return value
+
+
 def _env_model_budget_usd(
     values: dict[str, str],
     key: str,
@@ -372,8 +386,16 @@ def run_worker_cli(argv: list[str]) -> None:
             )
             if arguments.smtp_security not in {"ssl", "starttls"}:
                 raise ConfigurationFileError("invalid_env_value")
-            env_model_api_key = env.get("PAPER_RADAR_OPENROUTER_API_KEY")
-            env_smtp_password = env.get("PAPER_RADAR_SMTP_PASSWORD")
+            env_model_api_key = _env_secret(
+                env,
+                "PAPER_RADAR_OPENROUTER_API_KEY",
+                example_value="replace-with-openrouter-api-key",
+            )
+            env_smtp_password = _env_secret(
+                env,
+                "PAPER_RADAR_SMTP_PASSWORD",
+                example_value="replace-with-smtp-password",
+            )
             env_profile_domains = env.get("PAPER_RADAR_PROFILE_DOMAINS")
             env_profile_scope = env.get("PAPER_RADAR_PROFILE_SCOPE")
             env_digest_timezone = env.get("PAPER_RADAR_DIGEST_TIMEZONE")
