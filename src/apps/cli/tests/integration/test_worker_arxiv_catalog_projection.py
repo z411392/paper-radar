@@ -38,6 +38,7 @@ from libs.kernel.adapters.driven.sqlite_workspace_bootstrap_adapter import (
     SqliteWorkspaceBootstrapAdapter,
 )
 from libs.research_workflow.dtos.revision_notice import RevisionNoticeRequest
+from libs.research_workflow.dtos.workflow_job import EnqueueWorkflowJob
 from libs.research_workflow.ports.process_revision_notice_port import (
     ProcessRevisionNoticePort,
 )
@@ -45,6 +46,7 @@ from libs.research_workflow.ports.process_workflow_job_port import (
     ProcessWorkflowJobPort,
 )
 from libs.research_workflow.ports.run_worker_cycle_port import RunWorkerCyclePort
+from libs.research_workflow.ports.workflow_job_store_port import WorkflowJobStorePort
 
 
 NOW = datetime(2026, 9, 24, 0, 0, tzinfo=timezone.utc)
@@ -128,7 +130,6 @@ def _workspace(tmp_path: Path) -> Path:
     finally:
         connection.close()
     return root
-
 
 
 
@@ -433,6 +434,155 @@ def test_worker_arxiv_projection_runs_tracked_explanation_to_current_summary(
             ("harvest_window", "succeeded"),
             ("explain_snapshot", "succeeded"),
         ]
+    finally:
+        connection.close()
+
+
+def test_cross_domain_explanation_reuses_domain_independent_generation(
+    tmp_path: Path,
+) -> None:
+    root = _workspace(tmp_path)
+    connection = SqliteConnectionFactory(root).connect()
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        connection.execute(
+            "INSERT INTO domain_definitions VALUES(?,?,?,?,?)",
+            (
+                "machine_learning",
+                "機器學習",
+                '{"aliases":["machine learning"],"exclude":[],'
+                '"include":["machine learning"],'
+                '"source_categories":{"arxiv":["stat.ML"]},'
+                '"sources":["arxiv"]}',
+                1,
+                NOW.isoformat(),
+            ),
+        )
+        connection.execute(
+            "INSERT INTO watch_profile_domains VALUES(?,?,?,?)",
+            ("personal", 1, "machine_learning", 1),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    transport = FakeArxivTransport()
+    generator = FakeStructuredGenerator()
+    injector = Injector(
+        [
+            WorkerCliModule(
+                str(root),
+                allow_live_source=True,
+                rate_limit_state=str(
+                    tmp_path / "arxiv-rate-cross-domain-cache.json"
+                ),
+                transport=transport,
+                structured_generation=generator,
+                generation_budget_policy=GenerationBudgetPolicy(
+                    "2026-09",
+                    "USD",
+                    1_000_000,
+                    10_000,
+                    "f" * 64,
+                ),
+            )
+        ],
+        auto_bind=False,
+    )
+    worker = injector.get(RunWorkerCyclePort)
+
+    first = worker(
+        "worker:cross-domain-first",
+        max_new_jobs=1,
+        max_jobs=10,
+        lease_seconds=300,
+    )
+
+    assert [(job.job_kind, job.state) for job in first.jobs] == [
+        ("harvest_window", "succeeded"),
+        ("explain_snapshot", "succeeded"),
+    ]
+    assert generator.calls == [
+        "claim_extraction",
+        "relevance_assessment",
+        "abstract_reading_card",
+        "support_verification",
+    ]
+
+    connection = SqliteConnectionFactory(root).connect()
+    try:
+        original = connection.execute(
+            "SELECT input_json FROM workflow_jobs "
+            "WHERE job_kind='explain_snapshot'"
+        ).fetchone()
+        payload = json.loads(original["input_json"])
+        assert payload["domain_id"] == "machine_learning"
+    finally:
+        connection.close()
+
+    payload["domain_id"] = "statistics"
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    injector.get(WorkflowJobStorePort).enqueue(
+        EnqueueWorkflowJob(
+            job_kind="explain_snapshot",
+            business_key="explain:cross-domain-cache:statistics",
+            input_json=encoded,
+            input_fingerprint=hashlib.sha256(encoded.encode()).hexdigest(),
+            due_at=NOW,
+            created_at=NOW,
+        )
+    )
+
+    second = injector.get(ProcessWorkflowJobPort)(
+        "worker:cross-domain-second",
+        lease_seconds=300,
+    )
+
+    assert (second.job_kind, second.state) == (
+        "explain_snapshot",
+        "succeeded",
+    )
+    assert generator.calls == [
+        "claim_extraction",
+        "relevance_assessment",
+        "abstract_reading_card",
+        "support_verification",
+        "relevance_assessment",
+    ]
+
+    connection = SqliteConnectionFactory(root).connect()
+    try:
+        counts = {
+            row["task_kind"]: row["n"]
+            for row in connection.execute(
+                "SELECT task_kind,COUNT(*) AS n FROM model_runs "
+                "GROUP BY task_kind"
+            )
+        }
+        domains = {
+            row["domain_id"]
+            for row in connection.execute(
+                "SELECT domain_id FROM relevance_assessment_domains"
+            )
+        }
+        assert counts == {
+            "abstract_reading_card": 1,
+            "claim_extraction": 1,
+            "relevance_assessment": 2,
+            "support_verification": 1,
+        }
+        assert domains == {"machine_learning", "statistics"}
+        assert connection.execute(
+            "SELECT COUNT(*) FROM summary_revisions"
+        ).fetchone()[0] == 1
+        assert connection.execute(
+            "SELECT COUNT(*) FROM current_summaries"
+        ).fetchone()[0] == 1
     finally:
         connection.close()
 
