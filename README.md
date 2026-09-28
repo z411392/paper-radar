@@ -111,6 +111,30 @@ uv run --locked python -m apps.cli run-worker \
   --env-file "$HOME/.config/paper-radar/worker.env"
 ```
 
+### macOS launchd
+
+長期每天自動跑時，launchd 也使用同一份 `worker.env`，不另外保存 workspace、polling、
+provider flags 或 secrets。複製 `deploy/macos/com.paper-radar.worker.plist.example` 到
+`~/Library/LaunchAgents/com.paper-radar.worker.plist`，只把兩個 placeholder 換成絕對路徑：
+
+- `__PYTHON__`：已安裝 Paper Radar 的 Python，例如 repo 的 `.venv/bin/python`。
+- `__ENV_FILE__`：owner-only `worker.env` 的絕對路徑。
+
+載入／重載：
+
+```bash
+launchctl bootout "gui/$(id -u)" \
+  "$HOME/Library/LaunchAgents/com.paper-radar.worker.plist" 2>/dev/null || true
+
+launchctl bootstrap "gui/$(id -u)" \
+  "$HOME/Library/LaunchAgents/com.paper-radar.worker.plist"
+
+launchctl kickstart -k "gui/$(id -u)/com.paper-radar.worker"
+```
+
+plist 本身不應放 OpenRouter key、SMTP password 或其他 runtime 設定；修改日常設定只改
+`worker.env`，再重啟 launchd worker。
+
 `--env-file` 模式不允許再混用 workspace/source/model/mail runtime flags，避免兩套設定互相覆蓋。
 舊 flags 暫時保留相容；MVP 正常操作以 `config/worker.env.example` 為準。
 
