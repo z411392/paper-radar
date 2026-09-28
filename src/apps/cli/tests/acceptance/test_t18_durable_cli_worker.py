@@ -293,6 +293,9 @@ def test_worker_env_file_commissions_single_user_runtime(
                 "PAPER_RADAR_SMTP_SENDER=paper-radar@example.com",
                 "PAPER_RADAR_SMTP_USERNAME=mailer@example.com",
                 "PAPER_RADAR_SMTP_PASSWORD=fake-smtp-password",
+                "PAPER_RADAR_DIGEST_TIMEZONE=Asia/Taipei",
+                "PAPER_RADAR_DIGEST_LOCAL_TIME=08:00",
+                "PAPER_RADAR_DIGEST_MAX_ITEMS=5",
             )
         )
         + "\n",
@@ -312,3 +315,23 @@ def test_worker_env_file_commissions_single_user_runtime(
     assert result["processed_jobs"] == 0
     assert result["jobs"] == []
     assert secret not in worker.stdout + worker.stderr
+
+    import sqlite3
+
+    with sqlite3.connect(workspace / "state/app.sqlite3") as connection:
+        row = connection.execute(
+            "SELECT reader_id,channel,enabled,timezone,schedule_json,"
+            "max_items,recipient_ref,policy_version "
+            "FROM delivery_subscriptions"
+        ).fetchone()
+
+    assert row == (
+        "local",
+        "email",
+        1,
+        "Asia/Taipei",
+        '{"kind":"daily","local_time":"08:00"}',
+        5,
+        "recipient:primary",
+        1,
+    )
