@@ -77,7 +77,7 @@ uv run --locked python -m apps.cli digest subscribe-email \
 
 同一組設定重跑是 idempotent；修改時間、收件人 reference 或篇數時會遞增
 `policy_version`。實際 Email 地址仍只放在 worker 的本機 recipient-map 檔，不寫進
-`delivery_subscriptions`；`recipient:primary` 是兩者之間的本機 reference。
+`delivery_subscriptions`；`recipient:primary` 是 subscription 內部 reference。單一使用者啟動 worker 時可直接用 `--recipient-email you@example.com`，不需要另外建立 recipient-map JSON；只有多收件人時才使用 `--recipient-map-file`。
 
 
 設定檔須為普通 UTF-8 檔案，最多 1,000,000 bytes，不接受最終 symlink 或 FIFO。全部參數先解析，錯誤非零退出；成功才輸出 JSON。真正安裝 wheel 後也能在 repo 外執行，SQL 不依賴目前目錄；範例檔仍須用自己可存取的路徑指定。
