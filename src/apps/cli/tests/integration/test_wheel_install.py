@@ -56,6 +56,11 @@ def test_built_wheel_runs_in_a_clean_noneditable_environment(tmp_path: Path) -> 
     for name in migration_names:
         assert packaged[name] == (root / "migrations" / name).read_bytes()
     assert "apps/cli/__main__.py" in names
+    assert "apps/cli/resources/domain-seeds.json" in names
+    assert (
+        archive.read("apps/cli/resources/domain-seeds.json")
+        == (root / "config/domain-seeds.json").read_bytes()
+    )
     assert "libs/research_workflow/ports/read_runtime_version_port.py" in names
     assert not any("/tests/" in name or "__init__.py" in name for name in names)
 
