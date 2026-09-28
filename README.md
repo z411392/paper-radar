@@ -52,6 +52,8 @@ uv run --locked python -m apps.cli profile resume --workspace "$HOME/paper-radar
 
 `config/watch-profile.mvp.json` 是目前最短可用路徑，只選擇 arXiv 能直接覆蓋的四個領域，因此不會替未啟用的 PubMed／Crossref 建立工作。`config/watch-profile.example.json` 保留作多來源進階範例。
 
+對單一 workspace 的 MVP，`run-worker --allow-live-source` 會自動使用 `<workspace>/state/arxiv-rate-limit.json`；不需要再手填節流檔路徑。只有多 workspace 要共用同一個 arXiv 節流狀態時，才需要 `--rate-limit-state` 覆寫。
+
 `--with-profiles` 明確啟用 0001＋0002，既有第 1 版工作區可以升級且保留身分。升級後再次初始化須帶相同選項；省略時不自動降版。`profile show`、發布與匯入不會順便建立工作區或跑 migration；舊 schema 會回報 `schema_upgrade_required`。
 
 要修改關注內容，另存 JSON 範例、修改 scope／filters／domains，再使用 `profile publish ... --expected-revision N`，N 是目前讀回的 revision。第一次建立可以不指定；不同新內容不能省略版本檢查。已發布的相同舊內容重試回覆原 revision，但 `current_revision` 不倒退。查看舊版可用 `profile show ... --revision N`；lifecycle 與 current_revision 仍表示目前狀態。
