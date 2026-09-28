@@ -196,7 +196,7 @@ def test_worker_env_rejects_budget_that_cannot_complete_one_verified_summary(
         )
 
     assert not workspace.exists()
-    assert "cannot cover one commissioned verified-summary workflow" in (
+    assert "cannot cover one paper across 1 selected domain" in (
         capsys.readouterr().err
     )
 
