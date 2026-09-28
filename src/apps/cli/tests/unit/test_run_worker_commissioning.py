@@ -6,6 +6,7 @@ from apps.cli.adapters.driving.run_worker import _parser, run_worker_cli
 from apps.cli.model_commissioning import (
     commissioned_openrouter_budget_period,
     commissioned_openrouter_reservation_micros,
+    commissioned_verified_summary_reservation_micros,
     model_budget_usd_to_micros,
 )
 
@@ -256,3 +257,7 @@ def test_model_budget_usd_rejects_ambiguous_values(value: str) -> None:
 
 def test_commissioned_openrouter_reservation_matches_policy_bounds() -> None:
     assert commissioned_openrouter_reservation_micros() == 265_984
+
+
+def test_commissioned_verified_summary_reservation_covers_four_calls() -> None:
+    assert commissioned_verified_summary_reservation_micros() == 1_063_936
