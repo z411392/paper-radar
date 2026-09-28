@@ -488,7 +488,7 @@ def test_worker_env_live_mail_fails_fast_when_effects_disabled(
     assert worker.stdout == ""
     error = json.loads(worker.stderr)["error"]
     assert error["code"] == "external_effects_disabled"
-    assert "effects enable" in error["hint"]
+    assert "effects enable --env-file" in error["hint"]
 
     import sqlite3
 
