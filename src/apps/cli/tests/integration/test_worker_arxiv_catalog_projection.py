@@ -1411,11 +1411,11 @@ def test_worker_env_active_pipeline_reaches_one_email(
     finally:
         connection.close()
 
-    initial_clock = datetime.now(timezone.utc).replace(
+    setup_clock = datetime.now(timezone.utc).replace(
         second=0,
         microsecond=0,
     )
-    digest_clock = initial_clock + timedelta(hours=2)
+    digest_clock = setup_clock + timedelta(minutes=30)
     env_file = tmp_path / "worker.env"
     env_file.write_text(
         "\n".join(
@@ -1454,8 +1454,8 @@ def test_worker_env_active_pipeline_reaches_one_email(
             self.observed_at = datetime.now(timezone.utc)
             return super().get(request)
 
-    clock = MutableWorkflowClock(initial_clock)
-    source = RuntimeTimestampMvpArxivTransport(initial_clock)
+    workflow_clock = None
+    source = RuntimeTimestampMvpArxivTransport(setup_clock)
     model = FakeOpenRouterHttpTransport()
     mail = CapturingMailSender()
 
@@ -1467,13 +1467,15 @@ def test_worker_env_active_pipeline_reaches_one_email(
             model_http_transport=model,
             mail_sender=mail,
             recipient_resolver=MvpRecipientResolver(),
-            workflow_clock=clock,
+            workflow_clock=workflow_clock,
         )
 
     outputs = []
     for index in range(4):
         if index == 1:
-            clock.current = digest_clock + timedelta(minutes=1)
+            workflow_clock = MutableWorkflowClock(
+                digest_clock + timedelta(minutes=1)
+            )
         run_worker_cli(
             [
                 "run-worker",
