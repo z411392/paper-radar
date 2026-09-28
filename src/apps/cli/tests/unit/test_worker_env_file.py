@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+from apps.cli.adapters.driving.run_worker import run_worker_cli
 from apps.cli.exceptions.configuration_file_error import ConfigurationFileError
 from apps.cli.helpers.read_worker_env_file import read_worker_env_file
 
@@ -72,3 +73,30 @@ def test_rejects_group_readable_worker_env(tmp_path: Path) -> None:
         read_worker_env_file(str(path))
 
     assert exc.value.code == "env_permissions_too_open"
+
+
+
+def test_env_file_mode_rejects_runtime_flag_mixing(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    path = _write(
+        tmp_path / "worker.env",
+        "PAPER_RADAR_WORKSPACE=/tmp/paper-radar\n",
+    )
+
+    with pytest.raises(SystemExit):
+        run_worker_cli(
+            [
+                "run-worker",
+                "--env-file",
+                str(path),
+                "--workspace",
+                "/tmp/other",
+                "--once",
+            ]
+        )
+
+    assert "cannot be combined with runtime configuration flags" in (
+        capsys.readouterr().err
+    )
