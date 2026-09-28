@@ -25,7 +25,7 @@ Python 使用 uv；正式規則見 [.claude/rules/90-operations.md](.claude/rule
 uv sync --locked
 uv run --locked python -m apps.cli version
 uv run --locked python -m apps.cli init --help
-uv run --locked python -m apps.cli init --workspace "$HOME/paper-radar-data"
+uv run --locked python -m apps.cli init --workspace "$HOME/paper-radar-data" --with-runtime
 make ci-fast
 make package-check
 ```
@@ -36,29 +36,32 @@ make package-check
 
 Migration 原文位於 root `migrations/`；只將明確啟用的 0001／0002 納入 wheel 與 sdist，執行時以 package resource 讀取。非 editable 安裝後不依賴目前所在目錄。具體測試與失敗修正見 Story progress。
 
-## 關注設定 CLI（候選，尚未正式驗收）
+## 關注設定
 
-先使用專用測試目錄。SQLite runtime 的正式使用核對仍見 [Issue #50](https://github.com/z411392/paper-radar/issues/50)，不要把功能測試通過當作引擎修補或正式資料使用證明。
+正常 MVP 不需要先跑 `domains import` / `profile publish`。研究範圍也放在同一份 owner-only
+`worker.env`：
 
-```bash
-uv sync --locked
-uv run --locked python -m apps.cli init --workspace "$HOME/paper-radar-test-data" --with-runtime
-uv run --locked python -m apps.cli domains import --workspace "$HOME/paper-radar-test-data" --file config/domain-seeds.json
-uv run --locked python -m apps.cli profile publish --workspace "$HOME/paper-radar-test-data" --file config/watch-profile.mvp.json
-uv run --locked python -m apps.cli profile show --workspace "$HOME/paper-radar-test-data" --id personal
-uv run --locked python -m apps.cli profile pause --workspace "$HOME/paper-radar-test-data" --id personal
-uv run --locked python -m apps.cli profile resume --workspace "$HOME/paper-radar-test-data" --id personal
+```dotenv
+PAPER_RADAR_PROFILE_DOMAINS=software_engineering,deep_learning,machine_learning,statistics
+PAPER_RADAR_PROFILE_SCOPE=關注軟體工程、深度學習、機器學習與統計學的新 arXiv 論文。
 ```
 
-`config/watch-profile.mvp.json` 是目前最短可用路徑，只選擇 arXiv 能直接覆蓋的四個領域，因此不會替未啟用的 PubMed／Crossref 建立工作。`config/watch-profile.example.json` 保留作多來源進階範例。
+目前 arXiv-only MVP 可選的 domain 是 `software_engineering`、`deep_learning`、
+`machine_learning`、`statistics`。worker 啟動時會先驗證 runtime schema v24，
+從 wheel 內建的 canonical `domain-seeds.json` idempotent 匯入 domain，再建立或更新
+`personal` profile；相同設定重跑不新增 revision。
 
-對單一 workspace 的 MVP，worker runtime 設定放在 owner-only `.env`；arXiv 節流狀態會自動使用 `<workspace>/state/arxiv-rate-limit.json`，不需要另外設定路徑。舊的 runtime flags 只保留相容與進階覆寫，不是正常 quickstart。
+舊的 `domains` / `profile` CLI 與 JSON 範例保留作手動管理、歷史 revision 與未來多來源設定，
+不是正常 MVP quickstart：
 
-`--with-profiles` 明確啟用 0001＋0002，既有第 1 版工作區可以升級且保留身分。升級後再次初始化須帶相同選項；省略時不自動降版。`profile show`、發布與匯入不會順便建立工作區或跑 migration；舊 schema 會回報 `schema_upgrade_required`。
+```bash
+uv run --locked python -m apps.cli profile show --workspace "$HOME/paper-radar-data" --id personal
+uv run --locked python -m apps.cli profile pause --workspace "$HOME/paper-radar-data" --id personal
+uv run --locked python -m apps.cli profile resume --workspace "$HOME/paper-radar-data" --id personal
+```
 
-要修改關注內容，另存 JSON 範例、修改 scope／filters／domains，再使用 `profile publish ... --expected-revision N`，N 是目前讀回的 revision。第一次建立可以不指定；不同新內容不能省略版本檢查。已發布的相同舊內容重試回覆原 revision，但 `current_revision` 不倒退。查看舊版可用 `profile show ... --revision N`；lifecycle 與 current_revision 仍表示目前狀態。
-
-JSON 是匯入格式，SQLite 才是發布後權威；重新匯入種子只補缺，不能用範例覆蓋新定義。空領域清單是沒有選取領域，不表示選全部。暫停後發布不會偷偷重啟；`resume` 不寄信、不清除歷史。當前沒有 domain 新修訂、active profile 列表、rename 或明示還原舊設定的命令。
+對單一 workspace 的 MVP，arXiv 節流狀態會自動使用
+`<workspace>/state/arxiv-rate-limit.json`。舊 runtime flags 只保留相容與進階覆寫。
 
 
 ## 每日 Email 設定
@@ -85,7 +88,7 @@ PAPER_RADAR_DIGEST_MAX_ITEMS=5
 mkdir -p "$HOME/.config/paper-radar"
 cp config/worker.env.example "$HOME/.config/paper-radar/worker.env"
 chmod 600 "$HOME/.config/paper-radar/worker.env"
-# 編輯 worker.env：workspace、OpenRouter key、budget、收件 Email、SMTP
+# 編輯 worker.env：workspace、研究範圍、OpenRouter、SMTP、digest 時間
 ```
 
 `.env` 內容是 literal `KEY=VALUE`，不執行 shell、不支援 `export`、quotes 或
