@@ -371,6 +371,40 @@ def test_dispatch_digest_uses_formal_revision_notice_port() -> None:
     assert store.completed[0].state == "succeeded"
 
 
+def test_dispatch_retryable_delivery_uses_failed_job_backoff() -> None:
+    store = Store(
+        lease(
+            "dispatch_digest",
+            '{"outbox_id":"outbox:test","prepare_digest":null}',
+        )
+    )
+    notice = Mock(
+        return_value=Mock(
+            state="failed",
+            error_code="delivery_retryable",
+        )
+    )
+    command = ProcessWorkflowJob(
+        store=store,
+        builder=Mock(),
+        harvest=None,
+        clock=Clock(),
+        live_source_enabled=False,
+        revision_notice=notice,
+    )
+
+    result = command("worker:test", lease_seconds=60)
+
+    assert result.state == "failed"
+    completion = store.completed[0]
+    assert completion.state == "failed"
+    assert completion.error_code == "delivery_retryable"
+    assert completion.next_due_at == NOW + timedelta(
+        minutes=5,
+        seconds=2,
+    )
+
+
 def test_dispatch_digest_preserves_exact_prepare_context_for_rebuild() -> None:
     payload = (
         '{"outbox_id":"outbox:test","prepare_digest":{'
