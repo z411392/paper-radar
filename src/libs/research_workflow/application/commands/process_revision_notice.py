@@ -105,6 +105,8 @@ class ProcessRevisionNotice:
             return RevisionNoticeOutcome("succeeded")
         if dispatched.state == "cancelled":
             return RevisionNoticeOutcome("cancelled", "delivery_cancelled")
+        if dispatched.state == "retryable":
+            return RevisionNoticeOutcome("failed", "delivery_retryable")
         if dispatched.state in {"unknown", "sending", "effects_disabled"}:
             code = (
                 "delivery_effects_disabled"
