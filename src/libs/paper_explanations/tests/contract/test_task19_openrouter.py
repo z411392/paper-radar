@@ -66,6 +66,63 @@ def test_maps_fixed_model_strict_schema_and_explicit_price_limits():
     assert len(result.receipt.request_sha256) == 64
 
 
+def test_provider_schema_uses_gemini_supported_subset_without_mutating_local_schema():
+    strict_schema = {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["schema_version", "items"],
+        "properties": {
+            "schema_version": {
+                "type": "string",
+                "const": "v1",
+            },
+            "items": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 4,
+                "uniqueItems": True,
+                "items": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$",
+                    "minLength": 64,
+                    "maxLength": 64,
+                },
+            },
+        },
+    }
+    encoded = json.dumps(
+        strict_schema,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    run, http = adapter()
+
+    run(request(response_schema_json=encoded))
+
+    body = json.loads(http.post.call_args.args[0])
+    wire = body["response_format"]["json_schema"]["schema"]
+    assert wire == {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["schema_version", "items"],
+        "properties": {
+            "schema_version": {
+                "type": "string",
+                "enum": ["v1"],
+            },
+            "items": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 4,
+                "items": {
+                    "type": "string",
+                },
+            },
+        },
+    }
+    assert request(response_schema_json=encoded).response_schema_json == encoded
+
+
 def test_missing_usage_and_provider_are_unknown_not_zero_or_guessed():
     run, _ = adapter(envelope(usage=None, provider=None))
     receipt = run(request()).receipt
