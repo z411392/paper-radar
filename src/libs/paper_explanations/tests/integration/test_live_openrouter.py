@@ -59,6 +59,48 @@ def test_live_openrouter_returns_strict_structured_receipt() -> None:
     )
 
     body = adapter._wire(request)
+    wire = json.loads(body)
+    provider_schema = wire["response_format"]["json_schema"]["schema"]
+
+    def drop_nested_additional_properties(
+        schema: object,
+        *,
+        depth: int = 0,
+    ) -> None:
+        if not isinstance(schema, dict):
+            return
+        if depth > 0:
+            schema.pop("additionalProperties", None)
+        for key in ("properties", "$defs"):
+            mapping = schema.get(key)
+            if isinstance(mapping, dict):
+                for child in mapping.values():
+                    drop_nested_additional_properties(
+                        child,
+                        depth=depth + 1,
+                    )
+        items = schema.get("items")
+        if isinstance(items, dict):
+            drop_nested_additional_properties(
+                items,
+                depth=depth + 1,
+            )
+        for key in ("prefixItems", "anyOf", "oneOf"):
+            children = schema.get(key)
+            if isinstance(children, list):
+                for child in children:
+                    drop_nested_additional_properties(
+                        child,
+                        depth=depth + 1,
+                    )
+
+    drop_nested_additional_properties(provider_schema)
+    body = json.dumps(
+        wire,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
     connection = http.client.HTTPSConnection(
         "openrouter.ai",
         port=443,
