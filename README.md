@@ -78,6 +78,10 @@ PAPER_RADAR_DIGEST_MAX_ITEMS=5
 `local / recipient:primary` email subscription；設定沒變就不增加 `policy_version`，
 設定有變才更新。舊的 `digest subscribe-email` CLI 保留作相容與手動管理，不是正常 quickstart。
 
+SMTP transport 必須明示加密模式：implicit TLS（常見 port 465）使用
+`PAPER_RADAR_SMTP_SECURITY=ssl`；需要 STARTTLS（常見 port 587）的 provider 改成
+`PAPER_RADAR_SMTP_SECURITY=starttls`。不支援 plaintext SMTP。
+
 
 ## MVP worker：一份 .env 啟動
 
