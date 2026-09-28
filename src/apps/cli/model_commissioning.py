@@ -1,6 +1,8 @@
 import hashlib
 import json
+import re
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
 
 from libs.paper_explanations.dtos.openrouter_policy import OpenRouterPolicy
 from libs.paper_explanations.dtos.structured_generation_request import MODEL_NAME
@@ -51,3 +53,33 @@ def commissioned_openrouter_budget_period(
         raise ValueError("timezone_required")
     utc = current.astimezone(timezone.utc)
     return (f"{utc.year:04d}-{utc.month:02d}", "USD")
+
+
+
+def model_budget_usd_to_micros(value: str) -> int:
+    try:
+        if (
+            not isinstance(value, str)
+            or re.fullmatch(
+                r"(?:0|[0-9]{1,6})(?:\.[0-9]{1,6})?",
+                value,
+            )
+            is None
+        ):
+            raise ValueError("budget")
+        amount = Decimal(value)
+        if (
+            not amount.is_finite()
+            or amount <= 0
+            or amount > Decimal("1000000")
+        ):
+            raise ValueError("budget")
+        micros = amount * Decimal(1_000_000)
+        if micros != micros.to_integral_value():
+            raise ValueError("budget")
+        result = int(micros)
+        if not 1 <= result < 2**63:
+            raise ValueError("budget")
+        return result
+    except (InvalidOperation, ValueError, OverflowError):
+        raise ValueError("invalid_model_budget_usd") from None
