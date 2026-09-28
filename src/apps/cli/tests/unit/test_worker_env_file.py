@@ -99,3 +99,32 @@ def test_env_file_mode_rejects_runtime_flag_mixing(
     assert "cannot be combined with runtime configuration flags" in (
         capsys.readouterr().err
     )
+
+
+
+def test_live_source_env_requires_profile_config(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    path = _write(
+        tmp_path / "worker.env",
+        "\n".join(
+            (
+                "PAPER_RADAR_WORKSPACE=/tmp/paper-radar",
+                "PAPER_RADAR_ALLOW_LIVE_SOURCE=true",
+            )
+        )
+        + "\n",
+    )
+
+    with pytest.raises(SystemExit):
+        run_worker_cli(
+            [
+                "run-worker",
+                "--env-file",
+                str(path),
+                "--once",
+            ]
+        )
+
+    assert "requires profile domains and scope" in capsys.readouterr().err
