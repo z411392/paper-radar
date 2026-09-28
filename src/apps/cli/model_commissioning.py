@@ -66,6 +66,17 @@ def commissioned_openrouter_reservation_micros() -> int:
     return result
 
 
+COMMISSIONED_VERIFIED_SUMMARY_MODEL_CALLS = 4
+
+
+def commissioned_verified_summary_reservation_micros() -> int:
+    reservation = commissioned_openrouter_reservation_micros()
+    result = reservation * COMMISSIONED_VERIFIED_SUMMARY_MODEL_CALLS
+    if not 1 <= result < 2**63:
+        raise ValueError("invalid_commissioned_summary_reservation")
+    return result
+
+
 def commissioned_openrouter_budget_period(
     now: datetime | None = None,
 ) -> tuple[str, str]:
