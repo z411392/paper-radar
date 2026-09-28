@@ -1,0 +1,72 @@
+name: Live SMTP smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_send:
+        description: Send one real Paper Radar SMTP smoke email
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-smtp-smoke-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  smtp-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      UV_PYTHON: "3.13.5"
+      PAPER_RADAR_LIVE_SMTP: "1"
+      PAPER_RADAR_SMTP_SMOKE_ID: ${{ github.run_id }}
+      PAPER_RADAR_SMTP_HOST: ${{ secrets.PAPER_RADAR_SMTP_HOST }}
+      PAPER_RADAR_SMTP_PORT: ${{ secrets.PAPER_RADAR_SMTP_PORT }}
+      PAPER_RADAR_SMTP_SECURITY: ${{ secrets.PAPER_RADAR_SMTP_SECURITY }}
+      PAPER_RADAR_SMTP_SENDER: ${{ secrets.PAPER_RADAR_SMTP_SENDER }}
+      PAPER_RADAR_SMTP_USERNAME: ${{ secrets.PAPER_RADAR_SMTP_USERNAME }}
+      PAPER_RADAR_SMTP_PASSWORD: ${{ secrets.PAPER_RADAR_SMTP_PASSWORD }}
+      PAPER_RADAR_SMTP_RECIPIENT: ${{ secrets.PAPER_RADAR_SMTP_RECIPIENT }}
+    steps:
+      - name: Require explicit send confirmation
+        shell: bash
+        run: |
+          if [[ "${{ inputs.confirm_send }}" != "true" ]]; then
+            echo "::error::confirm_send must be enabled for the live SMTP smoke"
+            exit 1
+          fi
+
+      - name: Check required repository secrets
+        shell: bash
+        run: |
+          missing=0
+          for name in             PAPER_RADAR_SMTP_HOST             PAPER_RADAR_SMTP_PORT             PAPER_RADAR_SMTP_SECURITY             PAPER_RADAR_SMTP_SENDER             PAPER_RADAR_SMTP_USERNAME             PAPER_RADAR_SMTP_PASSWORD             PAPER_RADAR_SMTP_RECIPIENT
+          do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::Missing repository secret: $name"
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: 0.10.0
+          enable-cache: false
+
+      - name: Install the locked development environment
+        run: uv sync --locked
+
+      - name: Send one live SMTP smoke email
+        run: >-
+          uv run --locked pytest -q
+          src/libs/delivery/tests/integration/test_live_smtp.py
+          -m live_external
