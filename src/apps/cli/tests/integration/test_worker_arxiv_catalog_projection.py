@@ -1691,6 +1691,19 @@ class MutableWorkflowClock:
         return self.current
 
 
+def test_mutable_workflow_clock_uses_wall_time_until_pinned() -> None:
+    clock = MutableWorkflowClock()
+    before = datetime.now(timezone.utc)
+    observed = clock.now()
+    after = datetime.now(timezone.utc)
+
+    assert before <= observed <= after
+
+    pinned = datetime(2026, 9, 29, 8, 1, tzinfo=timezone.utc)
+    clock.current = pinned
+    assert clock.now() == pinned
+
+
 def _mark_live_arxiv_caught_up(
     root: Path,
     window_end: datetime,
