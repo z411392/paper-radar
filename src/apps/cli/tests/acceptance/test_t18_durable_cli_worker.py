@@ -499,7 +499,6 @@ def test_worker_env_live_mail_fails_fast_when_effects_disabled(
     assert subscriptions == 0
 
 
-
 def test_worker_env_restores_historical_profile_revision(
     tmp_path: Path,
 ) -> None:
