@@ -123,6 +123,24 @@ def test_modern_legacy_and_unknown_version(parse, request_page, identity, versio
     assert record.version == version
 
 
+def test_http_arxiv_identity_is_canonicalized_to_https(
+    parse,
+    request_page,
+):
+    raw = atom(
+        modify=lambda root: setattr(
+            first(root).find(ATOM + "id"),
+            "text",
+            "http://arxiv.org/abs/2609.00001v2",
+        )
+    )
+
+    record = parse(request_page, raw, http_status=200).records[0]
+
+    assert record.source_record_id == "2609.00001v2"
+    assert record.source_url == "https://arxiv.org/abs/2609.00001v2"
+
+
 def test_missing_abstract_is_unknown_not_fabricated(parse, request_page):
     raw = atom(modify=lambda r: first(r).remove(first(r).find(ATOM + "summary")))
     record = parse(request_page, raw, http_status=200).records[0]
