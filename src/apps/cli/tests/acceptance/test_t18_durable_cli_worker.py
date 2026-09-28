@@ -93,6 +93,48 @@ def test_launchd_template_uses_same_cli_and_does_not_enable_live_source_by_defau
     assert "__WORKSPACE__" in text
 
 
+
+def test_live_mail_single_recipient_commissioning_runs_idle_without_network(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "runtime-mail"
+    initialized = _run(
+        "init",
+        "--workspace",
+        str(workspace),
+        "--with-runtime",
+    )
+    assert initialized.returncode == 0
+
+    password_file = tmp_path / "smtp-password"
+    password_file.write_text("fake-smtp-password\n", encoding="utf-8")
+    password_file.chmod(0o600)
+
+    worker = _run(
+        "run-worker",
+        "--workspace",
+        str(workspace),
+        "--once",
+        "--allow-live-mail",
+        "--recipient-email",
+        "reader@example.com",
+        "--smtp-host",
+        "smtp.example.com",
+        "--smtp-port",
+        "465",
+        "--smtp-sender",
+        "paper-radar@example.com",
+        "--smtp-username",
+        "mailer@example.com",
+        "--smtp-password-file",
+        str(password_file),
+    )
+
+    assert worker.returncode == 0, worker.stdout + worker.stderr
+    result = json.loads(worker.stdout)
+    assert result["processed_jobs"] == 0
+    assert result["jobs"] == []
+
 def test_model_options_require_explicit_live_model_gate(tmp_path: Path) -> None:
     key_file = tmp_path / "openrouter.key"
 
