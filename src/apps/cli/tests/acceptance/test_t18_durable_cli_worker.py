@@ -162,7 +162,7 @@ def test_live_model_requires_complete_budget_commissioning(tmp_path: Path) -> No
 
     assert worker.returncode == 2
     assert (
-        "--allow-live-model requires API key file and complete model budget policy"
+        "--allow-live-model requires one credential and complete model budget policy"
         in worker.stderr
     )
 
