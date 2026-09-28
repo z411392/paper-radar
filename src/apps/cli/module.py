@@ -124,6 +124,7 @@ from libs.kernel.application.commands.set_workspace_external_effects import (
 from libs.kernel.application.commands.publish_object import PublishObject
 from libs.kernel.application.queries.read_object import ReadObject
 from libs.kernel.ports.initialize_workspace_port import InitializeWorkspacePort
+from libs.kernel.ports.read_workspace_info_port import ReadWorkspaceInfoPort
 from libs.kernel.ports.set_workspace_external_effects_port import (
     SetWorkspaceExternalEffectsPort,
 )
@@ -357,6 +358,52 @@ class CliModule(Module):
             binder.bind(InitializeWorkspacePort, to=InstanceProvider(command), scope=singleton)
 
 
+
+
+class RuntimeConfigurationCliModule(Module):
+    """Validate runtime schema and expose local env-managed configuration ports."""
+
+    def __init__(self, workspace: str) -> None:
+        self._workspace = workspace
+
+    def configure(self, binder: Binder) -> None:
+        connection = SqliteSchemaConnectionFactory(
+            Path(self._workspace),
+            load_workspace_migrations(with_runtime=True),
+            minimum_version=24,
+        )
+        binder.bind(
+            ReadWorkspaceInfoPort,
+            to=InstanceProvider(
+                SqliteWorkspaceInfoAdapter(connection.connect)
+            ),
+        )
+        store = SqliteWatchProfileStoreAdapter(connection.connect)
+        normalize = NormalizeWatchConfiguration(
+            frozenset({"arxiv", "pubmed", "crossref"})
+        )
+        binder.bind(
+            ImportDomainSeedsPort,
+            to=InstanceProvider(
+                ImportDomainSeeds(normalize, store)
+            ),
+        )
+        binder.bind(
+            PublishWatchProfilePort,
+            to=InstanceProvider(
+                PublishWatchProfile(normalize, store)
+            ),
+        )
+        binder.bind(
+            ReadWatchProfilePort,
+            to=InstanceProvider(ReadWatchProfile(store)),
+        )
+        binder.bind(
+            ConfigureEmailSubscriptionPort,
+            to=InstanceProvider(
+                SqliteEmailSubscriptionAdapter(connection.connect)
+            ),
+        )
 
 
 class DeliveryCliModule(Module):
