@@ -15,6 +15,7 @@ from apps.cli.model_commissioning import (
     commissioned_openrouter_execution_policy_fingerprint,
     commissioned_openrouter_reservation_micros,
 )
+from apps.cli.adapters.driving.run_worker import run_worker_cli
 from apps.cli.module import WorkerCliModule
 from libs.delivery.dtos.delivery_dispatch import MailSendResult
 from libs.delivery.dtos.scheduled_digest import ScheduledDigestRequest
@@ -1384,6 +1385,139 @@ def test_mvp_one_arxiv_paper_becomes_one_traditional_chinese_email(
         assert connection.execute(
             "SELECT count(*) FROM delivery_attempts"
         ).fetchone()[0] == 1
+    finally:
+        connection.close()
+
+
+def test_worker_env_active_pipeline_reaches_one_email(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    root = tmp_path / "env-active-runtime"
+    info = SqliteWorkspaceBootstrapAdapter(
+        root,
+        load_workspace_migrations(with_runtime=True),
+    ).initialize()
+    assert info.schema_version == 24
+
+    connection = SqliteConnectionFactory(root).connect()
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        connection.execute(
+            "UPDATE workspace_metadata SET external_effects_enabled=1 "
+            "WHERE singleton=1"
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    env_file = tmp_path / "worker.env"
+    env_file.write_text(
+        "\n".join(
+            (
+                f"PAPER_RADAR_WORKSPACE={root}",
+                "PAPER_RADAR_ALLOW_LIVE_SOURCE=true",
+                "PAPER_RADAR_ALLOW_LIVE_MODEL=true",
+                "PAPER_RADAR_ALLOW_LIVE_MAIL=true",
+                "PAPER_RADAR_PROFILE_DOMAINS=statistics",
+                "PAPER_RADAR_PROFILE_SCOPE=關注統計與機器學習的新 arXiv 論文。",
+                "PAPER_RADAR_OPENROUTER_API_KEY="
+                "sk-or-v1-fake-env-pipeline-000000",
+                "PAPER_RADAR_MODEL_MONTHLY_BUDGET_USD=2.00",
+                "PAPER_RADAR_RECIPIENT_EMAIL=reader@example.com",
+                "PAPER_RADAR_SMTP_HOST=smtp.example.com",
+                "PAPER_RADAR_SMTP_PORT=465",
+                "PAPER_RADAR_SMTP_SENDER=paper-radar@example.com",
+                "PAPER_RADAR_SMTP_USERNAME=mailer@example.com",
+                "PAPER_RADAR_SMTP_PASSWORD=fake-smtp-password",
+                "PAPER_RADAR_SMTP_SECURITY=ssl",
+                "PAPER_RADAR_DIGEST_TIMEZONE=UTC",
+                "PAPER_RADAR_DIGEST_LOCAL_TIME=08:00",
+                "PAPER_RADAR_DIGEST_MAX_ITEMS=5",
+                "PAPER_RADAR_MAX_NEW_JOBS=10",
+                "PAPER_RADAR_MAX_JOBS=10",
+            )
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    env_file.chmod(0o600)
+
+    observed_at = datetime(2026, 9, 24, 0, 0, tzinfo=timezone.utc)
+    clock = MutableWorkflowClock(
+        datetime(2026, 9, 24, 8, 1, tzinfo=timezone.utc)
+    )
+    source = MvpArxivTransport(observed_at)
+    model = FakeOpenRouterHttpTransport()
+    mail = CapturingMailSender()
+
+    def worker_module_factory(workspace: str, **kwargs):
+        return WorkerCliModule(
+            workspace,
+            **kwargs,
+            transport=source,
+            model_http_transport=model,
+            mail_sender=mail,
+            recipient_resolver=MvpRecipientResolver(),
+            workflow_clock=clock,
+        )
+
+    outputs = []
+    for _ in range(4):
+        run_worker_cli(
+            [
+                "run-worker",
+                "--env-file",
+                str(env_file),
+                "--once",
+            ],
+            worker_module_factory=worker_module_factory,
+        )
+        captured = capsys.readouterr()
+        assert captured.err == ""
+        outputs.append(json.loads(captured.out))
+
+    assert [
+        [(job["job_kind"], job["state"]) for job in output["jobs"]]
+        for output in outputs[:3]
+    ] == [
+        [
+            ("harvest_window", "succeeded"),
+            ("explain_snapshot", "succeeded"),
+        ],
+        [("prepare_digest", "succeeded")],
+        [("dispatch_digest", "succeeded")],
+    ]
+    assert outputs[3]["processed_jobs"] == 0
+    assert source.calls == 1
+    assert model.schemas == [
+        "paper_claims",
+        "paper_relevance",
+        "reading_card",
+        "support_verification",
+    ]
+    assert len(mail.messages) == 1
+    assert mail.messages[0].recipient == "reader@example.com"
+    assert "Synthetic arXiv study" in mail.messages[0].text_body
+    assert "這份研究提供 arXiv 摘要證據。" in mail.messages[0].text_body
+
+    connection = SqliteConnectionFactory(root).connect()
+    try:
+        assert connection.execute(
+            "SELECT count(*) FROM current_summaries"
+        ).fetchone()[0] == 1
+        assert connection.execute(
+            "SELECT count(*) FROM digests"
+        ).fetchone()[0] == 1
+        assert connection.execute(
+            "SELECT state FROM delivery_outbox"
+        ).fetchone()[0] == "provider_accepted"
+        assert connection.execute(
+            "SELECT count(*) FROM delivery_attempts"
+        ).fetchone()[0] == 1
+        assert connection.execute(
+            "SELECT count(*) FROM model_runs"
+        ).fetchone()[0] == 4
     finally:
         connection.close()
 
