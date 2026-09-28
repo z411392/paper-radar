@@ -443,7 +443,6 @@ def test_worker_env_file_bootstraps_mvp_profile_without_profile_cli(
     assert json.loads(filters[0])["sources"] == ["arxiv"]
 
 
-
 def test_worker_env_live_mail_fails_fast_when_effects_disabled(
     tmp_path: Path,
 ) -> None:
