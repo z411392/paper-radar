@@ -178,6 +178,29 @@ def test_invalid_request_fails_before_http(changes, code):
     http.post.assert_not_called()
 
 
+def test_unknown_provider_schema_keyword_fails_before_http():
+    schema = json.dumps(
+        {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "text": {
+                    "type": "string",
+                    "futureKeyword": True,
+                }
+            },
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    run, http = adapter()
+
+    with pytest.raises(ModelGatewayError, match="invalid_generation_request"):
+        run(request(response_schema_json=schema))
+
+    http.post.assert_not_called()
+
+
 def test_disabled_adapter_never_uses_transport():
     run, http = adapter(enabled=False)
     with pytest.raises(ModelGatewayError, match='model_disabled'):
