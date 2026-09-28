@@ -260,3 +260,55 @@ def test_live_model_invalid_credential_is_sanitized(tmp_path: Path) -> None:
     assert worker.returncode == 1
     assert json.loads(worker.stderr)["error"]["code"] == "credential_invalid"
     assert secret not in worker.stdout + worker.stderr
+
+
+
+def test_worker_env_file_commissions_single_user_runtime(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "runtime-env"
+    initialized = _run(
+        "init",
+        "--workspace",
+        str(workspace),
+        "--with-runtime",
+    )
+    assert initialized.returncode == 0
+
+    secret = "sk-or-v1-fake-env-secret-000000"
+    env_file = tmp_path / "worker.env"
+    env_file.write_text(
+        "\n".join(
+            (
+                f"PAPER_RADAR_WORKSPACE={workspace}",
+                "PAPER_RADAR_ALLOW_LIVE_SOURCE=true",
+                "PAPER_RADAR_ALLOW_LIVE_MODEL=true",
+                "PAPER_RADAR_ALLOW_LIVE_MAIL=true",
+                f"PAPER_RADAR_OPENROUTER_API_KEY={secret}",
+                "PAPER_RADAR_MODEL_PERIOD_LIMIT_MICROS=1000000",
+                "PAPER_RADAR_MODEL_RESERVATION_MICROS=10000",
+                "PAPER_RADAR_RECIPIENT_EMAIL=reader@example.com",
+                "PAPER_RADAR_SMTP_HOST=smtp.example.com",
+                "PAPER_RADAR_SMTP_PORT=465",
+                "PAPER_RADAR_SMTP_SENDER=paper-radar@example.com",
+                "PAPER_RADAR_SMTP_USERNAME=mailer@example.com",
+                "PAPER_RADAR_SMTP_PASSWORD=fake-smtp-password",
+            )
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    env_file.chmod(0o600)
+
+    worker = _run(
+        "run-worker",
+        "--env-file",
+        str(env_file),
+        "--once",
+    )
+
+    assert worker.returncode == 0, worker.stdout + worker.stderr
+    result = json.loads(worker.stdout)
+    assert result["processed_jobs"] == 0
+    assert result["jobs"] == []
+    assert secret not in worker.stdout + worker.stderr
