@@ -12,10 +12,8 @@
     <string>-m</string>
     <string>apps.cli</string>
     <string>run-worker</string>
-    <string>--workspace</string>
-    <string>__WORKSPACE__</string>
-    <string>--poll-seconds</string>
-    <string>60</string>
+    <string>--env-file</string>
+    <string>__ENV_FILE__</string>
   </array>
   <key>RunAtLoad</key>
   <true/>
