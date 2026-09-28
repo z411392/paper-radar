@@ -3,7 +3,10 @@ from datetime import datetime, timezone
 import pytest
 
 from apps.cli.adapters.driving.run_worker import _parser, run_worker_cli
-from apps.cli.model_commissioning import commissioned_openrouter_budget_period
+from apps.cli.model_commissioning import (
+    commissioned_openrouter_budget_period,
+    model_budget_usd_to_micros,
+)
 
 
 def parse(*args: str):
@@ -147,7 +150,6 @@ def test_model_policy_fingerprint_is_not_an_operator_argument() -> None:
         parse("--model-policy-fingerprint", "a" * 64)
 
 
-
 @pytest.mark.parametrize(
     "option,value",
     [
@@ -163,12 +165,10 @@ def test_model_accounting_identity_is_not_an_operator_argument(
         parse(option, value)
 
 
-
 def test_openrouter_budget_period_uses_utc_month_and_usd() -> None:
     assert commissioned_openrouter_budget_period(
         datetime(2026, 9, 28, 7, 0, tzinfo=timezone.utc)
     ) == ("2026-09", "USD")
-
 
 
 def test_single_recipient_mail_does_not_require_map_file() -> None:
@@ -190,7 +190,6 @@ def test_single_recipient_mail_does_not_require_map_file() -> None:
 
     assert value.recipient_email == "reader@example.com"
     assert value.recipient_map_file is None
-
 
 
 def test_live_mail_rejects_direct_email_and_map_file_together(
@@ -220,3 +219,35 @@ def test_live_mail_rejects_direct_email_and_map_file_together(
             ]
         )
     assert "requires exactly one of --recipient-email" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "value,micros",
+    [
+        ("1", 1_000_000),
+        ("1.00", 1_000_000),
+        ("0.01", 10_000),
+        ("0.000001", 1),
+    ],
+)
+def test_model_budget_usd_converts_exactly(
+    value: str,
+    micros: int,
+) -> None:
+    assert model_budget_usd_to_micros(value) == micros
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "0",
+        "-1",
+        "1.0000001",
+        "1e-3",
+        " 1.00",
+        "1.00 ",
+    ],
+)
+def test_model_budget_usd_rejects_ambiguous_values(value: str) -> None:
+    with pytest.raises(ValueError, match="invalid_model_budget_usd"):
+        model_budget_usd_to_micros(value)
