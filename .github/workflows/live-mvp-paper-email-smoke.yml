@@ -1,0 +1,67 @@
+name: Live MVP paper email smoke
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-mvp-paper-email-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  live-mvp:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      UV_PYTHON: "3.13.5"
+      PAPER_RADAR_LIVE_MVP_E2E: "1"
+      PAPER_RADAR_OPENROUTER_API_KEY: ${{ secrets.PAPER_RADAR_OPENROUTER_API_KEY }}
+      PAPER_RADAR_SMTP_HOST: ${{ secrets.PAPER_RADAR_SMTP_HOST }}
+      PAPER_RADAR_SMTP_PORT: ${{ secrets.PAPER_RADAR_SMTP_PORT }}
+      PAPER_RADAR_SMTP_SECURITY: ${{ secrets.PAPER_RADAR_SMTP_SECURITY }}
+      PAPER_RADAR_SMTP_SENDER: ${{ secrets.PAPER_RADAR_SMTP_SENDER }}
+      PAPER_RADAR_SMTP_USERNAME: ${{ secrets.PAPER_RADAR_SMTP_USERNAME }}
+      PAPER_RADAR_SMTP_PASSWORD: ${{ secrets.PAPER_RADAR_SMTP_PASSWORD }}
+      PAPER_RADAR_SMTP_RECIPIENT: ${{ secrets.PAPER_RADAR_SMTP_RECIPIENT }}
+    steps:
+      - name: Check required repository secrets
+        shell: bash
+        run: |
+          missing=0
+          for name in \
+            PAPER_RADAR_OPENROUTER_API_KEY \
+            PAPER_RADAR_SMTP_HOST \
+            PAPER_RADAR_SMTP_PORT \
+            PAPER_RADAR_SMTP_SECURITY \
+            PAPER_RADAR_SMTP_SENDER \
+            PAPER_RADAR_SMTP_USERNAME \
+            PAPER_RADAR_SMTP_PASSWORD \
+            PAPER_RADAR_SMTP_RECIPIENT
+          do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::Missing repository secret: $name"
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: 0.10.0
+          enable-cache: false
+
+      - name: Install the locked development environment
+        run: uv sync --locked
+
+      - name: Run real arXiv to OpenRouter to Gmail smoke
+        run: >-
+          uv run --locked pytest -q
+          src/apps/cli/tests/integration/test_worker_arxiv_catalog_projection.py
+          -m live_external
+          -k live_arxiv_openrouter_gmail_e2e
