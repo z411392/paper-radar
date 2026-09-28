@@ -283,3 +283,54 @@ def test_smtp_5xx_response_is_terminal_rejection(
     )
 
     assert result.state == "rejected"
+
+
+@pytest.mark.parametrize(
+    "code,expected",
+    [
+        (450, "retryable"),
+        (550, "rejected"),
+    ],
+)
+def test_smtp_refused_result_uses_response_class(
+    monkeypatch,
+    code: int,
+    expected: str,
+) -> None:
+    class FakeSmtp:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback) -> None:
+            return None
+
+        def login(self, username: str, password: str) -> None:
+            pass
+
+        def send_message(self, message):
+            return {
+                "reader@example.com": (
+                    code,
+                    b"temporary" if code < 500 else b"permanent",
+                )
+            }
+
+    monkeypatch.setattr(
+        "libs.delivery.adapters.driven.smtp_mail_sender_adapter.smtplib.SMTP_SSL",
+        FakeSmtp,
+    )
+
+    result = SmtpMailSenderAdapter(**valid()).send(
+        MailMessage(
+            recipient="reader@example.com",
+            subject="Paper Radar",
+            text_body="text",
+            html_body="<p>text</p>",
+            idempotency_key="digest:refused-return",
+        )
+    )
+
+    assert result.state == expected
