@@ -955,6 +955,7 @@ class SqliteDeliveryStoreAdapter:
         if not isinstance(result, MailSendResult) or result.state not in {
             "provider_accepted",
             "rejected",
+            "retryable",
             "unknown",
         }:
             raise DeliveryStoreError("invalid_mail_result")
@@ -974,6 +975,11 @@ class SqliteDeliveryStoreAdapter:
                 raise DeliveryStoreError("delivery_attempt_missing")
             if row["attempt_state"] != "sending" or row["outbox_state"] != "sending":
                 if row["attempt_state"] in {"provider_accepted", "failed", "unknown"}:
+                    if (
+                        row["attempt_state"] == "failed"
+                        and row["outbox_state"] == "pending"
+                    ):
+                        return "retryable"
                     return row["outbox_state"]
                 raise DeliveryStoreError("delivery_state_corrupt")
 
@@ -982,16 +988,25 @@ class SqliteDeliveryStoreAdapter:
                 outbox_state = "provider_accepted"
                 digest_state = "sent"
                 ledger_state = "accepted"
+                return_state = "provider_accepted"
+            elif result.state == "retryable":
+                attempt_state = "failed"
+                outbox_state = "pending"
+                digest_state = "queued"
+                ledger_state = "reserved"
+                return_state = "retryable"
             elif result.state == "rejected":
                 attempt_state = "failed"
                 outbox_state = "failed"
                 digest_state = "queued"
                 ledger_state = "reserved"
+                return_state = "failed"
             else:
                 attempt_state = "unknown"
                 outbox_state = "unknown"
                 digest_state = "unknown"
                 ledger_state = "unknown"
+                return_state = "unknown"
 
             connection.execute(
                 "UPDATE delivery_attempts SET state=?,provider_message_id=?,error_code=?,finished_at=? "
@@ -1016,4 +1031,4 @@ class SqliteDeliveryStoreAdapter:
                 "UPDATE notification_ledger SET state=? WHERE outbox_id=?",
                 (ledger_state, row["outbox_id"]),
             )
-            return outbox_state
+            return return_state
