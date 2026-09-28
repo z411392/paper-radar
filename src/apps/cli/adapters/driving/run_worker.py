@@ -19,6 +19,7 @@ from apps.cli.helpers.read_worker_env_file import read_worker_env_file
 from apps.cli.model_commissioning import (
     commissioned_openrouter_budget_period,
     commissioned_openrouter_execution_policy_fingerprint,
+    commissioned_openrouter_reservation_micros,
     model_budget_usd_to_micros,
 )
 from apps.cli.module import RuntimeConfigurationCliModule, WorkerCliModule
@@ -359,9 +360,10 @@ def run_worker_cli(argv: list[str]) -> None:
                 env,
                 "PAPER_RADAR_MODEL_MONTHLY_BUDGET_USD",
             )
-            arguments.model_reservation_micros = _env_model_budget_usd(
-                env,
-                "PAPER_RADAR_MODEL_RESERVATION_USD",
+            arguments.model_reservation_micros = (
+                commissioned_openrouter_reservation_micros()
+                if arguments.model_period_limit_micros is not None
+                else None
             )
             arguments.recipient_email = env.get(
                 "PAPER_RADAR_RECIPIENT_EMAIL"
@@ -575,6 +577,11 @@ def run_worker_cli(argv: list[str]) -> None:
                 "--openrouter-api-key-file must be an absolute path without NUL characters"
             )
         if arguments.model_reservation_micros > arguments.model_period_limit_micros:
+            if arguments.env_file is not None:
+                parser.error(
+                    "PAPER_RADAR_MODEL_MONTHLY_BUDGET_USD is below the "
+                    "commissioned single-request reservation"
+                )
             parser.error(
                 "--model-reservation-micros must not exceed --model-period-limit-micros"
             )
