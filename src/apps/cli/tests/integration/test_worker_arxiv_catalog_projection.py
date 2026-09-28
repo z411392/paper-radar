@@ -9,6 +9,11 @@ from threading import Barrier
 import pytest
 from injector import Injector
 
+from apps.cli.model_commissioning import (
+    commissioned_openrouter_budget_period,
+    commissioned_openrouter_execution_policy_fingerprint,
+    commissioned_openrouter_reservation_micros,
+)
 from apps.cli.module import WorkerCliModule
 from libs.delivery.dtos.delivery_dispatch import MailSendResult
 from libs.delivery.dtos.scheduled_digest import ScheduledDigestRequest
@@ -1458,6 +1463,161 @@ def _seed_live_arxiv_mvp(root: Path) -> None:
             "WHERE singleton=1"
         )
         connection.commit()
+    finally:
+        connection.close()
+
+
+def _required_live_mvp(name: str) -> str:
+    value = os.environ.get(name)
+    if value is None or not value.strip():
+        raise AssertionError(f"missing live MVP env: {name}")
+    return value
+
+
+@pytest.mark.live_external
+@pytest.mark.skipif(
+    os.environ.get("PAPER_RADAR_LIVE_MVP_E2E") != "1",
+    reason=(
+        "set PAPER_RADAR_LIVE_MVP_E2E=1 for the bounded real "
+        "arXiv -> OpenRouter -> Gmail smoke"
+    ),
+)
+def test_live_arxiv_openrouter_gmail_e2e(tmp_path: Path) -> None:
+    root = _workspace(tmp_path)
+    _seed_live_arxiv_mvp(root)
+
+    try:
+        smtp_port = int(_required_live_mvp("PAPER_RADAR_SMTP_PORT"))
+    except ValueError:
+        raise AssertionError("invalid live MVP SMTP port") from None
+
+    period_key, currency = commissioned_openrouter_budget_period()
+    recipient = _required_live_mvp("PAPER_RADAR_SMTP_RECIPIENT")
+    injector = Injector(
+        [
+            WorkerCliModule(
+                str(root),
+                allow_live_source=True,
+                rate_limit_state=str(
+                    tmp_path / "arxiv-rate-live-full-mvp.json"
+                ),
+                transport=HttpClientArxivTransportAdapter(
+                    enabled=True,
+                    timeout_seconds=30,
+                ),
+                allow_live_model=True,
+                model_api_key=_required_live_mvp(
+                    "PAPER_RADAR_OPENROUTER_API_KEY"
+                ),
+                generation_budget_policy=GenerationBudgetPolicy(
+                    period_key,
+                    currency,
+                    2_000_000,
+                    commissioned_openrouter_reservation_micros(),
+                    commissioned_openrouter_execution_policy_fingerprint(),
+                ),
+                allow_live_mail=True,
+                recipient_map_json=json.dumps(
+                    {"recipient:primary": recipient},
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
+                smtp_host=_required_live_mvp("PAPER_RADAR_SMTP_HOST"),
+                smtp_port=smtp_port,
+                smtp_sender=_required_live_mvp("PAPER_RADAR_SMTP_SENDER"),
+                smtp_username=_required_live_mvp(
+                    "PAPER_RADAR_SMTP_USERNAME"
+                ),
+                smtp_password=_required_live_mvp(
+                    "PAPER_RADAR_SMTP_PASSWORD"
+                ),
+                smtp_security=_required_live_mvp(
+                    "PAPER_RADAR_SMTP_SECURITY"
+                ),
+            )
+        ],
+        auto_bind=False,
+    )
+    worker = injector.get(RunWorkerCyclePort)
+
+    generated = worker(
+        "worker:mvp-live-full",
+        max_new_jobs=10,
+        max_jobs=10,
+        lease_seconds=300,
+    )
+
+    assert [
+        (job.job_kind, job.state, job.error_code)
+        for job in generated.jobs
+    ] == [
+        ("harvest_window", "succeeded", None),
+        ("explain_snapshot", "succeeded", None),
+    ]
+
+    connection = SqliteConnectionFactory(root).connect()
+    try:
+        paper = connection.execute(
+            "SELECT e.observed_at,r.title "
+            "FROM research_events e "
+            "JOIN paper_revisions r ON r.id=e.revision_id "
+            "WHERE lower(r.title) LIKE '%attention is all you need%' "
+            "ORDER BY e.observed_at DESC LIMIT 1"
+        ).fetchone()
+        assert paper is not None
+        observed_at = datetime.fromisoformat(paper["observed_at"])
+
+        runs = connection.execute(
+            "SELECT task_kind,state,actual_cost_micros "
+            "FROM model_runs ORDER BY started_at,id"
+        ).fetchall()
+        assert [row["task_kind"] for row in runs] == [
+            "claim_extraction",
+            "relevance_assessment",
+            "abstract_reading_card",
+            "support_verification",
+        ]
+        assert all(row["state"] == "succeeded" for row in runs)
+        assert all(
+            isinstance(row["actual_cost_micros"], int)
+            and row["actual_cost_micros"] > 0
+            for row in runs
+        )
+
+        summary = connection.execute(
+            "SELECT language,qa_state FROM summary_revisions"
+        ).fetchone()
+        assert tuple(summary) == ("zh-TW", "passed")
+    finally:
+        connection.close()
+
+    cutoff = datetime.now(timezone.utc)
+    prepared = injector.get(PrepareScheduledDigestPort)(
+        ScheduledDigestRequest(
+            "subscription:live-arxiv",
+            "live-full-mvp-smoke",
+            observed_at - timedelta(minutes=1),
+            cutoff,
+        ),
+        created_at=cutoff,
+    )
+    assert prepared.state == "queued"
+    assert prepared.item_count == 1
+    assert prepared.outbox_id is not None
+
+    delivered = injector.get(ProcessRevisionNoticePort)(
+        RevisionNoticeRequest(prepared.outbox_id)
+    )
+    assert delivered.state == "succeeded"
+
+    connection = SqliteConnectionFactory(root).connect()
+    try:
+        assert connection.execute(
+            "SELECT state FROM delivery_outbox"
+        ).fetchone()[0] == "provider_accepted"
+        assert connection.execute(
+            "SELECT count(*) FROM delivery_attempts"
+        ).fetchone()[0] == 1
     finally:
         connection.close()
 
