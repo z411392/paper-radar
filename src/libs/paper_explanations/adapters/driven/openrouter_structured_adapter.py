@@ -17,8 +17,44 @@ from libs.paper_explanations.ports.model_http_transport_port import ModelHttpTra
 ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions'
 
 
+PROVIDER_SCHEMA_PROFILE = "gemini-structured-subset-v1"
+
+
 class OpenRouterStructuredAdapter:
     """One explicit, bounded completion. This is not a budget ledger or retry manager."""
+
+    _PROVIDER_SCHEMA_KEYS = frozenset(
+        {
+            "$id",
+            "$defs",
+            "$ref",
+            "$anchor",
+            "type",
+            "format",
+            "title",
+            "description",
+            "enum",
+            "items",
+            "prefixItems",
+            "minItems",
+            "maxItems",
+            "minimum",
+            "maximum",
+            "anyOf",
+            "oneOf",
+            "properties",
+            "additionalProperties",
+            "required",
+            "const",
+            "pattern",
+            "uniqueItems",
+            "minLength",
+            "maxLength",
+        }
+    )
+    _LOCAL_ONLY_SCHEMA_KEYS = frozenset(
+        {"pattern", "uniqueItems", "minLength", "maxLength"}
+    )
 
     def __init__(self, transport: ModelHttpTransportPort, policy: OpenRouterPolicy) -> None:
         self.validate_policy(policy)
@@ -51,6 +87,51 @@ class OpenRouterStructuredAdapter:
             raise ModelGatewayError(code)
         return value
 
+    @classmethod
+    def _provider_schema(cls, value: object) -> dict:
+        if not isinstance(value, dict):
+            raise ModelGatewayError("invalid_generation_request")
+        unknown = set(value) - cls._PROVIDER_SCHEMA_KEYS
+        if unknown:
+            raise ModelGatewayError("invalid_generation_request")
+
+        result = {}
+        for key, item in value.items():
+            if key in cls._LOCAL_ONLY_SCHEMA_KEYS:
+                continue
+            if key == "const":
+                if "enum" in value and value["enum"] != [item]:
+                    raise ModelGatewayError("invalid_generation_request")
+                result["enum"] = [item]
+                continue
+            if key in {"properties", "$defs"}:
+                if not isinstance(item, dict):
+                    raise ModelGatewayError("invalid_generation_request")
+                result[key] = {
+                    name: cls._provider_schema(schema)
+                    for name, schema in item.items()
+                    if isinstance(name, str) and name
+                }
+                if len(result[key]) != len(item):
+                    raise ModelGatewayError("invalid_generation_request")
+                continue
+            if key in {"items", "additionalProperties"}:
+                if key == "additionalProperties" and isinstance(item, bool):
+                    result[key] = item
+                else:
+                    result[key] = cls._provider_schema(item)
+                continue
+            if key in {"prefixItems", "anyOf", "oneOf"}:
+                if not isinstance(item, list):
+                    raise ModelGatewayError("invalid_generation_request")
+                result[key] = [
+                    cls._provider_schema(schema)
+                    for schema in item
+                ]
+                continue
+            result[key] = item
+        return result
+
     def _wire(self, request: StructuredGenerationRequest) -> bytes:
         code = 'invalid_generation_request'
         if not isinstance(request, StructuredGenerationRequest):
@@ -66,6 +147,7 @@ class OpenRouterStructuredAdapter:
         schema = GenerationJson.object(request.response_schema_json, code, limit=65536)
         if schema.get('type') != 'object' or schema.get('additionalProperties') is not False:
             raise ModelGatewayError(code)
+        provider_schema = self._provider_schema(schema)
         body = GenerationJson.canonical({
             'model': MODEL_NAME, 'stream': False, 'max_tokens': self._policy.max_output_tokens,
             'messages': [
@@ -75,7 +157,7 @@ class OpenRouterStructuredAdapter:
                 }, code)},
             ],
             'response_format': {'type': 'json_schema', 'json_schema': {
-                'name': request.schema_name, 'strict': True, 'schema': schema,
+                'name': request.schema_name, 'strict': True, 'schema': provider_schema,
             }},
             'provider': {
                 'require_parameters': True, 'allow_fallbacks': False, 'data_collection': 'deny',
