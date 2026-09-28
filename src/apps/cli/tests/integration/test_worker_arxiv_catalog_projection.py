@@ -58,6 +58,9 @@ from libs.research_workflow.ports.workflow_job_store_port import WorkflowJobStor
 from libs.watch_profiles.adapters.driven.sqlite_watch_profile_store_adapter import (
     SqliteWatchProfileStoreAdapter,
 )
+from libs.watch_profiles.domain.services.normalize_watch_configuration import (
+    NormalizeWatchConfiguration,
+)
 
 
 NOW = datetime(2026, 9, 24, 0, 0, tzinfo=timezone.utc)
@@ -1543,11 +1546,21 @@ LIVE_ARXIV_CURSOR = datetime(2017, 6, 12, 0, 0, tzinfo=timezone.utc)
 
 def _seed_live_arxiv_mvp(root: Path) -> None:
     seeds = json.loads(bundled_domain_seeds_json())["domains"]
-    definition = next(
+    raw_definition = next(
         item
         for item in seeds
         if item["id"] == "machine_learning"
     )
+    normalized = NormalizeWatchConfiguration(
+        frozenset({"arxiv", "pubmed", "crossref"})
+    )(
+        "domains",
+        json.dumps(
+            {"domains": [raw_definition]},
+            ensure_ascii=False,
+        ),
+    )
+    definition = json.loads(normalized.canonical_json)["domains"][0]
     input_json = json.dumps(
         {
             "binding_key": "personal:1:machine_learning:1:arxiv",
