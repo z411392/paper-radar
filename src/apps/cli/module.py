@@ -567,7 +567,13 @@ class WorkerCliModule(Module):
     ) -> None:
         self._workspace = workspace
         self._allow_live_source = allow_live_source
-        self._rate_limit_state = rate_limit_state
+        self._rate_limit_state = (
+            rate_limit_state
+            if rate_limit_state is not None
+            else str(Path(workspace) / "state" / "arxiv-rate-limit.json")
+            if allow_live_source
+            else None
+        )
         self._transport = transport
         self._ncbi_email = ncbi_email
         self._ncbi_api_key = ncbi_api_key
