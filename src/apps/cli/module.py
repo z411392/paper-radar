@@ -603,6 +603,7 @@ class WorkerCliModule(Module):
         smtp_sender: str | None = None,
         smtp_username: str | None = None,
         smtp_password: str | None = None,
+        smtp_security: str = "ssl",
         mail_sender: MailSenderPort | None = None,
         recipient_resolver: RecipientResolverPort | None = None,
         allow_live_model: bool = False,
@@ -636,6 +637,7 @@ class WorkerCliModule(Module):
         self._smtp_sender = smtp_sender
         self._smtp_username = smtp_username
         self._smtp_password = smtp_password
+        self._smtp_security = smtp_security
         self._mail_sender = mail_sender
         self._recipient_resolver = recipient_resolver
         self._allow_live_model = allow_live_model
@@ -1039,6 +1041,7 @@ class WorkerCliModule(Module):
                     sender=self._smtp_sender,
                     username=self._smtp_username,
                     password=self._smtp_password,
+                    security=self._smtp_security,
                 )
             mail_dispatch = DispatchDigest(
                 store=delivery_store,
