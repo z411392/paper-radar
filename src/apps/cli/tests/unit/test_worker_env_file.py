@@ -199,3 +199,40 @@ def test_worker_env_rejects_budget_that_cannot_complete_one_verified_summary(
     assert "cannot cover one commissioned verified-summary workflow" in (
         capsys.readouterr().err
     )
+
+
+def test_worker_env_budget_covers_all_selected_domain_relevance(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    workspace = tmp_path / "must-not-be-created-for-four-domain-budget"
+    path = _write(
+        tmp_path / "worker.env",
+        "\n".join(
+            (
+                f"PAPER_RADAR_WORKSPACE={workspace}",
+                "PAPER_RADAR_ALLOW_LIVE_MODEL=true",
+                "PAPER_RADAR_OPENROUTER_API_KEY=sk-or-v1-fake-budget-key-000000",
+                "PAPER_RADAR_MODEL_MONTHLY_BUDGET_USD=1.50",
+                "PAPER_RADAR_PROFILE_DOMAINS="
+                "software_engineering,deep_learning,machine_learning,statistics",
+                "PAPER_RADAR_PROFILE_SCOPE=關注四個 arXiv 領域。",
+            )
+        )
+        + "\n",
+    )
+
+    with pytest.raises(SystemExit):
+        run_worker_cli(
+            [
+                "run-worker",
+                "--env-file",
+                str(path),
+                "--once",
+            ]
+        )
+
+    assert not workspace.exists()
+    assert "cannot cover one paper across 4 selected domains" in (
+        capsys.readouterr().err
+    )
