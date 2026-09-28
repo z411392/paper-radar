@@ -618,21 +618,6 @@ def run_worker_cli(argv: list[str]) -> None:
 
     owner_id = "worker:" + uuid4().hex
     try:
-        if digest_schedule_present:
-            assert env_digest_timezone is not None
-            assert env_digest_local_time is not None
-            assert env_digest_max_items is not None
-            delivery = Injector(
-                [DeliveryCliModule(arguments.workspace)],
-                auto_bind=False,
-            ).get(ConfigureEmailSubscriptionPort)
-            delivery(
-                "local",
-                "recipient:primary",
-                env_digest_timezone,
-                env_digest_local_time,
-                max_items=env_digest_max_items,
-            )
         injector = Injector(
             [
                 WorkerCliModule(
@@ -659,6 +644,21 @@ def run_worker_cli(argv: list[str]) -> None:
             auto_bind=False,
         )
         command = injector.get(RunWorkerCyclePort)
+        if digest_schedule_present:
+            assert env_digest_timezone is not None
+            assert env_digest_local_time is not None
+            assert env_digest_max_items is not None
+            delivery = Injector(
+                [DeliveryCliModule(arguments.workspace)],
+                auto_bind=False,
+            ).get(ConfigureEmailSubscriptionPort)
+            delivery(
+                "local",
+                "recipient:primary",
+                env_digest_timezone,
+                env_digest_local_time,
+                max_items=env_digest_max_items,
+            )
         if arguments.once:
             print(json.dumps(_cycle(command, owner_id, arguments), ensure_ascii=False, sort_keys=True))
             return
