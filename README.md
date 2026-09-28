@@ -109,6 +109,10 @@ file，且 group/other 不可讀寫。
 無效 placeholder；未替換時 worker 會在任何 workspace/provider 操作前回
 `example_secret_not_replaced`，不會等到第一次模型或寄信請求才失敗。
 
+模型預算只需要設定 `PAPER_RADAR_MODEL_MONTHLY_BUDGET_USD`。單次 request 的 budget
+reservation 由固定 OpenRouter request/token/price policy 自動推導，不是使用者設定；
+若月預算連一次保守 reservation 都無法覆蓋，worker 會在啟動時直接拒絕。
+
 第一次上線前明示開啟外部副作用，之後 worker 只需要設定檔。若 `.env` 開啟 live mail
 但 workspace 尚未 enable effects，worker 會在啟動時直接回
 `external_effects_disabled`，不會等到真正寄信時才默默卡住：
