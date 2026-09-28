@@ -15,4 +15,12 @@ class WatchProfileStorePort(Protocol):
 
     def read(self, profile_id: str, revision: int | None = None) -> ProfileRevision: ...
 
+    def select_current_revision(
+        self,
+        profile_id: str,
+        revision: int,
+        *,
+        expected_current_revision: int,
+    ) -> ProfileRevision: ...
+
     def set_lifecycle(self, profile_id: str, lifecycle: str) -> None: ...
