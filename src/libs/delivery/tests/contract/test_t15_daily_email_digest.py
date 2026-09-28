@@ -217,6 +217,49 @@ def test_timeout_unknown_is_terminal_for_automatic_dispatch_and_requires_manual_
     )
 
 
+def test_retryable_rejection_returns_outbox_to_pending(
+    tmp_path: Path,
+) -> None:
+    path, store = _setup(tmp_path)
+    sender = FakeSender(
+        MailSendResult("retryable", None, "SMTPDataError:451")
+    )
+
+    result = _dispatch(
+        store,
+        "reader@example.com",
+        sender,
+    )("outbox:test", now=NOW)
+
+    assert result.state == "retryable"
+    assert sender.calls == 1
+    digest, outbox, ledger, attempts = _states(path)
+    assert (digest, outbox, ledger) == ("queued", "pending", "reserved")
+    assert attempts == (("failed", "SMTPDataError:451"),)
+
+    accepted = FakeSender(
+        MailSendResult("provider_accepted", "provider:retry", None)
+    )
+    retried = _dispatch(
+        store,
+        "reader@example.com",
+        accepted,
+    )("outbox:test", now=NOW)
+
+    assert retried.state == "provider_accepted"
+    assert accepted.calls == 1
+    digest, outbox, ledger, attempts = _states(path)
+    assert (digest, outbox, ledger) == (
+        "sent",
+        "provider_accepted",
+        "accepted",
+    )
+    assert attempts == (
+        ("failed", "SMTPDataError:451"),
+        ("provider_accepted", None),
+    )
+
+
 def test_explicit_rejection_is_failed_not_unknown(tmp_path: Path) -> None:
     path, store = _setup(tmp_path)
     sender = FakeSender(MailSendResult("rejected", None, "recipient_rejected"))
