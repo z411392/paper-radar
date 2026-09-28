@@ -2,9 +2,6 @@ name: Live SMTP smoke
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - ops/live-smtp-once
 
 permissions:
   contents: read
