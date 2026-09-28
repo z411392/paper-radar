@@ -107,7 +107,9 @@ def test_cli_rejects_extra_arguments_before_any_write(tmp_path: Path, extra: tup
     assert not workspace.exists()
 
 
-def test_cli_requires_explicit_workspace_before_any_write(tmp_path: Path) -> None:
+def test_cli_requires_explicit_workspace_source_before_any_write(
+    tmp_path: Path,
+) -> None:
     result = subprocess.run(
         [sys.executable, "-I", "-m", "apps.cli", "init"],
         cwd=tmp_path,
@@ -119,6 +121,41 @@ def test_cli_requires_explicit_workspace_before_any_write(tmp_path: Path) -> Non
     assert result.returncode == 2
     assert result.stdout == ""
     assert list(tmp_path.iterdir()) == []
+
+
+def test_cli_env_file_rejects_explicit_schema_mode_before_any_write(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "not-created-from-env"
+    env_file = tmp_path / "worker.env"
+    env_file.write_text(
+        f"PAPER_RADAR_WORKSPACE={workspace}\n",
+        encoding="utf-8",
+    )
+    env_file.chmod(0o600)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            "-m",
+            "apps.cli",
+            "init",
+            "--env-file",
+            str(env_file),
+            "--with-runtime",
+        ],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert result.stdout == ""
+    assert "implies the current runtime schema" in result.stderr
+    assert not workspace.exists()
 
 
 def test_cli_empty_workspace_is_not_current_directory(tmp_path: Path) -> None:
@@ -184,4 +221,5 @@ def test_cli_init_help_has_no_side_effects(tmp_path: Path) -> None:
     )
     assert result.returncode == 0, result.stderr
     assert "--workspace" in result.stdout
+    assert "--env-file" in result.stdout
     assert list(tmp_path.iterdir()) == []
