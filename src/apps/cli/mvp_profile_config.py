@@ -1,6 +1,7 @@
 import json
 import re
 from importlib.resources import files
+from pathlib import Path
 
 from apps.cli.exceptions.configuration_file_error import ConfigurationFileError
 
@@ -17,13 +18,22 @@ MVP_ARXIV_DOMAINS = frozenset(
 
 def bundled_domain_seeds_json() -> str:
     try:
-        return (
-            files("apps.cli")
-            .joinpath("resources", "domain-seeds.json")
-            .read_text(encoding="utf-8")
+        resource = files("apps.cli").joinpath(
+            "resources",
+            "domain-seeds.json",
         )
-    except (OSError, UnicodeError) as exc:
-        raise ConfigurationFileError("bundled_domain_seeds_unavailable") from exc
+        if resource.is_file():
+            return resource.read_text(encoding="utf-8")
+        source = (
+            Path(__file__).resolve().parents[3]
+            / "config"
+            / "domain-seeds.json"
+        )
+        return source.read_text(encoding="utf-8")
+    except (OSError, UnicodeError, IndexError) as exc:
+        raise ConfigurationFileError(
+            "bundled_domain_seeds_unavailable"
+        ) from exc
 
 
 def mvp_profile_json(domains_csv: str, scope_text: str) -> str:
