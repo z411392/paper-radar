@@ -167,3 +167,25 @@ def test_openrouter_budget_period_uses_utc_month_and_usd() -> None:
     assert commissioned_openrouter_budget_period(
         datetime(2026, 9, 28, 7, 0, tzinfo=timezone.utc)
     ) == ("2026-09", "USD")
+
+
+
+def test_single_recipient_mail_does_not_require_map_file() -> None:
+    value = parse(
+        "--allow-live-mail",
+        "--recipient-email",
+        "reader@example.com",
+        "--smtp-host",
+        "smtp.example.com",
+        "--smtp-port",
+        "465",
+        "--smtp-sender",
+        "paper-radar@example.com",
+        "--smtp-username",
+        "mailer@example.com",
+        "--smtp-password-file",
+        "/tmp/smtp-password",
+    )
+
+    assert value.recipient_email == "reader@example.com"
+    assert value.recipient_map_file is None
