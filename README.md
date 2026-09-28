@@ -100,8 +100,8 @@ SMTP transport 必須明示加密模式：implicit TLS（常見 port 465）使�
 
 GitHub 的 `workflow_dispatch` 第一次要能手動觸發，workflow 檔必須已存在 default
 branch；因此新 workflow 尚未合併前不會出現可用的第一次 `Run workflow`。合併到 default
-branch 後，在 Actions 選 `Live SMTP smoke`，選擇要測的 branch，按 `Run workflow` 並勾
-`confirm_send`。
+branch 後，在 Actions 選 `Live SMTP smoke`、選擇要測的 branch，按一次 `Run workflow`
+就會送出一封 bounded smoke email；manual dispatch 本身就是明示確認，不再另外要求 checkbox。
 
 這個 workflow 只有手動 `workflow_dispatch`，不會在 push/PR 自動寄信；每次 run 只寄一封
 固定 smoke mail，內容不含論文或模型資料。workflow 只檢查 secret 是否存在，不輸出 secret 值。
