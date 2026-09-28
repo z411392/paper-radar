@@ -4,6 +4,7 @@ import re
 import signal
 import sys
 import threading
+from collections.abc import Callable
 from dataclasses import asdict
 from pathlib import Path
 from types import FrameType
@@ -279,7 +280,11 @@ def _restore_handlers(previous: dict[int, Any]) -> None:
         signal.signal(signum, handler)
 
 
-def run_worker_cli(argv: list[str]) -> None:
+def run_worker_cli(
+    argv: list[str],
+    *,
+    worker_module_factory: Callable[..., WorkerCliModule] = WorkerCliModule,
+) -> None:
     parser = _parser()
     arguments = parser.parse_args(argv[1:])
     env_model_api_key = None
@@ -797,7 +802,7 @@ def run_worker_cli(argv: list[str]) -> None:
 
         injector = Injector(
             [
-                WorkerCliModule(
+                worker_module_factory(
                     arguments.workspace,
                     allow_live_source=arguments.allow_live_source,
                     rate_limit_state=arguments.rate_limit_state,
