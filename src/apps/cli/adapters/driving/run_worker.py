@@ -15,6 +15,7 @@ from injector import Injector
 from apps.cli.exceptions.configuration_file_error import ConfigurationFileError
 from apps.cli.helpers.read_configuration_file import read_configuration_file
 from apps.cli.helpers.read_secret_file import read_secret_file
+from apps.cli.helpers.read_worker_env_file import read_worker_env_file
 from apps.cli.model_commissioning import (
     commissioned_openrouter_budget_period,
     commissioned_openrouter_execution_policy_fingerprint,
@@ -54,9 +55,49 @@ def _budget_micros(value: str, label: str) -> int:
     return number
 
 
+def _env_boolean(values: dict[str, str], key: str) -> bool:
+    value = values.get(key, "false")
+    if value not in {"true", "false"}:
+        raise ConfigurationFileError("invalid_env_value")
+    return value == "true"
+
+
+def _env_integer(
+    values: dict[str, str],
+    key: str,
+    *,
+    maximum: int,
+    default: int,
+) -> int:
+    value = values.get(key)
+    if value is None:
+        return default
+    try:
+        return _bounded_integer(value, maximum, key)
+    except argparse.ArgumentTypeError:
+        raise ConfigurationFileError("invalid_env_value") from None
+
+
+def _env_budget(values: dict[str, str], key: str) -> int | None:
+    value = values.get(key)
+    if value is None:
+        return None
+    try:
+        return _budget_micros(value, key)
+    except argparse.ArgumentTypeError:
+        raise ConfigurationFileError("invalid_env_value") from None
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="paper-radar run-worker", allow_abbrev=False)
-    parser.add_argument("--workspace", required=True)
+    parser.add_argument("--workspace")
+    parser.add_argument(
+        "--env-file",
+        help=(
+            "Owner-only worker .env file containing runtime configuration and "
+            "secrets. Do not combine with runtime configuration flags."
+        ),
+    )
     parser.add_argument("--once", action="store_true")
     parser.add_argument(
         "--poll-seconds",
@@ -190,7 +231,117 @@ def _restore_handlers(previous: dict[int, Any]) -> None:
 def run_worker_cli(argv: list[str]) -> None:
     parser = _parser()
     arguments = parser.parse_args(argv[1:])
-    if not arguments.workspace.strip() or "\0" in arguments.workspace:
+    env_model_api_key = None
+    env_smtp_password = None
+    if arguments.env_file is not None:
+        runtime_options = {
+            "--workspace",
+            "--poll-seconds",
+            "--max-new-jobs",
+            "--max-jobs",
+            "--lease-seconds",
+            "--allow-live-source",
+            "--allow-live-mail",
+            "--allow-live-model",
+            "--openrouter-api-key-file",
+            "--model-period-limit-micros",
+            "--model-reservation-micros",
+            "--recipient-email",
+            "--recipient-map-file",
+            "--smtp-host",
+            "--smtp-port",
+            "--smtp-sender",
+            "--smtp-username",
+            "--smtp-password-file",
+            "--rate-limit-state",
+            "--ncbi-email",
+            "--ncbi-api-key",
+            "--ncbi-rate-limit-state",
+            "--crossref-email",
+            "--crossref-rate-limit-dir",
+        }
+        if any(option in argv[1:] for option in runtime_options):
+            parser.error(
+                "--env-file cannot be combined with runtime configuration flags"
+            )
+        try:
+            env = read_worker_env_file(arguments.env_file)
+            arguments.workspace = env.get("PAPER_RADAR_WORKSPACE")
+            arguments.allow_live_source = _env_boolean(
+                env,
+                "PAPER_RADAR_ALLOW_LIVE_SOURCE",
+            )
+            arguments.allow_live_model = _env_boolean(
+                env,
+                "PAPER_RADAR_ALLOW_LIVE_MODEL",
+            )
+            arguments.allow_live_mail = _env_boolean(
+                env,
+                "PAPER_RADAR_ALLOW_LIVE_MAIL",
+            )
+            arguments.poll_seconds = _env_integer(
+                env,
+                "PAPER_RADAR_POLL_SECONDS",
+                maximum=3600,
+                default=arguments.poll_seconds,
+            )
+            arguments.max_new_jobs = _env_integer(
+                env,
+                "PAPER_RADAR_MAX_NEW_JOBS",
+                maximum=1000,
+                default=arguments.max_new_jobs,
+            )
+            arguments.max_jobs = _env_integer(
+                env,
+                "PAPER_RADAR_MAX_JOBS",
+                maximum=1000,
+                default=arguments.max_jobs,
+            )
+            arguments.lease_seconds = _env_integer(
+                env,
+                "PAPER_RADAR_LEASE_SECONDS",
+                maximum=86400,
+                default=arguments.lease_seconds,
+            )
+            arguments.model_period_limit_micros = _env_budget(
+                env,
+                "PAPER_RADAR_MODEL_PERIOD_LIMIT_MICROS",
+            )
+            arguments.model_reservation_micros = _env_budget(
+                env,
+                "PAPER_RADAR_MODEL_RESERVATION_MICROS",
+            )
+            arguments.recipient_email = env.get(
+                "PAPER_RADAR_RECIPIENT_EMAIL"
+            )
+            arguments.smtp_host = env.get("PAPER_RADAR_SMTP_HOST")
+            smtp_port = env.get("PAPER_RADAR_SMTP_PORT")
+            arguments.smtp_port = (
+                None
+                if smtp_port is None
+                else _env_integer(
+                    env,
+                    "PAPER_RADAR_SMTP_PORT",
+                    maximum=65535,
+                    default=465,
+                )
+            )
+            arguments.smtp_sender = env.get("PAPER_RADAR_SMTP_SENDER")
+            arguments.smtp_username = env.get("PAPER_RADAR_SMTP_USERNAME")
+            env_model_api_key = env.get("PAPER_RADAR_OPENROUTER_API_KEY")
+            env_smtp_password = env.get("PAPER_RADAR_SMTP_PASSWORD")
+        except ConfigurationFileError as exc:
+            _error(exc.code)
+            raise SystemExit(1) from None
+        except OSError:
+            _error("env_configuration_io_error")
+            raise SystemExit(1) from None
+
+    if (
+        not isinstance(arguments.workspace, str)
+        or not arguments.workspace.strip()
+        or "\0" in arguments.workspace
+    ):
         parser.error("workspace must be a non-empty path")
     if arguments.rate_limit_state is not None:
         if not arguments.allow_live_source:
@@ -256,8 +407,15 @@ def run_worker_cli(argv: list[str]) -> None:
                 "--crossref-rate-limit-dir must be an absolute path without NUL characters"
             )
 
+    model_credential_sources = sum(
+        value is not None
+        for value in (
+            arguments.openrouter_api_key_file,
+            env_model_api_key,
+        )
+    )
     model_values = (
-        arguments.openrouter_api_key_file,
+        arguments.openrouter_api_key_file or env_model_api_key,
         arguments.model_period_limit_micros,
         arguments.model_reservation_micros,
     )
@@ -266,14 +424,19 @@ def run_worker_cli(argv: list[str]) -> None:
 
     generation_budget_policy = None
     if arguments.allow_live_model:
-        if any(value is None for value in model_values):
-            parser.error(
-                "--allow-live-model requires API key file and complete model budget policy"
+        if model_credential_sources != 1 or any(
+            value is None
+            for value in (
+                arguments.model_period_limit_micros,
+                arguments.model_reservation_micros,
             )
-        assert arguments.openrouter_api_key_file is not None
+        ):
+            parser.error(
+                "--allow-live-model requires one credential and complete model budget policy"
+            )
         assert arguments.model_period_limit_micros is not None
         assert arguments.model_reservation_micros is not None
-        if (
+        if arguments.openrouter_api_key_file is not None and (
             "\0" in arguments.openrouter_api_key_file
             or not Path(arguments.openrouter_api_key_file).is_absolute()
         ):
@@ -319,20 +482,32 @@ def run_worker_cli(argv: list[str]) -> None:
                 "--allow-live-mail requires exactly one of --recipient-email "
                 "or --recipient-map-file"
             )
+        smtp_password_sources = sum(
+            value is not None
+            for value in (
+                arguments.smtp_password_file,
+                env_smtp_password,
+            )
+        )
         smtp_values = (
             arguments.smtp_host,
             arguments.smtp_port,
             arguments.smtp_sender,
             arguments.smtp_username,
-            arguments.smtp_password_file,
         )
-        if any(value is None for value in smtp_values):
+        if (
+            any(value is None for value in smtp_values)
+            or smtp_password_sources != 1
+        ):
             parser.error(
-                "--allow-live-mail requires SMTP host/port/sender/username/"
-                "password file"
+                "--allow-live-mail requires SMTP host/port/sender/username "
+                "and exactly one password source"
             )
-        assert arguments.smtp_password_file is not None
-        local_files = [(arguments.smtp_password_file, "--smtp-password-file")]
+        local_files = []
+        if arguments.smtp_password_file is not None:
+            local_files.append(
+                (arguments.smtp_password_file, "--smtp-password-file")
+            )
         if arguments.recipient_map_file is not None:
             local_files.append(
                 (arguments.recipient_map_file, "--recipient-map-file")
@@ -368,7 +543,12 @@ def run_worker_cli(argv: list[str]) -> None:
                 recipient_map_json = read_configuration_file(
                     arguments.recipient_map_file
                 )
-            smtp_password = read_secret_file(arguments.smtp_password_file)
+            smtp_password = env_smtp_password
+            if smtp_password is None:
+                assert arguments.smtp_password_file is not None
+                smtp_password = read_secret_file(
+                    arguments.smtp_password_file
+                )
         except ConfigurationFileError as exc:
             _error(str(exc))
             raise SystemExit(1) from None
@@ -376,8 +556,8 @@ def run_worker_cli(argv: list[str]) -> None:
             _error("mail_configuration_io_error")
             raise SystemExit(1) from None
 
-    model_api_key = None
-    if generation_budget_policy is not None:
+    model_api_key = env_model_api_key
+    if generation_budget_policy is not None and model_api_key is None:
         assert arguments.openrouter_api_key_file is not None
         try:
             model_api_key = read_secret_file(arguments.openrouter_api_key_file)
