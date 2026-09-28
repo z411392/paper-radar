@@ -57,6 +57,41 @@ def test_cli_initializes_and_reopens_the_same_workspace(tmp_path: Path) -> None:
         )
 
 
+def test_cli_env_file_initializes_current_runtime_schema(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "runtime from env"
+    env_file = tmp_path / "worker.env"
+    env_file.write_text(
+        f"PAPER_RADAR_WORKSPACE={workspace}\n",
+        encoding="utf-8",
+    )
+    env_file.chmod(0o600)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            "-m",
+            "apps.cli",
+            "init",
+            "--env-file",
+            str(env_file),
+        ],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    info = json.loads(result.stdout)
+    assert info["schema_version"] == 24
+    assert info["external_effects_enabled"] is False
+    assert (workspace / "state" / "app.sqlite3").is_file()
+
+
 def test_cli_resolves_relative_path_from_invocation_directory(tmp_path: Path) -> None:
     result = call_init(tmp_path, "relative workspace")
     assert result.returncode == 0, result.stderr
