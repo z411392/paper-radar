@@ -5,6 +5,7 @@ import pytest
 from apps.cli.adapters.driving.run_worker import _parser, run_worker_cli
 from apps.cli.model_commissioning import (
     commissioned_openrouter_budget_period,
+    commissioned_openrouter_reservation_micros,
     model_budget_usd_to_micros,
 )
 
@@ -251,3 +252,8 @@ def test_model_budget_usd_converts_exactly(
 def test_model_budget_usd_rejects_ambiguous_values(value: str) -> None:
     with pytest.raises(ValueError, match="invalid_model_budget_usd"):
         model_budget_usd_to_micros(value)
+
+
+
+def test_commissioned_openrouter_reservation_matches_policy_bounds() -> None:
+    assert commissioned_openrouter_reservation_micros() == 265_984
