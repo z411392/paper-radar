@@ -95,7 +95,9 @@ chmod 600 "$HOME/.config/paper-radar/worker.env"
 `$HOME` 展開；workspace 必須直接寫實際路徑。檔案必須是目前使用者擁有的 regular
 file，且 group/other 不可讀寫。
 
-第一次上線前明示開啟外部副作用，之後 worker 只需要設定檔：
+第一次上線前明示開啟外部副作用，之後 worker 只需要設定檔。若 `.env` 開啟 live mail
+但 workspace 尚未 enable effects，worker 會在啟動時直接回
+`external_effects_disabled`，不會等到真正寄信時才默默卡住：
 
 ```bash
 uv run --locked python -m apps.cli effects enable \
