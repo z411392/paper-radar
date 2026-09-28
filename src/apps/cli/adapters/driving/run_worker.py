@@ -57,6 +57,9 @@ from libs.watch_profiles.ports.publish_watch_profile_port import (
 from libs.watch_profiles.ports.read_watch_profile_port import (
     ReadWatchProfilePort,
 )
+from libs.watch_profiles.ports.select_watch_profile_revision_port import (
+    SelectWatchProfileRevisionPort,
+)
 
 
 def _bounded_integer(value: str, maximum: int, label: str) -> int:
@@ -745,13 +748,20 @@ def run_worker_cli(argv: list[str]) -> None:
                     if exc.code != "profile_missing":
                         raise
                     expected_revision = None
-                configuration.get(PublishWatchProfilePort)(
+                published = configuration.get(PublishWatchProfilePort)(
                     mvp_profile_json(
                         env_profile_domains,
                         env_profile_scope,
                     ),
                     expected_revision=expected_revision,
                 )
+                if published.revision != published.current_revision:
+                    assert expected_revision is not None
+                    configuration.get(SelectWatchProfileRevisionPort)(
+                        "personal",
+                        published.revision,
+                        expected_current_revision=expected_revision,
+                    )
             if digest_schedule_present:
                 assert env_digest_timezone is not None
                 assert env_digest_local_time is not None
