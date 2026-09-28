@@ -95,18 +95,21 @@ class SmtpMailSenderAdapter:
         )
 
     @classmethod
-    def _recipients_error(
+    def _recipient_refusals(
         cls,
-        exc: smtplib.SMTPRecipientsRefused,
+        refusals: object,
+        *,
+        label: str,
     ) -> MailSendResult:
         codes = []
-        for value in exc.recipients.values():
-            if (
-                isinstance(value, tuple)
-                and len(value) >= 1
-                and type(value[0]) is int
-            ):
-                codes.append(value[0])
+        if isinstance(refusals, dict):
+            for value in refusals.values():
+                if (
+                    isinstance(value, tuple)
+                    and len(value) >= 1
+                    and type(value[0]) is int
+                ):
+                    codes.append(value[0])
         state = (
             "retryable"
             if codes and all(400 <= code < 500 for code in codes)
@@ -116,7 +119,17 @@ class SmtpMailSenderAdapter:
         return MailSendResult(
             state,
             None,
-            f"{exc.__class__.__name__}:{suffix}",
+            f"{label}:{suffix}",
+        )
+
+    @classmethod
+    def _recipients_error(
+        cls,
+        exc: smtplib.SMTPRecipientsRefused,
+    ) -> MailSendResult:
+        return cls._recipient_refusals(
+            exc.recipients,
+            label=exc.__class__.__name__,
         )
 
     def send(self, message: MailMessage) -> MailSendResult:
@@ -158,7 +171,10 @@ class SmtpMailSenderAdapter:
                         client.login(self._username, self._password)
                     refused = client.send_message(email)
             if refused:
-                return MailSendResult("rejected", None, "recipient_rejected")
+                return self._recipient_refusals(
+                    refused,
+                    label="recipient_rejected",
+                )
             return MailSendResult("provider_accepted", None, None)
         except smtplib.SMTPRecipientsRefused as exc:
             return self._recipients_error(exc)
