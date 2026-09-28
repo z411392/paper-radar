@@ -2,12 +2,6 @@ name: Live SMTP smoke
 
 on:
   workflow_dispatch:
-    inputs:
-      confirm_send:
-        description: Send one real Paper Radar SMTP smoke email
-        required: true
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -32,14 +26,6 @@ jobs:
       PAPER_RADAR_SMTP_PASSWORD: ${{ secrets.PAPER_RADAR_SMTP_PASSWORD }}
       PAPER_RADAR_SMTP_RECIPIENT: ${{ secrets.PAPER_RADAR_SMTP_RECIPIENT }}
     steps:
-      - name: Require explicit send confirmation
-        shell: bash
-        run: |
-          if [[ "${{ inputs.confirm_send }}" != "true" ]]; then
-            echo "::error::confirm_send must be enabled for the live SMTP smoke"
-            exit 1
-          fi
-
       - name: Check required repository secrets
         shell: bash
         run: |
