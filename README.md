@@ -25,7 +25,6 @@ Python 使用 uv；正式規則見 [.claude/rules/90-operations.md](.claude/rule
 uv sync --locked
 uv run --locked python -m apps.cli version
 uv run --locked python -m apps.cli init --help
-uv run --locked python -m apps.cli init --workspace "$HOME/paper-radar-data" --with-runtime
 make ci-fast
 make package-check
 ```
@@ -82,14 +81,21 @@ PAPER_RADAR_DIGEST_MAX_ITEMS=5
 
 ## MVP worker：一份 .env 啟動
 
-複製範例到私有位置後直接編輯，不需要把 source/model/mail 設定拆成十幾個 CLI flags：
+複製範例到私有位置後直接編輯，不需要把 workspace/profile/digest/source/model/mail
+設定拆成 CLI flags：
 
 ```bash
 mkdir -p "$HOME/.config/paper-radar"
 cp config/worker.env.example "$HOME/.config/paper-radar/worker.env"
 chmod 600 "$HOME/.config/paper-radar/worker.env"
 # 編輯 worker.env：workspace、研究範圍、OpenRouter、SMTP、digest 時間
+
+uv run --locked python -m apps.cli init \
+  --env-file "$HOME/.config/paper-radar/worker.env"
 ```
+
+`init --env-file` 只從設定檔取 `PAPER_RADAR_WORKSPACE`，固定建立 current runtime schema；
+不需要另外加 `--with-runtime`。Legacy `init --workspace ... --with-*` 保留給手動／進階用途。
 
 `.env` 內容是 literal `KEY=VALUE`，不執行 shell、不支援 `export`、quotes 或
 `$HOME` 展開；workspace 必須直接寫實際路徑。檔案必須是目前使用者擁有的 regular
