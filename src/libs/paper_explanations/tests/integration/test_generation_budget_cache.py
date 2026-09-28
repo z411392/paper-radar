@@ -152,6 +152,52 @@ def test_budget_block_and_same_identity_in_progress_never_call_provider(tmp_path
     assert "budget_blocked" in {row["state"] for row in rows(db, "model_runs")}
 
 
+def test_actual_cost_above_reservation_fails_closed_and_is_accounted(
+    tmp_path: Path,
+) -> None:
+    db, _, _, ledger = setup(tmp_path)
+    model = Mock(
+        return_value=result(
+            cost_usd="0.000700",
+        )
+    )
+
+    with pytest.raises(
+        ModelGatewayError,
+        match="cost_exceeded_reservation",
+    ):
+        RunBudgetedGeneration(
+            model,
+            ledger,
+            Clock(),
+            policy(
+                period_limit_micros=1_000,
+                reservation_micros=600,
+            ),
+        )(request())
+
+    run = rows(db, "model_runs")[0]
+    usage = rows(db, "usage_reservations")[0]
+    assert run["state"] == "failed"
+    assert run["actual_cost_micros"] == 700
+    assert run["error_code"] == "cost_exceeded_reservation"
+    assert usage["state"] == "settled"
+    assert usage["actual_micros"] == 700
+
+    next_model = Mock(return_value=result(generation_id="gen-2"))
+    with pytest.raises(ModelGatewayError, match="budget_blocked"):
+        RunBudgetedGeneration(
+            next_model,
+            ledger,
+            Clock(AT + timedelta(minutes=1)),
+            policy(
+                period_limit_micros=1_000,
+                reservation_micros=600,
+            ),
+        )(request(payload_json='{"next":true}'))
+    next_model.assert_not_called()
+
+
 def test_failed_known_cost_is_not_cache_but_exact_receipt_is_preserved(tmp_path: Path) -> None:
     db, objects, _, ledger = setup(tmp_path)
     failed = receipt(cost_usd="0.0001000001", finish_reason=None)
