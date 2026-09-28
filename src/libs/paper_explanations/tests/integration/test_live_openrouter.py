@@ -75,6 +75,7 @@ def test_live_openrouter_returns_strict_structured_receipt() -> None:
                 "Content-Type": "application/json",
                 "Accept": "application/json",
                 "Accept-Encoding": "identity",
+                "X-OpenRouter-Metadata": "enabled",
             },
         )
         response = connection.getresponse()
@@ -84,26 +85,13 @@ def test_live_openrouter_returns_strict_structured_receipt() -> None:
 
     assert api_key.encode() not in content
     if response.status != 200:
-        try:
-            error_envelope = json.loads(content)
-        except (ValueError, UnicodeError):
-            error_envelope = {}
-        error = (
-            error_envelope.get("error")
-            if isinstance(error_envelope, dict)
-            else None
-        )
-        code = error.get("code") if isinstance(error, dict) else None
-        message = error.get("message") if isinstance(error, dict) else None
-        safe_message = (
-            message[:1000]
-            if isinstance(message, str)
-            else None
-        )
+        safe_body = content.decode(
+            "utf-8",
+            errors="replace",
+        )[:4000]
         raise AssertionError(
             "OpenRouter diagnostic "
-            f"status={response.status} code={code!r} "
-            f"message={safe_message!r}"
+            f"status={response.status} body={safe_body!r}"
         )
 
     envelope = json.loads(content)
