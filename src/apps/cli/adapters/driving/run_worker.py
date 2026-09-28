@@ -20,7 +20,11 @@ from apps.cli.model_commissioning import (
     commissioned_openrouter_budget_period,
     commissioned_openrouter_execution_policy_fingerprint,
 )
-from apps.cli.module import DeliveryCliModule, WorkerCliModule
+from apps.cli.module import RuntimeConfigurationCliModule, WorkerCliModule
+from apps.cli.mvp_profile_config import (
+    bundled_domain_seeds_json,
+    mvp_profile_json,
+)
 from libs.delivery.exceptions.delivery_subscription_error import (
     DeliverySubscriptionError,
 )
@@ -31,12 +35,25 @@ from libs.delivery.ports.configure_email_subscription_port import (
 from libs.discovery.exceptions.source_fetch_error import SourceFetchError
 from libs.discovery.exceptions.source_query_error import SourceQueryError
 from libs.kernel.exceptions.storage_error import StorageError
+from libs.kernel.ports.read_workspace_info_port import ReadWorkspaceInfoPort
 from libs.paper_explanations.dtos.generation_budget_policy import (
     GenerationBudgetPolicy,
 )
 from libs.paper_explanations.exceptions.model_gateway_error import ModelGatewayError
 from libs.research_workflow.exceptions.workflow_job_error import WorkflowJobError
 from libs.research_workflow.ports.run_worker_cycle_port import RunWorkerCyclePort
+from libs.watch_profiles.exceptions.watch_configuration_error import (
+    WatchConfigurationError,
+)
+from libs.watch_profiles.ports.import_domain_seeds_port import (
+    ImportDomainSeedsPort,
+)
+from libs.watch_profiles.ports.publish_watch_profile_port import (
+    PublishWatchProfilePort,
+)
+from libs.watch_profiles.ports.read_watch_profile_port import (
+    ReadWatchProfilePort,
+)
 
 
 def _bounded_integer(value: str, maximum: int, label: str) -> int:
@@ -242,6 +259,8 @@ def run_worker_cli(argv: list[str]) -> None:
     env_digest_timezone = None
     env_digest_local_time = None
     env_digest_max_items = None
+    env_profile_domains = None
+    env_profile_scope = None
     if arguments.env_file is not None:
         runtime_options = {
             "--workspace",
@@ -339,6 +358,8 @@ def run_worker_cli(argv: list[str]) -> None:
             arguments.smtp_username = env.get("PAPER_RADAR_SMTP_USERNAME")
             env_model_api_key = env.get("PAPER_RADAR_OPENROUTER_API_KEY")
             env_smtp_password = env.get("PAPER_RADAR_SMTP_PASSWORD")
+            env_profile_domains = env.get("PAPER_RADAR_PROFILE_DOMAINS")
+            env_profile_scope = env.get("PAPER_RADAR_PROFILE_SCOPE")
             env_digest_timezone = env.get("PAPER_RADAR_DIGEST_TIMEZONE")
             env_digest_local_time = env.get("PAPER_RADAR_DIGEST_LOCAL_TIME")
             digest_max_items = env.get("PAPER_RADAR_DIGEST_MAX_ITEMS")
@@ -371,6 +392,28 @@ def run_worker_cli(argv: list[str]) -> None:
         or "\0" in arguments.workspace
     ):
         parser.error("workspace must be a non-empty path")
+
+    profile_config_present = any(
+        value is not None
+        for value in (
+            env_profile_domains,
+            env_profile_scope,
+        )
+    )
+    if profile_config_present and (
+        env_profile_domains is None
+        or env_profile_scope is None
+    ):
+        _error("incomplete_profile_config")
+        raise SystemExit(1) from None
+    if (
+        arguments.env_file is not None
+        and arguments.allow_live_source
+        and not profile_config_present
+    ):
+        parser.error(
+            "worker env live source requires profile domains and scope"
+        )
 
     digest_schedule_present = any(
         value is not None
@@ -618,6 +661,46 @@ def run_worker_cli(argv: list[str]) -> None:
 
     owner_id = "worker:" + uuid4().hex
     try:
+        if arguments.env_file is not None:
+            configuration = Injector(
+                [RuntimeConfigurationCliModule(arguments.workspace)],
+                auto_bind=False,
+            )
+            configuration.get(ReadWorkspaceInfoPort)()
+            if profile_config_present:
+                assert env_profile_domains is not None
+                assert env_profile_scope is not None
+                configuration.get(ImportDomainSeedsPort)(
+                    bundled_domain_seeds_json()
+                )
+                try:
+                    current_profile = configuration.get(
+                        ReadWatchProfilePort
+                    )("personal")
+                    expected_revision = current_profile.current_revision
+                except WatchConfigurationError as exc:
+                    if exc.code != "profile_missing":
+                        raise
+                    expected_revision = None
+                configuration.get(PublishWatchProfilePort)(
+                    mvp_profile_json(
+                        env_profile_domains,
+                        env_profile_scope,
+                    ),
+                    expected_revision=expected_revision,
+                )
+            if digest_schedule_present:
+                assert env_digest_timezone is not None
+                assert env_digest_local_time is not None
+                assert env_digest_max_items is not None
+                configuration.get(ConfigureEmailSubscriptionPort)(
+                    "local",
+                    "recipient:primary",
+                    env_digest_timezone,
+                    env_digest_local_time,
+                    max_items=env_digest_max_items,
+                )
+
         injector = Injector(
             [
                 WorkerCliModule(
@@ -644,21 +727,6 @@ def run_worker_cli(argv: list[str]) -> None:
             auto_bind=False,
         )
         command = injector.get(RunWorkerCyclePort)
-        if digest_schedule_present:
-            assert env_digest_timezone is not None
-            assert env_digest_local_time is not None
-            assert env_digest_max_items is not None
-            delivery = Injector(
-                [DeliveryCliModule(arguments.workspace)],
-                auto_bind=False,
-            ).get(ConfigureEmailSubscriptionPort)
-            delivery(
-                "local",
-                "recipient:primary",
-                env_digest_timezone,
-                env_digest_local_time,
-                max_items=env_digest_max_items,
-            )
         if arguments.once:
             print(json.dumps(_cycle(command, owner_id, arguments), ensure_ascii=False, sort_keys=True))
             return
@@ -673,6 +741,12 @@ def run_worker_cli(argv: list[str]) -> None:
         finally:
             _restore_handlers(previous)
     except DeliverySubscriptionError as exc:
+        _error(exc.code)
+        raise SystemExit(1) from None
+    except WatchConfigurationError as exc:
+        _error(exc.code)
+        raise SystemExit(1) from None
+    except ConfigurationFileError as exc:
         _error(exc.code)
         raise SystemExit(1) from None
     except StorageError as exc:
