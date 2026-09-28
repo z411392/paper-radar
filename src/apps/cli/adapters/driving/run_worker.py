@@ -19,6 +19,7 @@ from apps.cli.helpers.read_worker_env_file import read_worker_env_file
 from apps.cli.model_commissioning import (
     commissioned_openrouter_budget_period,
     commissioned_openrouter_execution_policy_fingerprint,
+    model_budget_usd_to_micros,
 )
 from apps.cli.module import RuntimeConfigurationCliModule, WorkerCliModule
 from apps.cli.mvp_profile_config import (
@@ -101,13 +102,16 @@ def _env_integer(
         raise ConfigurationFileError("invalid_env_value") from None
 
 
-def _env_budget(values: dict[str, str], key: str) -> int | None:
+def _env_model_budget_usd(
+    values: dict[str, str],
+    key: str,
+) -> int | None:
     value = values.get(key)
     if value is None:
         return None
     try:
-        return _budget_micros(value, key)
-    except argparse.ArgumentTypeError:
+        return model_budget_usd_to_micros(value)
+    except ValueError:
         raise ConfigurationFileError("invalid_env_value") from None
 
 
@@ -331,13 +335,13 @@ def run_worker_cli(argv: list[str]) -> None:
                 maximum=86400,
                 default=arguments.lease_seconds,
             )
-            arguments.model_period_limit_micros = _env_budget(
+            arguments.model_period_limit_micros = _env_model_budget_usd(
                 env,
-                "PAPER_RADAR_MODEL_PERIOD_LIMIT_MICROS",
+                "PAPER_RADAR_MODEL_MONTHLY_BUDGET_USD",
             )
-            arguments.model_reservation_micros = _env_budget(
+            arguments.model_reservation_micros = _env_model_budget_usd(
                 env,
-                "PAPER_RADAR_MODEL_RESERVATION_MICROS",
+                "PAPER_RADAR_MODEL_RESERVATION_USD",
             )
             arguments.recipient_email = env.get(
                 "PAPER_RADAR_RECIPIENT_EMAIL"
