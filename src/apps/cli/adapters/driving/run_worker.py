@@ -20,8 +20,14 @@ from apps.cli.model_commissioning import (
     commissioned_openrouter_budget_period,
     commissioned_openrouter_execution_policy_fingerprint,
 )
-from apps.cli.module import WorkerCliModule
+from apps.cli.module import DeliveryCliModule, WorkerCliModule
+from libs.delivery.exceptions.delivery_subscription_error import (
+    DeliverySubscriptionError,
+)
 from libs.delivery.exceptions.mail_configuration_error import MailConfigurationError
+from libs.delivery.ports.configure_email_subscription_port import (
+    ConfigureEmailSubscriptionPort,
+)
 from libs.discovery.exceptions.source_fetch_error import SourceFetchError
 from libs.discovery.exceptions.source_query_error import SourceQueryError
 from libs.kernel.exceptions.storage_error import StorageError
@@ -233,6 +239,9 @@ def run_worker_cli(argv: list[str]) -> None:
     arguments = parser.parse_args(argv[1:])
     env_model_api_key = None
     env_smtp_password = None
+    env_digest_timezone = None
+    env_digest_local_time = None
+    env_digest_max_items = None
     if arguments.env_file is not None:
         runtime_options = {
             "--workspace",
@@ -330,6 +339,25 @@ def run_worker_cli(argv: list[str]) -> None:
             arguments.smtp_username = env.get("PAPER_RADAR_SMTP_USERNAME")
             env_model_api_key = env.get("PAPER_RADAR_OPENROUTER_API_KEY")
             env_smtp_password = env.get("PAPER_RADAR_SMTP_PASSWORD")
+            env_digest_timezone = env.get("PAPER_RADAR_DIGEST_TIMEZONE")
+            env_digest_local_time = env.get("PAPER_RADAR_DIGEST_LOCAL_TIME")
+            digest_max_items = env.get("PAPER_RADAR_DIGEST_MAX_ITEMS")
+            if (
+                env_digest_timezone is not None
+                or env_digest_local_time is not None
+                or digest_max_items is not None
+            ):
+                if (
+                    env_digest_timezone is None
+                    or env_digest_local_time is None
+                ):
+                    raise ConfigurationFileError("incomplete_digest_schedule")
+                env_digest_max_items = _env_integer(
+                    env,
+                    "PAPER_RADAR_DIGEST_MAX_ITEMS",
+                    maximum=100,
+                    default=5,
+                )
         except ConfigurationFileError as exc:
             _error(exc.code)
             raise SystemExit(1) from None
@@ -343,6 +371,25 @@ def run_worker_cli(argv: list[str]) -> None:
         or "\0" in arguments.workspace
     ):
         parser.error("workspace must be a non-empty path")
+
+    digest_schedule_present = any(
+        value is not None
+        for value in (
+            env_digest_timezone,
+            env_digest_local_time,
+            env_digest_max_items,
+        )
+    )
+    if digest_schedule_present and not arguments.allow_live_mail:
+        parser.error("digest schedule requires live mail")
+    if (
+        arguments.env_file is not None
+        and arguments.allow_live_mail
+        and not digest_schedule_present
+    ):
+        parser.error(
+            "worker env live mail requires digest timezone and local time"
+        )
     if arguments.rate_limit_state is not None:
         if not arguments.allow_live_source:
             parser.error("--rate-limit-state requires --allow-live-source")
@@ -571,6 +618,21 @@ def run_worker_cli(argv: list[str]) -> None:
 
     owner_id = "worker:" + uuid4().hex
     try:
+        if digest_schedule_present:
+            assert env_digest_timezone is not None
+            assert env_digest_local_time is not None
+            assert env_digest_max_items is not None
+            delivery = Injector(
+                [DeliveryCliModule(arguments.workspace)],
+                auto_bind=False,
+            ).get(ConfigureEmailSubscriptionPort)
+            delivery(
+                "local",
+                "recipient:primary",
+                env_digest_timezone,
+                env_digest_local_time,
+                max_items=env_digest_max_items,
+            )
         injector = Injector(
             [
                 WorkerCliModule(
@@ -610,6 +672,9 @@ def run_worker_cli(argv: list[str]) -> None:
                 stop.wait(arguments.poll_seconds)
         finally:
             _restore_handlers(previous)
+    except DeliverySubscriptionError as exc:
+        _error(exc.code)
+        raise SystemExit(1) from None
     except StorageError as exc:
         hint = None
         if exc.code == "schema_upgrade_required":
