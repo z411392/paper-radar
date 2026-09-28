@@ -16,6 +16,7 @@ from apps.cli.exceptions.configuration_file_error import ConfigurationFileError
 from apps.cli.helpers.read_configuration_file import read_configuration_file
 from apps.cli.helpers.read_secret_file import read_secret_file
 from apps.cli.model_commissioning import (
+    commissioned_openrouter_budget_period,
     commissioned_openrouter_execution_policy_fingerprint,
 )
 from apps.cli.module import WorkerCliModule
@@ -84,8 +85,6 @@ def _parser() -> argparse.ArgumentParser:
         "--openrouter-api-key-file",
         help="Absolute owner-only file containing the OpenRouter API key; never printed.",
     )
-    parser.add_argument("--model-period-key")
-    parser.add_argument("--model-currency")
     parser.add_argument(
         "--model-period-limit-micros",
         type=lambda value: _budget_micros(value, "model period limit micros"),
@@ -249,8 +248,6 @@ def run_worker_cli(argv: list[str]) -> None:
 
     model_values = (
         arguments.openrouter_api_key_file,
-        arguments.model_period_key,
-        arguments.model_currency,
         arguments.model_period_limit_micros,
         arguments.model_reservation_micros,
     )
@@ -264,8 +261,6 @@ def run_worker_cli(argv: list[str]) -> None:
                 "--allow-live-model requires API key file and complete model budget policy"
             )
         assert arguments.openrouter_api_key_file is not None
-        assert arguments.model_period_key is not None
-        assert arguments.model_currency is not None
         assert arguments.model_period_limit_micros is not None
         assert arguments.model_reservation_micros is not None
         if (
@@ -275,20 +270,14 @@ def run_worker_cli(argv: list[str]) -> None:
             parser.error(
                 "--openrouter-api-key-file must be an absolute path without NUL characters"
             )
-        if re.fullmatch(
-            r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}",
-            arguments.model_period_key,
-        ) is None:
-            parser.error("--model-period-key has an invalid format")
-        if re.fullmatch(r"[A-Z]{3}", arguments.model_currency) is None:
-            parser.error("--model-currency must be a three-letter uppercase code")
         if arguments.model_reservation_micros > arguments.model_period_limit_micros:
             parser.error(
                 "--model-reservation-micros must not exceed --model-period-limit-micros"
             )
+        period_key, currency = commissioned_openrouter_budget_period()
         generation_budget_policy = GenerationBudgetPolicy(
-            arguments.model_period_key,
-            arguments.model_currency,
+            period_key,
+            currency,
             arguments.model_period_limit_micros,
             arguments.model_reservation_micros,
             commissioned_openrouter_execution_policy_fingerprint(),
