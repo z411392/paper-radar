@@ -18,6 +18,7 @@ def test_live_source_parser_leaves_provider_overrides_optional() -> None:
     assert value.crossref_email is None
     assert value.crossref_rate_limit_dir is None
     assert value.allow_live_mail is False
+    assert value.recipient_email is None
     assert value.recipient_map_file is None
     assert value.smtp_host is None
     assert value.smtp_port is None
@@ -189,3 +190,33 @@ def test_single_recipient_mail_does_not_require_map_file() -> None:
 
     assert value.recipient_email == "reader@example.com"
     assert value.recipient_map_file is None
+
+
+
+def test_live_mail_rejects_direct_email_and_map_file_together(
+    capsys,
+) -> None:
+    with pytest.raises(SystemExit):
+        run_worker_cli(
+            [
+                "run-worker",
+                "--workspace",
+                "/tmp/workspace",
+                "--allow-live-mail",
+                "--recipient-email",
+                "reader@example.com",
+                "--recipient-map-file",
+                "/tmp/recipients.json",
+                "--smtp-host",
+                "smtp.example.com",
+                "--smtp-port",
+                "465",
+                "--smtp-sender",
+                "paper-radar@example.com",
+                "--smtp-username",
+                "mailer@example.com",
+                "--smtp-password-file",
+                "/tmp/password",
+            ]
+        )
+    assert "requires exactly one of --recipient-email" in capsys.readouterr().err
