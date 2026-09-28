@@ -132,7 +132,6 @@ def _workspace(tmp_path: Path) -> Path:
     return root
 
 
-
 def test_worker_arxiv_uses_workspace_rate_limit_state_by_default(
     tmp_path: Path,
 ) -> None:
