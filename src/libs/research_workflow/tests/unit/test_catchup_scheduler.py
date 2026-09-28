@@ -45,6 +45,34 @@ def delivery(last: datetime | None = None) -> DeliverySchedule:
     )
 
 
+def test_fresh_arxiv_window_is_aligned_to_provider_minute_precision() -> None:
+    current = NOW + timedelta(
+        hours=12,
+        minutes=34,
+        seconds=56,
+        microseconds=789,
+    )
+    snapshot = SchedulerSnapshot(
+        harvest_bindings=(binding("statistics"),),
+        delivery_schedules=(),
+        known_jobs=(),
+        input_gaps=(),
+    )
+
+    plan = PlanCatchupJobs()(snapshot, now=current)
+
+    assert len(plan.jobs) == 1
+    payload = PlanCatchupJobs.decode(plan.jobs[0].input_json)
+    assert payload["window_end"] == current.replace(
+        second=0,
+        microsecond=0,
+    ).isoformat()
+    assert payload["window_start"] == (
+        current.replace(second=0, microsecond=0)
+        - timedelta(hours=24)
+    ).isoformat()
+
+
 def test_each_supported_binding_advances_only_one_24h_window_per_tick() -> None:
     snapshot = SchedulerSnapshot(
         harvest_bindings=(
