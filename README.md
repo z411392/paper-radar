@@ -2,7 +2,7 @@
 
 本機論文雷達。正式產品需求、架構與交付入口見 [docs/README.md](docs/README.md)；開發者先讀 [CLAUDE.md](CLAUDE.md)。
 
-目前候選包含 uv 套件與工程防線、SQLite／不可變檔案儲存，以及真正的 CLI 工作區初始化。尚未取得獨立 Reviewer ACCEPT，不能把本分支的測試通過當成整個產品完成。本候選另包含五領域設定、版本化關注與 CLI 管理；論文來源、FAISS、模型與郵件仍需後續 Task 實作。
+目前 MVP 候選已具備本機工作區、arXiv 採集、繁體中文摘要、daily digest 與 Email worker 主線；FAISS、完整 PubMed／Crossref 覆蓋與管理後台都不是目前 MVP 的前置條件。
 
 ## 入口
 
@@ -42,13 +42,15 @@ Migration 原文位於 root `migrations/`；只將明確啟用的 0001／0002 �
 
 ```bash
 uv sync --locked
-uv run --locked python -m apps.cli init --workspace "$HOME/paper-radar-test-data" --with-profiles
+uv run --locked python -m apps.cli init --workspace "$HOME/paper-radar-test-data" --with-runtime
 uv run --locked python -m apps.cli domains import --workspace "$HOME/paper-radar-test-data" --file config/domain-seeds.json
-uv run --locked python -m apps.cli profile publish --workspace "$HOME/paper-radar-test-data" --file config/watch-profile.example.json
+uv run --locked python -m apps.cli profile publish --workspace "$HOME/paper-radar-test-data" --file config/watch-profile.mvp.json
 uv run --locked python -m apps.cli profile show --workspace "$HOME/paper-radar-test-data" --id personal
 uv run --locked python -m apps.cli profile pause --workspace "$HOME/paper-radar-test-data" --id personal
 uv run --locked python -m apps.cli profile resume --workspace "$HOME/paper-radar-test-data" --id personal
 ```
+
+`config/watch-profile.mvp.json` 是目前最短可用路徑，只選擇 arXiv 能直接覆蓋的四個領域，因此不會替未啟用的 PubMed／Crossref 建立工作。`config/watch-profile.example.json` 保留作多來源進階範例。
 
 `--with-profiles` 明確啟用 0001＋0002，既有第 1 版工作區可以升級且保留身分。升級後再次初始化須帶相同選項；省略時不自動降版。`profile show`、發布與匯入不會順便建立工作區或跑 migration；舊 schema 會回報 `schema_upgrade_required`。
 
