@@ -10,12 +10,12 @@ from threading import Barrier
 import pytest
 from injector import Injector
 
+from apps.cli.adapters.driving.run_worker import run_worker_cli
 from apps.cli.model_commissioning import (
     commissioned_openrouter_budget_period,
     commissioned_openrouter_execution_policy_fingerprint,
     commissioned_openrouter_reservation_micros,
 )
-from apps.cli.adapters.driving.run_worker import run_worker_cli
 from apps.cli.module import WorkerCliModule
 from libs.delivery.dtos.delivery_dispatch import MailSendResult
 from libs.delivery.dtos.scheduled_digest import ScheduledDigestRequest
