@@ -52,7 +52,7 @@ uv run --locked python -m apps.cli profile resume --workspace "$HOME/paper-radar
 
 `config/watch-profile.mvp.json` 是目前最短可用路徑，只選擇 arXiv 能直接覆蓋的四個領域，因此不會替未啟用的 PubMed／Crossref 建立工作。`config/watch-profile.example.json` 保留作多來源進階範例。
 
-對單一 workspace 的 MVP，`run-worker --allow-live-source` 會自動使用 `<workspace>/state/arxiv-rate-limit.json`；不需要再手填節流檔路徑。只有多 workspace 要共用同一個 arXiv 節流狀態時，才需要 `--rate-limit-state` 覆寫。
+對單一 workspace 的 MVP，worker runtime 設定放在 owner-only `.env`；arXiv 節流狀態會自動使用 `<workspace>/state/arxiv-rate-limit.json`，不需要另外設定路徑。舊的 runtime flags 只保留相容與進階覆寫，不是正常 quickstart。
 
 `--with-profiles` 明確啟用 0001＋0002，既有第 1 版工作區可以升級且保留身分。升級後再次初始化須帶相同選項；省略時不自動降版。`profile show`、發布與匯入不會順便建立工作區或跑 migration；舊 schema 會回報 `schema_upgrade_required`。
 
@@ -76,8 +76,43 @@ uv run --locked python -m apps.cli digest subscribe-email \
 ```
 
 同一組設定重跑是 idempotent；修改時間、收件人 reference 或篇數時會遞增
-`policy_version`。實際 Email 地址仍只放在 worker 的本機 recipient-map 檔，不寫進
-`delivery_subscriptions`；`recipient:primary` 是 subscription 內部 reference。單一使用者啟動 worker 時可直接用 `--recipient-email you@example.com`，不需要另外建立 recipient-map JSON；只有多收件人時才使用 `--recipient-map-file`。
+`policy_version`。SQLite 只保存 `recipient:primary` 這個 subscription reference；
+實際 Email 地址與 SMTP/OpenRouter secrets 放在 owner-only worker `.env`。
+
+
+## MVP worker：一份 .env 啟動
+
+複製範例到私有位置後直接編輯，不需要把 source/model/mail 設定拆成十幾個 CLI flags：
+
+```bash
+mkdir -p "$HOME/.config/paper-radar"
+cp config/worker.env.example "$HOME/.config/paper-radar/worker.env"
+chmod 600 "$HOME/.config/paper-radar/worker.env"
+# 編輯 worker.env：workspace、OpenRouter key、budget、收件 Email、SMTP
+```
+
+`.env` 內容是 literal `KEY=VALUE`，不執行 shell、不支援 `export`、quotes 或
+`$HOME` 展開；workspace 必須直接寫實際路徑。檔案必須是目前使用者擁有的 regular
+file，且 group/other 不可讀寫。
+
+第一次上線前明示開啟外部副作用，之後 worker 只需要設定檔：
+
+```bash
+uv run --locked python -m apps.cli effects enable \
+  --workspace "$HOME/paper-radar-data"
+
+# smoke / 手動跑一輪
+uv run --locked python -m apps.cli run-worker \
+  --env-file "$HOME/.config/paper-radar/worker.env" \
+  --once
+
+# 長駐
+uv run --locked python -m apps.cli run-worker \
+  --env-file "$HOME/.config/paper-radar/worker.env"
+```
+
+`--env-file` 模式不允許再混用 workspace/source/model/mail runtime flags，避免兩套設定互相覆蓋。
+舊 flags 暫時保留相容；MVP 正常操作以 `config/worker.env.example` 為準。
 
 
 設定檔須為普通 UTF-8 檔案，最多 1,000,000 bytes，不接受最終 symlink 或 FIFO。全部參數先解析，錯誤非零退出；成功才輸出 JSON。真正安裝 wheel 後也能在 repo 外執行，SQL 不依賴目前目錄；範例檔仍須用自己可存取的路徑指定。
