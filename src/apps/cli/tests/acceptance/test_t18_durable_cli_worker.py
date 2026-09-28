@@ -284,7 +284,7 @@ def test_worker_env_file_commissions_single_user_runtime(
         "\n".join(
             (
                 f"PAPER_RADAR_WORKSPACE={workspace}",
-                "PAPER_RADAR_ALLOW_LIVE_SOURCE=true",
+                "PAPER_RADAR_ALLOW_LIVE_SOURCE=false",
                 "PAPER_RADAR_ALLOW_LIVE_MODEL=true",
                 "PAPER_RADAR_ALLOW_LIVE_MAIL=true",
                 f"PAPER_RADAR_OPENROUTER_API_KEY={secret}",
@@ -305,6 +305,14 @@ def test_worker_env_file_commissions_single_user_runtime(
         encoding="utf-8",
     )
     env_file.chmod(0o600)
+
+    enabled = _run(
+        "effects",
+        "enable",
+        "--workspace",
+        str(workspace),
+    )
+    assert enabled.returncode == 0, enabled.stdout + enabled.stderr
 
     worker = _run(
         "run-worker",
