@@ -6,6 +6,7 @@ from libs.research_workflow.adapters.driven.sqlite_scheduler_input_adapter impor
     SqliteSchedulerInputAdapter,
 )
 from libs.research_workflow.domain.services.plan_catchup_jobs import PlanCatchupJobs
+from libs.research_workflow.dtos.scheduler import PendingDeliveryDispatch
 
 
 NOW = datetime(2026, 9, 24, 0, 0, tzinfo=timezone.utc)
@@ -247,7 +248,78 @@ def test_pending_queued_outbox_is_exposed_to_scheduler(tmp_path: Path) -> None:
 
     snapshot = adapter.read(NOW)
 
-    assert snapshot.pending_delivery_outboxes == ("outbox:pending",)
+    assert snapshot.pending_delivery_outboxes == (
+        PendingDeliveryDispatch("outbox:pending", None),
+    )
+
+
+def test_pending_outbox_with_failed_dispatch_job_is_left_for_job_retry(
+    tmp_path: Path,
+) -> None:
+    path, adapter = _setup(tmp_path)
+    retry_at = NOW.replace(minute=5)
+    connection = sqlite3.connect(path)
+    connection.execute(
+        "INSERT INTO digests VALUES(?,?,?,'queued')",
+        ("digest:retry", "subscription:daily", "2026-09-24"),
+    )
+    connection.execute(
+        "INSERT INTO delivery_outbox VALUES(?,?,'pending')",
+        ("outbox:retry", "digest:retry"),
+    )
+    connection.execute(
+        "INSERT INTO workflow_jobs VALUES(?,?,?,?,?,'failed',?,NULL,NULL,1,1,?)",
+        (
+            "job:dispatch-retry",
+            "dispatch_digest",
+            "dispatch:outbox:retry",
+            '{"outbox_id":"outbox:retry","prepare_digest":null}',
+            "d" * 64,
+            retry_at.isoformat(),
+            NOW.isoformat(),
+        ),
+    )
+    connection.commit()
+    connection.close()
+
+    snapshot = adapter.read(NOW)
+
+    assert snapshot.pending_delivery_outboxes == ()
+
+
+def test_pending_outbox_with_terminal_dispatch_job_is_corrupt(
+    tmp_path: Path,
+) -> None:
+    path, adapter = _setup(tmp_path)
+    connection = sqlite3.connect(path)
+    connection.execute(
+        "INSERT INTO digests VALUES(?,?,?,'queued')",
+        ("digest:corrupt", "subscription:daily", "2026-09-24"),
+    )
+    connection.execute(
+        "INSERT INTO delivery_outbox VALUES(?,?,'pending')",
+        ("outbox:corrupt", "digest:corrupt"),
+    )
+    connection.execute(
+        "INSERT INTO workflow_jobs VALUES(?,?,?,?,?,'succeeded',?,NULL,NULL,1,1,?)",
+        (
+            "job:dispatch-corrupt",
+            "dispatch_digest",
+            "dispatch:outbox:corrupt",
+            '{"outbox_id":"outbox:corrupt","prepare_digest":null}',
+            "e" * 64,
+            NOW.isoformat(),
+            NOW.isoformat(),
+        ),
+    )
+    connection.commit()
+    connection.close()
+
+    with pytest.raises(
+        Exception,
+        match="delivery_outbox_state_corrupt",
+    ):
+        adapter.read(NOW)
 
 
 def test_pending_explanation_defers_due_daily_digest(tmp_path: Path) -> None:
