@@ -84,6 +84,25 @@ SMTP transport 必須明示加密模式：implicit TLS（常見 port 465）使�
 `PAPER_RADAR_SMTP_SECURITY=ssl`；需要 STARTTLS（常見 port 587）的 provider 改成
 `PAPER_RADAR_SMTP_SECURITY=starttls`。不支援 plaintext SMTP。
 
+
+### GitHub Actions live SMTP smoke
+
+若要從 GitHub-hosted runner 驗證真實 SMTP，可在 repository
+`Settings → Secrets and variables → Actions` 建立以下 Repository secrets：
+
+- `PAPER_RADAR_SMTP_HOST`
+- `PAPER_RADAR_SMTP_PORT`
+- `PAPER_RADAR_SMTP_SECURITY`（`ssl` 或 `starttls`）
+- `PAPER_RADAR_SMTP_SENDER`
+- `PAPER_RADAR_SMTP_USERNAME`
+- `PAPER_RADAR_SMTP_PASSWORD`
+- `PAPER_RADAR_SMTP_RECIPIENT`
+
+之後在 Actions 選 `Live SMTP smoke`，選擇要測的 branch，按 `Run workflow` 並勾
+`confirm_send`。這個 workflow 只有手動 `workflow_dispatch`，不會在 push/PR 自動寄信；
+每次 run 只寄一封固定 smoke mail，內容不含論文或模型資料。workflow 只檢查 secret 是否存在，
+不輸出 secret 值。
+
 SMTP 明確回覆 4xx transient rejection 時，Paper Radar 會保留同一 outbox／idempotency identity，
 把本次 delivery attempt 記為 failed，並由 workflow 在 5 分鐘後安全重試；5xx permanent rejection
 則維持 terminal failed。timeout、socket 中斷或其他無法確定 provider 是否已接受郵件的情況仍標成
