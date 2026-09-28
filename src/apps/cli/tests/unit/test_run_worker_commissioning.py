@@ -254,6 +254,5 @@ def test_model_budget_usd_rejects_ambiguous_values(value: str) -> None:
         model_budget_usd_to_micros(value)
 
 
-
 def test_commissioned_openrouter_reservation_matches_policy_bounds() -> None:
     assert commissioned_openrouter_reservation_micros() == 265_984
