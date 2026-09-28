@@ -218,6 +218,14 @@ class PlanCatchupJobs:
                 raise WorkflowJobError("invalid_pubmed_harvest_window")
             return last + cls.HARVEST_INTERVAL if last + cls.HARVEST_INTERVAL <= boundary else None
 
+        if schedule.source_id == "arxiv":
+            boundary = current.replace(second=0, microsecond=0)
+            if last is None:
+                return boundary
+            if last != last.replace(second=0, microsecond=0):
+                raise WorkflowJobError("invalid_arxiv_harvest_window")
+            return last + cls.HARVEST_INTERVAL if last + cls.HARVEST_INTERVAL <= boundary else None
+
         if last is None:
             return current
         return last + cls.HARVEST_INTERVAL if last + cls.HARVEST_INTERVAL <= current else None
