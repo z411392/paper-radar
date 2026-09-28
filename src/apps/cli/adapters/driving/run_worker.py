@@ -603,9 +603,14 @@ def run_worker_cli(argv: list[str]) -> None:
                     env_profile_domain_count
                 )
             ):
+                noun = (
+                    "domain"
+                    if env_profile_domain_count == 1
+                    else "domains"
+                )
                 parser.error(
                     "PAPER_RADAR_MODEL_MONTHLY_BUDGET_USD cannot cover one "
-                    f"paper across {env_profile_domain_count} selected domains"
+                    f"paper across {env_profile_domain_count} selected {noun}"
                 )
         elif arguments.model_reservation_micros > arguments.model_period_limit_micros:
             parser.error(
