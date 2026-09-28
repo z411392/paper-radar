@@ -183,6 +183,11 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--smtp-sender")
     parser.add_argument("--smtp-username")
     parser.add_argument(
+        "--smtp-security",
+        choices=("ssl", "starttls"),
+        help="SMTP transport security; defaults to ssl for live mail.",
+    )
+    parser.add_argument(
         "--smtp-password-file",
         help="Absolute owner-only file containing the SMTP password; never printed.",
     )
@@ -284,6 +289,7 @@ def run_worker_cli(argv: list[str]) -> None:
             "--smtp-port",
             "--smtp-sender",
             "--smtp-username",
+            "--smtp-security",
             "--smtp-password-file",
             "--rate-limit-state",
             "--ncbi-email",
@@ -360,6 +366,12 @@ def run_worker_cli(argv: list[str]) -> None:
             )
             arguments.smtp_sender = env.get("PAPER_RADAR_SMTP_SENDER")
             arguments.smtp_username = env.get("PAPER_RADAR_SMTP_USERNAME")
+            arguments.smtp_security = env.get(
+                "PAPER_RADAR_SMTP_SECURITY",
+                "ssl",
+            )
+            if arguments.smtp_security not in {"ssl", "starttls"}:
+                raise ConfigurationFileError("invalid_env_value")
             env_model_api_key = env.get("PAPER_RADAR_OPENROUTER_API_KEY")
             env_smtp_password = env.get("PAPER_RADAR_SMTP_PASSWORD")
             env_profile_domains = env.get("PAPER_RADAR_PROFILE_DOMAINS")
@@ -396,6 +408,9 @@ def run_worker_cli(argv: list[str]) -> None:
         or "\0" in arguments.workspace
     ):
         parser.error("workspace must be a non-empty path")
+
+    if arguments.allow_live_mail and arguments.smtp_security is None:
+        arguments.smtp_security = "ssl"
 
     profile_config_present = any(
         value is not None
@@ -557,6 +572,7 @@ def run_worker_cli(argv: list[str]) -> None:
         arguments.smtp_port,
         arguments.smtp_sender,
         arguments.smtp_username,
+        arguments.smtp_security,
         arguments.smtp_password_file,
         env_smtp_password,
     )
@@ -732,6 +748,7 @@ def run_worker_cli(argv: list[str]) -> None:
                     smtp_sender=arguments.smtp_sender,
                     smtp_username=arguments.smtp_username,
                     smtp_password=smtp_password,
+                    smtp_security=arguments.smtp_security or "ssl",
                     allow_live_model=arguments.allow_live_model,
                     model_api_key=model_api_key,
                     generation_budget_policy=generation_budget_policy,
