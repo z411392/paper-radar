@@ -1,5 +1,6 @@
 import hashlib
 import json
+from datetime import datetime, timezone
 
 from libs.paper_explanations.dtos.openrouter_policy import OpenRouterPolicy
 from libs.paper_explanations.dtos.structured_generation_request import MODEL_NAME
@@ -40,3 +41,13 @@ def commissioned_openrouter_execution_policy_fingerprint() -> str:
         separators=(",", ":"),
     )
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def commissioned_openrouter_budget_period(
+    now: datetime | None = None,
+) -> tuple[str, str]:
+    current = datetime.now(timezone.utc) if now is None else now
+    if current.tzinfo is None or current.utcoffset() is None:
+        raise ValueError("timezone_required")
+    utc = current.astimezone(timezone.utc)
+    return (f"{utc.year:04d}-{utc.month:02d}", "USD")
