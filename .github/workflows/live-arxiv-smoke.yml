@@ -1,0 +1,33 @@
+name: Live arXiv smoke
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-arxiv-smoke-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  arxiv-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      UV_PYTHON: "3.13.5"
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: 0.10.0
+          enable-cache: false
+
+      - name: Install the locked development environment
+        run: uv sync --locked
+
+      - name: Run bounded public arXiv smoke
+        run: make mvp-live-arxiv
