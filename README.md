@@ -98,10 +98,13 @@ SMTP transport 必須明示加密模式：implicit TLS（常見 port 465）使�
 - `PAPER_RADAR_SMTP_PASSWORD`
 - `PAPER_RADAR_SMTP_RECIPIENT`
 
-之後在 Actions 選 `Live SMTP smoke`，選擇要測的 branch，按 `Run workflow` 並勾
-`confirm_send`。這個 workflow 只有手動 `workflow_dispatch`，不會在 push/PR 自動寄信；
-每次 run 只寄一封固定 smoke mail，內容不含論文或模型資料。workflow 只檢查 secret 是否存在，
-不輸出 secret 值。
+GitHub 的 `workflow_dispatch` 第一次要能手動觸發，workflow 檔必須已存在 default
+branch；因此新 workflow 尚未合併前不會出現可用的第一次 `Run workflow`。合併到 default
+branch 後，在 Actions 選 `Live SMTP smoke`，選擇要測的 branch，按 `Run workflow` 並勾
+`confirm_send`。
+
+這個 workflow 只有手動 `workflow_dispatch`，不會在 push/PR 自動寄信；每次 run 只寄一封
+固定 smoke mail，內容不含論文或模型資料。workflow 只檢查 secret 是否存在，不輸出 secret 值。
 
 SMTP 明確回覆 4xx transient rejection 時，Paper Radar 會保留同一 outbox／idempotency identity，
 把本次 delivery attempt 記為 failed，並由 workflow 在 5 分鐘後安全重試；5xx permanent rejection
