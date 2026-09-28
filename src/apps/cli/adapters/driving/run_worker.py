@@ -94,8 +94,18 @@ def _parser() -> argparse.ArgumentParser:
         type=lambda value: _budget_micros(value, "model reservation micros"),
     )
     parser.add_argument(
+        "--recipient-email",
+        help=(
+            "Single-recipient MVP email address mapped to recipient:primary. "
+            "Mutually exclusive with --recipient-map-file."
+        ),
+    )
+    parser.add_argument(
         "--recipient-map-file",
-        help="Absolute path to local recipient-ref JSON used only when mail is commissioned.",
+        help=(
+            "Optional advanced multi-recipient mapping file. "
+            "Mutually exclusive with --recipient-email."
+        ),
     )
     parser.add_argument("--smtp-host")
     parser.add_argument(
@@ -284,6 +294,7 @@ def run_worker_cli(argv: list[str]) -> None:
         )
 
     mail_values = (
+        arguments.recipient_email,
         arguments.recipient_map_file,
         arguments.smtp_host,
         arguments.smtp_port,
@@ -296,19 +307,41 @@ def run_worker_cli(argv: list[str]) -> None:
     recipient_map_json = None
     smtp_password = None
     if arguments.allow_live_mail:
-        if any(value is None for value in mail_values):
-            parser.error(
-                "--allow-live-mail requires recipient map, SMTP host/port/sender/"
-                "username/password file"
+        recipient_modes = sum(
+            value is not None
+            for value in (
+                arguments.recipient_email,
+                arguments.recipient_map_file,
             )
-        assert arguments.recipient_map_file is not None
+        )
+        if recipient_modes != 1:
+            parser.error(
+                "--allow-live-mail requires exactly one of --recipient-email "
+                "or --recipient-map-file"
+            )
+        smtp_values = (
+            arguments.smtp_host,
+            arguments.smtp_port,
+            arguments.smtp_sender,
+            arguments.smtp_username,
+            arguments.smtp_password_file,
+        )
+        if any(value is None for value in smtp_values):
+            parser.error(
+                "--allow-live-mail requires SMTP host/port/sender/username/"
+                "password file"
+            )
         assert arguments.smtp_password_file is not None
-        for value, label in (
-            (arguments.recipient_map_file, "--recipient-map-file"),
-            (arguments.smtp_password_file, "--smtp-password-file"),
-        ):
+        local_files = [(arguments.smtp_password_file, "--smtp-password-file")]
+        if arguments.recipient_map_file is not None:
+            local_files.append(
+                (arguments.recipient_map_file, "--recipient-map-file")
+            )
+        for value, label in local_files:
             if "\0" in value or not Path(value).is_absolute():
-                parser.error(f"{label} must be an absolute path without NUL characters")
+                parser.error(
+                    f"{label} must be an absolute path without NUL characters"
+                )
         for value, label in (
             (arguments.smtp_host, "--smtp-host"),
             (arguments.smtp_sender, "--smtp-sender"),
@@ -323,9 +356,18 @@ def run_worker_cli(argv: list[str]) -> None:
             ):
                 parser.error(f"{label} must be a non-empty single-line value")
         try:
-            recipient_map_json = read_configuration_file(
-                arguments.recipient_map_file
-            )
+            if arguments.recipient_email is not None:
+                recipient_map_json = json.dumps(
+                    {"recipient:primary": arguments.recipient_email},
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
+            else:
+                assert arguments.recipient_map_file is not None
+                recipient_map_json = read_configuration_file(
+                    arguments.recipient_map_file
+                )
             smtp_password = read_secret_file(arguments.smtp_password_file)
         except ConfigurationFileError as exc:
             _error(str(exc))
