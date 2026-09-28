@@ -405,3 +405,61 @@ def test_worker_env_file_bootstraps_mvp_profile_without_profile_cli(
         ("statistics", 1),
     ]
     assert json.loads(filters[0])["sources"] == ["arxiv"]
+
+
+
+def test_worker_env_live_mail_fails_fast_when_effects_disabled(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "runtime-effects-off"
+    initialized = _run(
+        "init",
+        "--workspace",
+        str(workspace),
+        "--with-runtime",
+    )
+    assert initialized.returncode == 0
+
+    env_file = tmp_path / "mail.env"
+    env_file.write_text(
+        "\n".join(
+            (
+                f"PAPER_RADAR_WORKSPACE={workspace}",
+                "PAPER_RADAR_ALLOW_LIVE_MAIL=true",
+                "PAPER_RADAR_RECIPIENT_EMAIL=reader@example.com",
+                "PAPER_RADAR_SMTP_HOST=smtp.example.com",
+                "PAPER_RADAR_SMTP_PORT=465",
+                "PAPER_RADAR_SMTP_SENDER=paper-radar@example.com",
+                "PAPER_RADAR_SMTP_USERNAME=mailer@example.com",
+                "PAPER_RADAR_SMTP_PASSWORD=fake-smtp-password",
+                "PAPER_RADAR_DIGEST_TIMEZONE=Asia/Taipei",
+                "PAPER_RADAR_DIGEST_LOCAL_TIME=08:00",
+                "PAPER_RADAR_DIGEST_MAX_ITEMS=5",
+            )
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    env_file.chmod(0o600)
+
+    worker = _run(
+        "run-worker",
+        "--env-file",
+        str(env_file),
+        "--once",
+    )
+
+    assert worker.returncode == 1
+    assert worker.stdout == ""
+    error = json.loads(worker.stderr)["error"]
+    assert error["code"] == "external_effects_disabled"
+    assert "effects enable" in error["hint"]
+
+    import sqlite3
+
+    with sqlite3.connect(workspace / "state/app.sqlite3") as connection:
+        subscriptions = connection.execute(
+            "SELECT COUNT(*) FROM delivery_subscriptions"
+        ).fetchone()[0]
+
+    assert subscriptions == 0
