@@ -75,7 +75,6 @@ def test_rejects_group_readable_worker_env(tmp_path: Path) -> None:
     assert exc.value.code == "env_permissions_too_open"
 
 
-
 def test_env_file_mode_rejects_runtime_flag_mixing(
     tmp_path: Path,
     capsys,
