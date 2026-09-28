@@ -1,4 +1,5 @@
 import hashlib
+import inspect
 import json
 import os
 from concurrent.futures import ThreadPoolExecutor
@@ -1467,6 +1468,51 @@ def _seed_live_arxiv_mvp(root: Path) -> None:
         connection.close()
 
 
+class MutableWorkflowClock:
+    def __init__(self, current: datetime) -> None:
+        self.current = current
+
+    def now(self) -> datetime:
+        return self.current
+
+
+def _mark_live_arxiv_caught_up(
+    root: Path,
+    window_end: datetime,
+) -> None:
+    input_json = json.dumps(
+        {
+            "binding_key": "personal:1:statistics:1:arxiv",
+            "window_end": window_end.isoformat(),
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    fingerprint = hashlib.sha256(input_json.encode("utf-8")).hexdigest()
+    connection = SqliteConnectionFactory(root).connect()
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        connection.execute(
+            "INSERT INTO workflow_jobs("
+            "id,job_kind,business_key,input_json,input_fingerprint,state,"
+            "due_at,lease_owner,lease_until,fencing_token,attempt_count,created_at"
+            ") VALUES(?,?,?,?,?,'succeeded',?,NULL,NULL,1,1,?)",
+            (
+                "job:live-arxiv-caught-up",
+                "harvest_window",
+                "harvest:live-arxiv-caught-up",
+                input_json,
+                fingerprint,
+                window_end.isoformat(),
+                window_end.isoformat(),
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+
 def _required_live_mvp(name: str) -> str:
     value = os.environ.get(name)
     if value is None or not value.strip():
@@ -1501,6 +1547,7 @@ def test_live_arxiv_openrouter_gmail_e2e(tmp_path: Path) -> None:
 
     period_key, currency = commissioned_openrouter_budget_period()
     recipient = _required_live_mvp("PAPER_RADAR_SMTP_RECIPIENT")
+    clock = MutableWorkflowClock(datetime.now(timezone.utc))
     injector = Injector(
         [
             WorkerCliModule(
@@ -1542,6 +1589,7 @@ def test_live_arxiv_openrouter_gmail_e2e(tmp_path: Path) -> None:
                 smtp_security=_required_live_mvp(
                     "PAPER_RADAR_SMTP_SECURITY"
                 ),
+                workflow_clock=clock,
             )
         ],
         auto_bind=False,
@@ -1599,27 +1647,58 @@ def test_live_arxiv_openrouter_gmail_e2e(tmp_path: Path) -> None:
     finally:
         connection.close()
 
-    cutoff = datetime.now(timezone.utc)
-    prepared = injector.get(PrepareScheduledDigestPort)(
-        ScheduledDigestRequest(
-            "subscription:live-arxiv",
-            "live-full-mvp-smoke",
-            observed_at - timedelta(minutes=1),
-            cutoff,
-        ),
-        created_at=cutoff,
+    observed_at = observed_at.astimezone(timezone.utc)
+    digest_clock = (observed_at + timedelta(days=1)).replace(
+        hour=8,
+        minute=1,
+        second=0,
+        microsecond=0,
     )
-    assert prepared.state == "queued"
-    assert prepared.item_count == 1
-    assert prepared.outbox_id is not None
+    _mark_live_arxiv_caught_up(root, digest_clock)
+    clock.current = digest_clock
 
-    delivered = injector.get(ProcessRevisionNoticePort)(
-        RevisionNoticeRequest(prepared.outbox_id)
+    digested = worker(
+        "worker:mvp-live-full",
+        max_new_jobs=10,
+        max_jobs=10,
+        lease_seconds=300,
     )
-    assert delivered.state == "succeeded"
+    assert [
+        (job.job_kind, job.state, job.error_code)
+        for job in digested.jobs
+    ] == [
+        ("prepare_digest", "succeeded", None),
+    ]
+
+    delivered = worker(
+        "worker:mvp-live-full",
+        max_new_jobs=10,
+        max_jobs=10,
+        lease_seconds=300,
+    )
+    assert [
+        (job.job_kind, job.state, job.error_code)
+        for job in delivered.jobs
+    ] == [
+        ("dispatch_digest", "succeeded", None),
+    ]
+
+    replay = worker(
+        "worker:mvp-live-full",
+        max_new_jobs=10,
+        max_jobs=10,
+        lease_seconds=300,
+    )
+    assert replay.processed_jobs == 0
 
     connection = SqliteConnectionFactory(root).connect()
     try:
+        assert connection.execute(
+            "SELECT count(*) FROM digests"
+        ).fetchone()[0] == 1
+        assert connection.execute(
+            "SELECT count(*) FROM digest_items"
+        ).fetchone()[0] == 1
         assert connection.execute(
             "SELECT state FROM delivery_outbox"
         ).fetchone()[0] == "provider_accepted"
