@@ -95,6 +95,11 @@ push/PR 自動執行。
 
 `real arXiv -> real OpenRouter -> verified zh-TW summary -> real Gmail SMTP`
 
+digest 與寄送不再由測試直接呼叫 use case；live smoke 會透過實際 worker scheduler
+依序跑 `harvest_window/explain_snapshot -> prepare_digest -> dispatch_digest`，最後再跑一輪
+replay 確認不會重寄。為了避免 smoke 從 2017 cursor 繼續歷史 catch-up，測試只注入可控
+workflow clock 與一筆已 catch-up 的 harvest history marker；production 預設 clock 不變。
+
 除了既有 7 個 SMTP Repository secrets，還需要：
 
 - `PAPER_RADAR_OPENROUTER_API_KEY`
