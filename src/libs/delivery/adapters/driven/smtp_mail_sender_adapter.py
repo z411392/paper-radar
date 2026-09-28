@@ -17,6 +17,7 @@ class SmtpMailSenderAdapter:
         sender: str,
         username: str,
         password: str,
+        security: str = "ssl",
         timeout_seconds: float = 20.0,
     ) -> None:
         if (
@@ -34,6 +35,7 @@ class SmtpMailSenderAdapter:
             or "\r" in username
             or "\n" in username
             or "\0" in username
+            or security not in {"ssl", "starttls"}
             or not isinstance(password, str)
             or not password
             or len(password.encode("utf-8")) > 8192
@@ -55,6 +57,7 @@ class SmtpMailSenderAdapter:
         self._sender = sender
         self._username = username
         self._password = password
+        self._security = security
         self._timeout = float(timeout_seconds)
 
     @staticmethod
@@ -86,15 +89,28 @@ class SmtpMailSenderAdapter:
 
         try:
             context = ssl.create_default_context()
-            with smtplib.SMTP_SSL(
-                self._host,
-                self._port,
-                timeout=self._timeout,
-                context=context,
-            ) as client:
-                if self._username:
-                    client.login(self._username, self._password)
-                refused = client.send_message(email)
+            if self._security == "ssl":
+                with smtplib.SMTP_SSL(
+                    self._host,
+                    self._port,
+                    timeout=self._timeout,
+                    context=context,
+                ) as client:
+                    if self._username:
+                        client.login(self._username, self._password)
+                    refused = client.send_message(email)
+            else:
+                with smtplib.SMTP(
+                    self._host,
+                    self._port,
+                    timeout=self._timeout,
+                ) as client:
+                    client.ehlo()
+                    client.starttls(context=context)
+                    client.ehlo()
+                    if self._username:
+                        client.login(self._username, self._password)
+                    refused = client.send_message(email)
             if refused:
                 return MailSendResult("rejected", None, "recipient_rejected")
             return MailSendResult("provider_accepted", None, None)
