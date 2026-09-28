@@ -261,3 +261,7 @@ def test_commissioned_openrouter_reservation_matches_policy_bounds() -> None:
 
 def test_commissioned_verified_summary_reservation_covers_four_calls() -> None:
     assert commissioned_verified_summary_reservation_micros() == 1_063_936
+
+
+def test_four_domain_summary_reservation_covers_seven_calls() -> None:
+    assert commissioned_verified_summary_reservation_micros(4) == 1_861_888
