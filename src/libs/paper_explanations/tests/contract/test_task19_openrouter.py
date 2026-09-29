@@ -20,7 +20,7 @@ def request(**changes):
 
 
 def policy(**changes):
-    return replace(OpenRouterPolicy(768, '1', '5', enabled=True), **changes)
+    return replace(OpenRouterPolicy(4096, '1', '5', enabled=True), **changes)
 
 
 def envelope(**changes):
