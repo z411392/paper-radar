@@ -30,6 +30,10 @@ from libs.scholarly_catalog.dtos.evidence_snapshot_readback import EvidenceSnaps
 
 
 class ReadingCardRules:
+    _NUMBER_PATTERN = re.compile(
+        r'(?<![A-Za-z0-9_])[+-]?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?'
+    )
+
     @staticmethod
     def _text(value: object, code: str) -> str:
         if not isinstance(value, str) or not value.strip() or len(value) > 8192 or '\0' in value:
@@ -101,7 +105,11 @@ class ReadingCardRules:
                 'work_id': current.work_id,
                 'evidence_fingerprint': current.evidence_fingerprint,
                 'evidence_level': current.evidence_level,
-                'source_text': current.source_text, 'anchors': [asdict(a) for a in current.anchors],
+                'source_text': current.source_text,
+                'required_numeric_literals': list(
+                    cls._numeric_literals(current.source_text)
+                ),
+                'anchors': [asdict(a) for a in current.anchors],
                 'claims': [asdict(item) for item in claims.claims],
                 'not_reported_in_read_evidence': claims.not_reported_in_read_evidence,
                 'glossary': glossary, 'output_profile': OUTPUT_PROFILE,
@@ -129,10 +137,14 @@ class ReadingCardRules:
             raise ReadingCardError('invalid_reading_reference')
         return tuple(value)
 
-    @staticmethod
-    def _numbers(text: str) -> Counter:
+    @classmethod
+    def _numeric_literals(cls, text: str) -> tuple[str, ...]:
+        return tuple(cls._NUMBER_PATTERN.findall(text))
+
+    @classmethod
+    def _numbers(cls, text: str) -> Counter:
         # Literal preservation only. Baseline/subject/unit/negation QA remains a separate gate (#20).
-        return Counter(re.findall(r'(?<![A-Za-z0-9_])[+-]?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?', text))
+        return Counter(cls._numeric_literals(text))
 
     @classmethod
     def parse(
