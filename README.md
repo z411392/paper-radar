@@ -143,9 +143,10 @@ dispatch_digest -> Gmail SMTP`；full-live pytest receipt 為 `1 passed, 15 dese
 snippet 含 `Attention Is All You Need` 與繁中摘要。isolated one-shot branch 在 run 建立後
 已恢復為 manual-only head，`main` 與 MVP branch 沒有 push-trigger live workflow。
 
-### GitHub Actions live SMTP smoke
+### 手動 GitHub Action：live SMTP smoke（非 CI）
 
-若要從 GitHub-hosted runner 驗證真實 SMTP，可在 repository
+這不是 CI，也不是 push／PR check。它只是用 GitHub-hosted runner 執行一次明示觸發的
+真實 SMTP smoke；若要從 GitHub-hosted runner 驗證真實 SMTP，可在 repository
 `Settings → Secrets and variables → Actions` 建立以下 Repository secrets：
 
 - `PAPER_RADAR_SMTP_HOST`
