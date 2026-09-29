@@ -27,8 +27,6 @@ jobs:
     env:
       UV_PYTHON: "3.13.5"
       PAPER_RADAR_RUNTIME_SHA: "89f6caa6aeebbe0579ac769e43d969d6e2f80f8b"
-      PAPER_RADAR_WORKSPACE_DIR: ${{ runner.temp }}/paper-radar-data
-      PAPER_RADAR_ENV_FILE: ${{ runner.temp }}/paper-radar-worker.env
       PAPER_RADAR_OPENROUTER_API_KEY: ${{ secrets.PAPER_RADAR_OPENROUTER_API_KEY }}
       PAPER_RADAR_SMTP_HOST: ${{ secrets.PAPER_RADAR_SMTP_HOST }}
       PAPER_RADAR_SMTP_PORT: ${{ secrets.PAPER_RADAR_SMTP_PORT }}
@@ -39,6 +37,13 @@ jobs:
       PAPER_RADAR_SMTP_RECIPIENT: ${{ secrets.PAPER_RADAR_SMTP_RECIPIENT }}
 
     steps:
+      - name: Define runner-local paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'PAPER_RADAR_WORKSPACE_DIR=%s\n' "$RUNNER_TEMP/paper-radar-data" >>"$GITHUB_ENV"
+          printf 'PAPER_RADAR_ENV_FILE=%s\n' "$RUNNER_TEMP/paper-radar-worker.env" >>"$GITHUB_ENV"
+
       - name: Check required repository secrets
         shell: bash
         run: |
