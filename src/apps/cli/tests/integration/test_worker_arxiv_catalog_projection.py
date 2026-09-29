@@ -1401,11 +1401,18 @@ def test_mvp_one_arxiv_paper_becomes_one_traditional_chinese_email(
             "SELECT count(*) FROM digests"
         ).fetchone()[0] == 1
         assert connection.execute(
+            "SELECT state FROM digests"
+        ).fetchone()[0] == "sent"
+        assert connection.execute(
             "SELECT state FROM delivery_outbox"
         ).fetchone()[0] == "provider_accepted"
         assert connection.execute(
-            "SELECT count(*) FROM delivery_attempts"
-        ).fetchone()[0] == 1
+            "SELECT state FROM notification_ledger"
+        ).fetchone()[0] == "accepted"
+        attempt = connection.execute(
+            "SELECT state,error_code FROM delivery_attempts"
+        ).fetchone()
+        assert tuple(attempt) == ("provider_accepted", None)
     finally:
         connection.close()
 
