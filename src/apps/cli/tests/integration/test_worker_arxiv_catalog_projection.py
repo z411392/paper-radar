@@ -1705,6 +1705,41 @@ def test_live_mvp_seed_uses_semantic_machine_learning_domain(
     assert domain.name == "機器學習"
 
 
+def _next_live_digest_clock(observed_at: datetime) -> datetime:
+    observed = observed_at.astimezone(timezone.utc)
+    cutoff = observed.replace(
+        hour=8,
+        minute=0,
+        second=0,
+        microsecond=0,
+    )
+    if cutoff <= observed:
+        cutoff += timedelta(days=1)
+    return cutoff + timedelta(minutes=1)
+
+
+def test_live_digest_clock_uses_first_cutoff_after_observation() -> None:
+    before = datetime(2026, 9, 29, 4, 52, tzinfo=timezone.utc)
+    after = datetime(2026, 9, 29, 9, 5, tzinfo=timezone.utc)
+
+    assert _next_live_digest_clock(before) == datetime(
+        2026,
+        9,
+        29,
+        8,
+        1,
+        tzinfo=timezone.utc,
+    )
+    assert _next_live_digest_clock(after) == datetime(
+        2026,
+        9,
+        30,
+        8,
+        1,
+        tzinfo=timezone.utc,
+    )
+
+
 class MutableWorkflowClock:
     def __init__(self, current: datetime | None = None) -> None:
         self.current = current
@@ -1902,12 +1937,7 @@ def test_live_arxiv_openrouter_gmail_e2e(tmp_path: Path) -> None:
         connection.close()
 
     observed_at = observed_at.astimezone(timezone.utc)
-    digest_clock = (observed_at + timedelta(days=1)).replace(
-        hour=8,
-        minute=1,
-        second=0,
-        microsecond=0,
-    )
+    digest_clock = _next_live_digest_clock(observed_at)
     _mark_live_arxiv_caught_up(root, digest_clock)
     clock.current = digest_clock
 
