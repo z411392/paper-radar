@@ -54,6 +54,7 @@ def test_maps_fixed_model_strict_schema_and_explicit_price_limits():
     assert body['provider']['max_price'] == {'prompt': 1.0, 'completion': 5.0, 'request': 0}
     assert body['response_format']['type'] == 'json_schema'
     assert body['response_format']['json_schema']['strict'] is True
+    assert body["reasoning"] == {"enabled": False}
     assert not {'models', 'tools', 'plugins', 'tool_choice'} & body.keys()
     assert [m['role'] for m in body['messages']] == ['system', 'user']
     assert '180 clips' in body['messages'][1]['content']
