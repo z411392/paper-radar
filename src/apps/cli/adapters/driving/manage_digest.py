@@ -188,9 +188,12 @@ def run_digest_cli(argv: list[str]) -> None:
                 ]
             }
     except (DeliverySubscriptionError, DeliveryStoreError) as exc:
+        code = getattr(exc, "code", None)
+        if not isinstance(code, str) or not code:
+            code = str(exc) or exc.__class__.__name__
         print(
             json.dumps(
-                {"error": {"code": exc.code}},
+                {"error": {"code": code}},
                 ensure_ascii=False,
             ),
             file=sys.stderr,
