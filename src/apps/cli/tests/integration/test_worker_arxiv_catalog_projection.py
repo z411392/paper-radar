@@ -23,10 +23,23 @@ from libs.delivery.dtos.scheduled_digest import ScheduledDigestRequest
 from libs.delivery.ports.prepare_scheduled_digest_port import (
     PrepareScheduledDigestPort,
 )
+from libs.discovery.adapters.driven.arxiv_atom_parser_adapter import (
+    ArxivAtomParserAdapter,
+)
+from libs.discovery.adapters.driven.arxiv_query_compiler_adapter import (
+    ArxivQueryCompilerAdapter,
+)
+from libs.discovery.adapters.driven.arxiv_source_adapter import ArxivSourceAdapter
 from libs.discovery.adapters.driven.http_client_arxiv_transport_adapter import (
     HttpClientArxivTransportAdapter,
 )
+from libs.discovery.adapters.driven.posix_arxiv_rate_limit_adapter import (
+    PosixArxivRateLimitAdapter,
+)
+from libs.discovery.application.queries.fetch_source_page import FetchSourcePage
+from libs.discovery.dtos.domain_query_snapshot import DomainQuerySnapshot
 from libs.discovery.dtos.source_http_response import SourceHttpResponse
+from libs.discovery.dtos.source_query_input import SourceQueryInput
 from libs.kernel.adapters.driven.bundled_workspace_migrations import (
     load_workspace_migrations,
 )
@@ -1544,7 +1557,80 @@ def test_worker_env_active_pipeline_reaches_one_email(
 LIVE_ARXIV_CURSOR = datetime(2017, 6, 12, 0, 0, tzinfo=timezone.utc)
 
 
-def _seed_live_arxiv_mvp(root: Path) -> None:
+def _discover_recent_live_arxiv_target(
+    rate_state: Path,
+) -> tuple[str, datetime]:
+    window_end = datetime.now(timezone.utc).replace(
+        second=0,
+        microsecond=0,
+    )
+    window_start = window_end - timedelta(days=7)
+    compiler = ArxivQueryCompilerAdapter()
+    query = SourceQueryInput(
+        source_id="arxiv",
+        profile_id="live_probe",
+        profile_revision=1,
+        profile_fingerprint="f" * 64,
+        domain=DomainQuerySnapshot(
+            "machine_learning",
+            1,
+            ("arxiv",),
+            ("cs.LG", "stat.ML"),
+        ),
+        window_start=window_start,
+        window_end=window_end,
+        profile_sources=("arxiv",),
+        deferred_mode="defer",
+        page_size=20,
+    )
+    plan = compiler.compile(query)
+    request = compiler.page(plan)
+    fetch = FetchSourcePage(
+        ArxivSourceAdapter(
+            HttpClientArxivTransportAdapter(
+                enabled=True,
+                timeout_seconds=30,
+            ),
+            PosixArxivRateLimitAdapter(rate_state),
+            enabled=True,
+        )
+    )
+    fetched = fetch(request)
+    if fetched.failure_code is not None or fetched.response is None:
+        raise AssertionError(
+            "recent live arXiv target discovery failed: "
+            + str(fetched.failure_code)
+        )
+    response = fetched.response
+    page = ArxivAtomParserAdapter()(
+        request,
+        response.body,
+        http_status=response.status,
+    )
+    for record in page.records:
+        title = record.title.strip()
+        occurrence = (
+            record.published_at
+            if record.version in {None, 1}
+            else record.updated_at
+        )
+        if (
+            title
+            and '"' not in title
+            and "\\" not in title
+            and len(title.encode("utf-8")) <= 512
+            and response.received_at - occurrence <= timedelta(days=14)
+        ):
+            return title, occurrence
+    raise AssertionError("no recent safe-title arXiv target found")
+
+
+def _seed_live_arxiv_mvp(
+    root: Path,
+    *,
+    include_title: str = "Attention Is All You Need",
+    cursor_end: datetime | None = LIVE_ARXIV_CURSOR,
+) -> None:
     seeds = json.loads(bundled_domain_seeds_json())["domains"]
     raw_definition = next(
         item
@@ -1561,16 +1647,24 @@ def _seed_live_arxiv_mvp(root: Path) -> None:
         ),
     )
     definition = json.loads(normalized.canonical_json)["domains"][0]
-    input_json = json.dumps(
-        {
-            "binding_key": "personal:1:machine_learning:1:arxiv",
-            "window_end": LIVE_ARXIV_CURSOR.isoformat(),
-        },
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
+    input_json = (
+        None
+        if cursor_end is None
+        else json.dumps(
+            {
+                "binding_key": "personal:1:machine_learning:1:arxiv",
+                "window_end": cursor_end.isoformat(),
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
     )
-    fingerprint = hashlib.sha256(input_json.encode("utf-8")).hexdigest()
+    fingerprint = (
+        None
+        if input_json is None
+        else hashlib.sha256(input_json.encode("utf-8")).hexdigest()
+    )
     connection = SqliteConnectionFactory(root).connect()
     try:
         connection.execute("BEGIN IMMEDIATE")
@@ -1595,7 +1689,7 @@ def _seed_live_arxiv_mvp(root: Path) -> None:
                 "WHERE profile_id='personal' AND revision=1"
             ).fetchone()["filters_json"]
         )
-        current_filters["include"] = ["Attention Is All You Need"]
+        current_filters["include"] = [include_title]
         connection.execute(
             "UPDATE watch_profile_revisions SET scope_text=?,filters_json=? "
             "WHERE profile_id='personal' AND revision=1",
@@ -1617,21 +1711,24 @@ def _seed_live_arxiv_mvp(root: Path) -> None:
             "INSERT INTO watch_profile_domains VALUES(?,?,?,?)",
             ("personal", 1, "machine_learning", 1),
         )
-        connection.execute(
-            "INSERT INTO workflow_jobs("
-            "id,job_kind,business_key,input_json,input_fingerprint,state,"
-            "due_at,lease_owner,lease_until,fencing_token,attempt_count,created_at"
-            ") VALUES(?,?,?,?,?,'succeeded',?,NULL,NULL,1,1,?)",
-            (
-                "job:live-arxiv-cursor",
-                "harvest_window",
-                "harvest:live-arxiv-cursor",
-                input_json,
-                fingerprint,
-                LIVE_ARXIV_CURSOR.isoformat(),
-                LIVE_ARXIV_CURSOR.isoformat(),
-            ),
-        )
+        if cursor_end is not None:
+            assert input_json is not None
+            assert fingerprint is not None
+            connection.execute(
+                "INSERT INTO workflow_jobs("
+                "id,job_kind,business_key,input_json,input_fingerprint,state,"
+                "due_at,lease_owner,lease_until,fencing_token,attempt_count,created_at"
+                ") VALUES(?,?,?,?,?,'succeeded',?,NULL,NULL,1,1,?)",
+                (
+                    "job:live-arxiv-cursor",
+                    "harvest_window",
+                    "harvest:live-arxiv-cursor",
+                    input_json,
+                    fingerprint,
+                    cursor_end.isoformat(),
+                    cursor_end.isoformat(),
+                ),
+            )
         connection.execute(
             "INSERT INTO delivery_subscriptions("
             "id,reader_id,channel,enabled,timezone,schedule_json,max_items,"
