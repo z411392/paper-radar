@@ -109,7 +109,17 @@ jobs:
             gh api               "repos/${GITHUB_REPOSITORY}/actions/workflows/daily-paper-radar.yml/runs?per_page=20"
           )"
           prior_count="$(
-            jq --argjson current "${GITHUB_RUN_ID}"               '[.workflow_runs[] | select(.id != $current)] | length'               <<<"$runs"
+            jq --argjson current "${GITHUB_RUN_ID}" '
+              [
+                .workflow_runs[]
+                | select(.id != $current)
+                | select(
+                    .event == "schedule"
+                    or .event == "workflow_dispatch"
+                  )
+              ]
+              | length
+            ' <<<"$runs"
           )"
           if [[ "$prior_count" == "0" || "${BOOTSTRAP_REQUESTED:-false}" == "true" ]]; then
             echo "found=false" >>"$GITHUB_OUTPUT"
