@@ -85,6 +85,26 @@ SMTP transport 必須明示加密模式：implicit TLS（常見 port 465）使�
 `PAPER_RADAR_SMTP_SECURITY=starttls`。不支援 plaintext SMTP。
 
 
+正常 arXiv 路徑不會把多年以前的 paper 當成今日新論文寄出：若一筆 arXiv revision
+在 Paper Radar 第一次觀測時，距離其 published/updated occurrence 已超過 14 天，
+catalog 會將事件記成 `late_discovery`。這筆歷史仍保留，但 daily digest event reader
+不把 `late_discovery` 列入候選。full live smoke 使用 2017 年
+`Attention Is All You Need` 是刻意的固定驗收樣本，不代表正常 daily selection。
+
+要直接查看「已寄／未寄／失敗／狀態不明」，使用同一份 worker env：
+
+```bash
+uv run --locked python -m apps.cli digest status \
+  --env-file "$HOME/.config/paper-radar/worker.env"
+```
+
+預設顯示 `local` reader 最近 10 期；可用 `--limit 1..100` 調整。每期輸出
+`delivery_state`，每篇輸出 `notification_state` 與 `send_status`：
+`accepted/sent` 才表示 SMTP provider 已明確接受；`reserved/pending` 表示尚未寄成、
+但已先佔住 notification identity 以避免下一輪重複排入；`unknown` 代表無法確認 provider
+是否已接受，因此不自動重寄；`failed` 與 `cancelled` 也會保留在歷史。
+
+
 
 ### GitHub Actions full live MVP smoke
 
