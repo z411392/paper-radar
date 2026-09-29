@@ -9,7 +9,6 @@ from libs.scholarly_catalog.exceptions.digest_event_read_error import DigestEven
 class SqliteDigestResearchEventAdapter:
     _PAPER_KINDS = (
         "new_work",
-        "late_discovery",
         "revision_available",
         "newly_accessible",
     )
