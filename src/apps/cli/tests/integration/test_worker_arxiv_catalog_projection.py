@@ -1814,6 +1814,8 @@ def test_live_full_mvp_uses_worker_cycles_for_digest_and_dispatch() -> None:
 
     assert "PrepareScheduledDigestPort" not in source
     assert "ProcessRevisionNoticePort" not in source
+    assert "Attention Is All You Need" not in source
+    assert "_discover_recent_live_arxiv_target" in source
     assert source.count("worker(") >= 3
 
 
