@@ -6,13 +6,17 @@ from dataclasses import asdict
 
 from injector import Injector
 
+from apps.cli.exceptions.configuration_file_error import ConfigurationFileError
+from apps.cli.helpers.read_worker_env_file import read_worker_env_file
 from apps.cli.module import DeliveryCliModule
+from libs.delivery.exceptions.delivery_store_error import DeliveryStoreError
 from libs.delivery.exceptions.delivery_subscription_error import (
     DeliverySubscriptionError,
 )
 from libs.delivery.ports.configure_email_subscription_port import (
     ConfigureEmailSubscriptionPort,
 )
+from libs.delivery.ports.read_delivery_history_port import ReadDeliveryHistoryPort
 from libs.kernel.exceptions.storage_error import StorageError
 
 
@@ -38,6 +42,19 @@ def _local_time(value: str) -> str:
             "local time must use 24-hour HH:MM format"
         )
     return value
+
+
+def _limit(value: str) -> int:
+    if re.fullmatch(r"[0-9]{1,3}", value) is None:
+        raise argparse.ArgumentTypeError(
+            "limit must be an integer from 1 to 100"
+        )
+    number = int(value)
+    if not 1 <= number <= 100:
+        raise argparse.ArgumentTypeError(
+            "limit must be an integer from 1 to 100"
+        )
+    return number
 
 
 def _max_items(value: str) -> int:
@@ -81,10 +98,64 @@ def run_digest_cli(argv: list[str]) -> None:
         type=_max_items,
         default=5,
     )
+    status = commands.add_parser(
+        "status",
+        allow_abbrev=False,
+    )
+    source = status.add_mutually_exclusive_group(required=True)
+    source.add_argument("--workspace")
+    source.add_argument("--env-file")
+    status.add_argument(
+        "--reader-id",
+        default="local",
+        type=_reader_id,
+    )
+    status.add_argument(
+        "--limit",
+        type=_limit,
+        default=10,
+    )
+
     arguments = parser.parse_args(argv[1:])
-    if not arguments.workspace.strip() or "\0" in arguments.workspace:
-        parser.error("workspace must be a non-empty path")
+    workspace = getattr(arguments, "workspace", None)
     if (
+        arguments.operation == "status"
+        and arguments.env_file is not None
+    ):
+        try:
+            values = read_worker_env_file(arguments.env_file)
+        except ConfigurationFileError as exc:
+            print(
+                json.dumps(
+                    {"error": {"code": exc.code}},
+                    ensure_ascii=False,
+                ),
+                file=sys.stderr,
+            )
+            raise SystemExit(1) from None
+        except OSError:
+            print(
+                json.dumps(
+                    {"error": {"code": "env_configuration_io_error"}},
+                    ensure_ascii=False,
+                ),
+                file=sys.stderr,
+            )
+            raise SystemExit(1) from None
+        workspace = values.get("PAPER_RADAR_WORKSPACE")
+        if not isinstance(workspace, str):
+            parser.error(
+                "PAPER_RADAR_WORKSPACE is required in --env-file"
+            )
+
+    if (
+        not isinstance(workspace, str)
+        or not workspace.strip()
+        or "\0" in workspace
+    ):
+        parser.error("workspace must be a non-empty path")
+
+    if arguments.operation == "subscribe-email" and (
         not arguments.timezone.strip()
         or "\0" in arguments.timezone
         or len(arguments.timezone) > 128
@@ -93,17 +164,30 @@ def run_digest_cli(argv: list[str]) -> None:
 
     try:
         injector = Injector(
-            [DeliveryCliModule(arguments.workspace)],
+            [DeliveryCliModule(workspace)],
             auto_bind=False,
         )
-        result = injector.get(ConfigureEmailSubscriptionPort)(
-            arguments.reader_id,
-            arguments.recipient_ref,
-            arguments.timezone,
-            arguments.local_time,
-            max_items=arguments.max_items,
-        )
-    except DeliverySubscriptionError as exc:
+        if arguments.operation == "subscribe-email":
+            result = injector.get(ConfigureEmailSubscriptionPort)(
+                arguments.reader_id,
+                arguments.recipient_ref,
+                arguments.timezone,
+                arguments.local_time,
+                max_items=arguments.max_items,
+            )
+            output = asdict(result)
+        else:
+            history = injector.get(ReadDeliveryHistoryPort)(
+                arguments.reader_id,
+                limit=arguments.limit,
+            )
+            output = {
+                "deliveries": [
+                    asdict(item)
+                    for item in history
+                ]
+            }
+    except (DeliverySubscriptionError, DeliveryStoreError) as exc:
         print(
             json.dumps(
                 {"error": {"code": exc.code}},
@@ -116,8 +200,8 @@ def run_digest_cli(argv: list[str]) -> None:
         error: dict[str, str] = {"code": exc.code}
         if exc.code == "schema_upgrade_required":
             error["hint"] = (
-                "Run init --workspace PATH --with-runtime explicitly before "
-                "configuring email delivery."
+                "Run init --env-file FILE or legacy "
+                "init --workspace PATH --with-runtime first."
             )
         elif exc.code == "workspace_missing":
             error["hint"] = (
@@ -132,7 +216,7 @@ def run_digest_cli(argv: list[str]) -> None:
 
     print(
         json.dumps(
-            asdict(result),
+            output,
             ensure_ascii=False,
             sort_keys=True,
         )
