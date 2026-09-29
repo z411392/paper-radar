@@ -1,0 +1,72 @@
+name: Live SMTP smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - codex/mvp-paper-email-e2e
+    paths:
+      - .github/live-smtp-trigger
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-smtp-smoke
+  cancel-in-progress: false
+
+jobs:
+  smtp:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: 0.10.0
+          enable-cache: false
+      - name: Install locked environment
+        run: uv sync --locked
+      - name: Validate live SMTP secrets are present
+        shell: bash
+        env:
+          PAPER_RADAR_LIVE_SMTP_HOST: ${{ secrets.PAPER_RADAR_LIVE_SMTP_HOST }}
+          PAPER_RADAR_LIVE_SMTP_PORT: ${{ secrets.PAPER_RADAR_LIVE_SMTP_PORT }}
+          PAPER_RADAR_LIVE_SMTP_SECURITY: ${{ secrets.PAPER_RADAR_LIVE_SMTP_SECURITY }}
+          PAPER_RADAR_LIVE_SMTP_SENDER: ${{ secrets.PAPER_RADAR_LIVE_SMTP_SENDER }}
+          PAPER_RADAR_LIVE_SMTP_USERNAME: ${{ secrets.PAPER_RADAR_LIVE_SMTP_USERNAME }}
+          PAPER_RADAR_LIVE_SMTP_PASSWORD: ${{ secrets.PAPER_RADAR_LIVE_SMTP_PASSWORD }}
+          PAPER_RADAR_LIVE_SMTP_RECIPIENT: ${{ secrets.PAPER_RADAR_LIVE_SMTP_RECIPIENT }}
+        run: |
+          missing=0
+          for name in \
+            PAPER_RADAR_LIVE_SMTP_HOST \
+            PAPER_RADAR_LIVE_SMTP_PORT \
+            PAPER_RADAR_LIVE_SMTP_SECURITY \
+            PAPER_RADAR_LIVE_SMTP_SENDER \
+            PAPER_RADAR_LIVE_SMTP_USERNAME \
+            PAPER_RADAR_LIVE_SMTP_PASSWORD \
+            PAPER_RADAR_LIVE_SMTP_RECIPIENT
+          do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::missing repository secret: ${name}"
+              missing=1
+            fi
+          done
+          exit "${missing}"
+      - name: Send exactly one live SMTP smoke message
+        env:
+          PAPER_RADAR_LIVE_SMTP: "1"
+          PAPER_RADAR_LIVE_SMTP_HOST: ${{ secrets.PAPER_RADAR_LIVE_SMTP_HOST }}
+          PAPER_RADAR_LIVE_SMTP_PORT: ${{ secrets.PAPER_RADAR_LIVE_SMTP_PORT }}
+          PAPER_RADAR_LIVE_SMTP_SECURITY: ${{ secrets.PAPER_RADAR_LIVE_SMTP_SECURITY }}
+          PAPER_RADAR_LIVE_SMTP_SENDER: ${{ secrets.PAPER_RADAR_LIVE_SMTP_SENDER }}
+          PAPER_RADAR_LIVE_SMTP_USERNAME: ${{ secrets.PAPER_RADAR_LIVE_SMTP_USERNAME }}
+          PAPER_RADAR_LIVE_SMTP_PASSWORD: ${{ secrets.PAPER_RADAR_LIVE_SMTP_PASSWORD }}
+          PAPER_RADAR_LIVE_SMTP_RECIPIENT: ${{ secrets.PAPER_RADAR_LIVE_SMTP_RECIPIENT }}
+          PAPER_RADAR_LIVE_SMTP_IDEMPOTENCY_KEY: smtp-smoke:${{ github.run_id }}
+        run: >-
+          uv run --locked pytest -q
+          src/libs/delivery/tests/integration/test_live_smtp_smoke.py
