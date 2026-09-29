@@ -113,7 +113,15 @@ OpenRouter request；第一個 provider smoke 失敗時不會繼續燒後續 4 �
 
 full-live stage 使用 $2 的 test budget admission。這是會產生實際 OpenRouter 費用與真實
 email 的 `live_external` 驗證；只需要執行一次 `Live MVP paper email smoke`，不需要先
-另外跑 `Live OpenRouter smoke`。未手動執行前不代表 full-live PASS。
+另外跑 `Live OpenRouter smoke`。
+
+2026-09-29 已取得完整 live PASS：GitHub Actions run `36524033966`（underlying MVP head
+`5a65bff2a43ff0183d615791074666bcdfa99f83`）先通過 paid OpenRouter gate，再通過
+`real arXiv -> 4 real model stages -> verified zh-TW summary -> prepare_digest ->
+dispatch_digest -> Gmail SMTP`；full-live pytest receipt 為 `1 passed, 15 deselected in
+52.73s`。收件 Gmail 亦可看到主旨 `Paper Radar｜每日精選 1 篇` 的 inbox message，
+snippet 含 `Attention Is All You Need` 與繁中摘要。isolated one-shot branch 在 run 建立後
+已恢復為 manual-only head，`main` 與 MVP branch 沒有 push-trigger live workflow。
 
 ### GitHub Actions live SMTP smoke
 
