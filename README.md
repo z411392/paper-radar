@@ -199,6 +199,33 @@ provider policy，並驗證 strict JSON 回應、returned model、finish reason�
 cost receipt。API key 只由 GitHub secret 注入，不寫入 repo 或 log。
 
 
+### GitHub Actions 每日正式排程（非 CI）
+
+`Daily Paper Radar` 是正式 daily worker，不是 smoke/CI。workflow 每天在
+`Asia/Taipei 08:15` 執行，runtime pin 在已取得 full-live receipt 的 exact SHA
+`89f6caa6aeebbe0579ac769e43d969d6e2f80f8b`；後續開發 branch 繼續 commit 不會自動改變
+每天寄信的 production code。
+
+GitHub-hosted runner 每次都是新機器，因此 daily workflow 不把 workspace 當暫存資料。
+每輪會從 `paper-radar-daily-workspace` artifact 還原完整 workspace，包含 harvest cursor、
+paper/catalog history、`notification_ledger`、delivery outbox 與 attempts；跑完後即使 worker
+失敗也會再保存 workspace。SMTP/OpenRouter secrets 與 recipient email 只寫到 runner 的
+owner-only 暫存 `worker.env`，不包含在 workspace artifact。
+
+第一次從未有過 daily state 時，workflow 會初始化 runtime workspace 並明示 enable effects。
+之後若已經有 daily run 歷史卻找不到 workspace artifact，workflow 會 fail closed，不會自動
+建立新的空 workspace；這避免遺失「已寄過」紀錄後重複投遞。確認真的要重置時，才手動
+`workflow_dispatch` 並指定 `bootstrap=true`。
+
+每輪用正式 daemon 跑 bounded 8 分鐘，poll 10 秒，讓 arXiv rate-limit、explanation、
+digest、SMTP 4xx 的 5 分鐘 retry 都能沿原 workflow state machine 推進。結束時會執行
+`digest status --limit 10`，Actions log 可直接看到 durable `sent/pending/unknown/failed`
+狀態。workspace artifact 保留 30 天；正常每天執行會持續產生新的最新 state。
+
+這個 scheduled workflow 使用與 live MVP smoke 相同的 Repository secrets：
+`PAPER_RADAR_OPENROUTER_API_KEY` 加上 7 個 `PAPER_RADAR_SMTP_*` secrets。它不使用
+push/pull_request trigger，也不執行 `make ci-fast`。
+
 ## MVP worker：一份 .env 啟動
 
 複製範例到私有位置後直接編輯，不需要把 workspace/profile/digest/source/model/mail
