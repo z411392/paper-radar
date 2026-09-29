@@ -1,4 +1,3 @@
-import json
 import os
 from decimal import Decimal
 
@@ -11,10 +10,14 @@ from libs.paper_explanations.adapters.driven.https_openrouter_transport import (
 from libs.paper_explanations.adapters.driven.openrouter_structured_adapter import (
     OpenRouterStructuredAdapter,
 )
+from libs.paper_explanations.domain.services.claim_extraction_rules import (
+    ClaimExtractionRules,
+)
+from libs.paper_explanations.dtos.claim_candidate import ClaimCandidate
 from libs.paper_explanations.dtos.structured_generation_request import (
-    MODEL_NAME,
     StructuredGenerationRequest,
 )
+from libs.paper_explanations.tests.fixtures.claim_evidence import evidence
 
 
 def _required(name: str) -> str:
@@ -39,34 +42,37 @@ def test_live_openrouter_returns_strict_structured_receipt() -> None:
         transport,
         COMMISSIONED_OPENROUTER_POLICY,
     )
+    source = evidence()
+    claim = ClaimExtractionRules.request(
+        source.snapshot.snapshot_id,
+        source,
+    )
     request = StructuredGenerationRequest(
-        task_kind="live_smoke",
-        input_fingerprint="9" * 64,
-        system_prompt=(
-            "Return only JSON matching the supplied schema. "
-            "Set ok to true and echo exactly to paper-radar-live."
-        ),
-        payload_json='{"echo":"paper-radar-live"}',
-        schema_name="paper_radar_live_smoke",
-        response_schema_json=(
-            '{"type":"object","properties":{'
-            '"ok":{"type":"boolean"},'
-            '"echo":{"type":"string"}'
-            '},"required":["ok","echo"],"additionalProperties":false}'
-        ),
-        model_name=MODEL_NAME,
+        task_kind="claim_extraction",
+        input_fingerprint=claim.input_fingerprint,
+        system_prompt=claim.system_prompt,
+        payload_json=claim.payload_json,
+        schema_name="paper_claims",
+        response_schema_json=claim.response_schema_json,
+        model_name=claim.model_name,
     )
 
     result = adapter(request)
-    payload = json.loads(result.content_json)
+    parsed = ClaimExtractionRules.parse(
+        claim,
+        ClaimCandidate(
+            "run:live-openrouter",
+            claim.model_name,
+            result.receipt.finish_reason or "",
+            result.content_json,
+        ),
+    )
 
-    assert payload == {
-        "ok": True,
-        "echo": "paper-radar-live",
-    }
+    assert parsed.request == claim
+    assert parsed.validation_state == "anchor_bound_candidate"
     receipt = result.receipt
-    assert receipt.requested_model == MODEL_NAME
-    assert receipt.returned_model == MODEL_NAME
+    assert receipt.requested_model == claim.model_name
+    assert receipt.returned_model == claim.model_name
     assert receipt.generation_id is not None
     assert receipt.finish_reason == "stop"
     assert receipt.input_tokens is not None and receipt.input_tokens > 0
