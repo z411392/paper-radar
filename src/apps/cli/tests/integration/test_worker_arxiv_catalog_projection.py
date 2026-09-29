@@ -2,6 +2,7 @@ import hashlib
 import inspect
 import json
 import os
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -1850,7 +1851,12 @@ class MutableWorkflowClock:
 
 
 def test_mutable_workflow_clock_uses_wall_time_until_pinned() -> None:
-    clock = MutableWorkflowClock()
+    clock = MutableWorkflowClock(
+        (target_occurrence + timedelta(hours=1)).replace(
+            second=0,
+            microsecond=0,
+        )
+    )
     before = datetime.now(timezone.utc)
     observed = clock.now()
     after = datetime.now(timezone.utc)
@@ -1926,7 +1932,18 @@ def test_live_full_mvp_uses_worker_cycles_for_digest_and_dispatch() -> None:
 )
 def test_live_arxiv_openrouter_gmail_e2e(tmp_path: Path) -> None:
     root = _workspace(tmp_path)
-    _seed_live_arxiv_mvp(root)
+    rate_state = tmp_path / "arxiv-rate-live-full-mvp.json"
+    target_title, target_occurrence = _discover_recent_live_arxiv_target(
+        rate_state
+    )
+    _seed_live_arxiv_mvp(
+        root,
+        include_title=target_title,
+        cursor_end=None,
+    )
+    # The probe and the worker share the production local arXiv limiter.
+    # Let the probe's lease expire before issuing the exact-title request.
+    time.sleep(3.1)
 
     try:
         smtp_port = int(_required_live_mvp("PAPER_RADAR_SMTP_PORT"))
@@ -1941,9 +1958,7 @@ def test_live_arxiv_openrouter_gmail_e2e(tmp_path: Path) -> None:
             WorkerCliModule(
                 str(root),
                 allow_live_source=True,
-                rate_limit_state=str(
-                    tmp_path / "arxiv-rate-live-full-mvp.json"
-                ),
+                rate_limit_state=str(rate_state),
                 transport=HttpClientArxivTransportAdapter(
                     enabled=True,
                     timeout_seconds=30,
@@ -2002,13 +2017,19 @@ def test_live_arxiv_openrouter_gmail_e2e(tmp_path: Path) -> None:
     connection = SqliteConnectionFactory(root).connect()
     try:
         paper = connection.execute(
-            "SELECT e.observed_at,r.title "
+            "SELECT e.observed_at,e.event_kind,r.title "
             "FROM research_events e "
             "JOIN paper_revisions r ON r.id=e.revision_id "
-            "WHERE lower(r.title) LIKE '%attention is all you need%' "
-            "ORDER BY e.observed_at DESC LIMIT 1"
+            "WHERE r.title=? "
+            "ORDER BY e.observed_at DESC LIMIT 1",
+            (target_title,),
         ).fetchone()
         assert paper is not None
+        assert paper["title"] == target_title
+        assert paper["event_kind"] in {
+            "new_work",
+            "revision_available",
+        }
         observed_at = datetime.fromisoformat(paper["observed_at"])
 
         runs = connection.execute(
