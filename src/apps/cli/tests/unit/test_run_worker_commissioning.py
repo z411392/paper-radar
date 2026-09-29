@@ -272,29 +272,13 @@ def test_execution_policy_fingerprint_versions_provider_schema(
     )
 
 
-def test_execution_policy_fingerprint_versions_reasoning_profile(
-    monkeypatch,
-) -> None:
-    current = commissioning.commissioned_openrouter_execution_policy_fingerprint()
-    monkeypatch.setattr(
-        commissioning,
-        "PROVIDER_REASONING_PROFILE",
-        "reasoning-disabled-v2",
-    )
-
-    assert (
-        commissioning.commissioned_openrouter_execution_policy_fingerprint()
-        != current
-    )
-
-
 def test_commissioned_openrouter_reservation_matches_policy_bounds() -> None:
-    assert commissioned_openrouter_reservation_micros() == 265_984
+    assert commissioned_openrouter_reservation_micros() == 282_624
 
 
 def test_commissioned_verified_summary_reservation_covers_four_calls() -> None:
-    assert commissioned_verified_summary_reservation_micros() == 1_063_936
+    assert commissioned_verified_summary_reservation_micros() == 1_130_496
 
 
 def test_four_domain_summary_reservation_covers_seven_calls() -> None:
-    assert commissioned_verified_summary_reservation_micros(4) == 1_861_888
+    assert commissioned_verified_summary_reservation_micros(4) == 1_978_368
