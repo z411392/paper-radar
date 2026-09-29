@@ -47,14 +47,14 @@ def test_maps_fixed_model_strict_schema_and_explicit_price_limits():
     body = json.loads(http.post.call_args.args[0])
     assert http.post.call_count == 1
     assert body['model'] == MODEL_NAME
-    assert body['stream'] is False and body['max_tokens'] == 768
+    assert body['stream'] is False and body['max_tokens'] == 4096
     assert body['provider']['require_parameters'] is True
     assert body['provider']['allow_fallbacks'] is False
     assert body['provider']['data_collection'] == 'deny'
     assert body['provider']['max_price'] == {'prompt': 1.0, 'completion': 5.0, 'request': 0}
     assert body['response_format']['type'] == 'json_schema'
     assert body['response_format']['json_schema']['strict'] is True
-    assert body["reasoning"] == {"enabled": False}
+    assert "reasoning" not in body
     assert not {'models', 'tools', 'plugins', 'tool_choice'} & body.keys()
     assert [m['role'] for m in body['messages']] == ['system', 'user']
     assert '180 clips' in body['messages'][1]['content']
