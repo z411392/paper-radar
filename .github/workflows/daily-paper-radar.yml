@@ -195,7 +195,40 @@ jobs:
         if: always() && steps.workspace.outputs.ready == 'true'
         shell: bash
         run: |
-          uv run --locked python -m apps.cli digest status             --env-file "$PAPER_RADAR_ENV_FILE"             --limit 10
+          set -euo pipefail
+          status_json="$(
+            uv run --locked python -m apps.cli digest status \
+              --env-file "$PAPER_RADAR_ENV_FILE" \
+              --limit 10
+          )"
+          printf '%s\n' "$status_json"
+
+          {
+            echo "## Paper Radar delivery status"
+            echo
+            if [[ "$(jq '.deliveries | length' <<<"$status_json")" == "0" ]]; then
+              echo "No delivery history yet."
+            else
+              echo "### Digests"
+              echo
+              echo "| Period | Delivery | Attempts | Latest error |"
+              echo "| --- | --- | ---: | --- |"
+              jq -r '
+                .deliveries[]
+                | "| \(.period_key) | \(.delivery_state) | \(.attempt_count) | \((.latest_error_code // "-") | gsub("\\|"; "\\\\|")) |"
+              ' <<<"$status_json"
+              echo
+              echo "### Papers / notices"
+              echo
+              echo "| Period | Title | Event | Send status | Notification |"
+              echo "| --- | --- | --- | --- | --- |"
+              jq -r '
+                .deliveries[] as $delivery
+                | $delivery.items[]
+                | "| \($delivery.period_key) | \(.title | gsub("[\\r\\n]"; " ") | gsub("\\|"; "\\\\|")) | \(.event_kind) | \(.send_status) | \(.notification_state) |"
+              ' <<<"$status_json"
+            fi
+          } >>"$GITHUB_STEP_SUMMARY"
 
       - name: Persist durable workspace
         if: always() && steps.workspace.outputs.ready == 'true'
