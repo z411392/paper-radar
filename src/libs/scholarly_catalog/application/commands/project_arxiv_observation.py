@@ -128,6 +128,7 @@ class ProjectArxivObservation:
             source_updated_at=record.updated_at,
             published_at=record.published_at,
         )
+        event_kind, occurred_at = self._event(replay)
         resolution = self._resolve(observation)
         if (
             resolution.identifier_namespace != "arxiv"
@@ -146,7 +147,6 @@ class ProjectArxivObservation:
             "content_fingerprint": fingerprint,
             "doi": record.doi,
         }
-        event_kind, occurred_at = self._event(replay)
         event_id = self._record_revision(
             work_id=resolution.work_id,
             revision_id=resolution.revision_id,
