@@ -58,7 +58,10 @@ def test_live_smtp_sends_one_fixed_message() -> None:
                 "<p>Paper Radar live SMTP smoke succeeded far enough to "
                 "submit this single fixed test message.</p>"
             ),
-            idempotency_key="smtp-smoke:" + uuid4().hex,
+            idempotency_key=(
+                os.environ.get("PAPER_RADAR_LIVE_SMTP_IDEMPOTENCY_KEY")
+                or "smtp-smoke:" + uuid4().hex
+            ),
         )
     )
 
