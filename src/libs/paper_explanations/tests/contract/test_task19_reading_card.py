@@ -89,6 +89,19 @@ def test_original_translation_and_card_remain_separate_and_draft_only():
     assert '推薦' not in draft.faithful_translation[0].text
 
 
+def test_request_exposes_exact_numeric_literals_for_translation():
+    evidence, claims = fixture()
+    request = ReadingCardRules.request(claims, evidence)
+
+    data = json.loads(request.payload_json)
+
+    assert data["required_numeric_literals"] == [
+        "180",
+        "0.42",
+        "0.58",
+    ]
+
+
 def test_request_identity_binds_glossary_but_has_no_private_profile():
     evidence, claims = fixture()
     base = ReadingCardRules.request(claims, evidence)
@@ -206,6 +219,11 @@ def test_openrouter_wire_envelope_and_reading_card_are_integrated_without_networ
             request = ReadingCardRules.request(claims, evidence)
             assert message['input_fingerprint'] == request.input_fingerprint
             assert message['data']['source_text'] == SOURCE
+            assert message['data']['required_numeric_literals'] == [
+                '180',
+                '0.42',
+                '0.58',
+            ]
             assert wire['provider']['allow_fallbacks'] is False
             data = payload(request, claims)
             if bad_numeric:
