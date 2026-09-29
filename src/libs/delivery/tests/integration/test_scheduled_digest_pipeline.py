@@ -236,6 +236,39 @@ def test_direct_and_adjacent_domains_make_one_queueable_card_with_coverage_notic
     assert queue.calls[0][1:4] == ("reader:local", "email", 9)
 
 
+def test_revision_event_is_rendered_as_update_in_queued_digest():
+    revision = event(
+        event_id="event:revision",
+        event_kind="revision_available",
+    )
+    summary = DigestCurrentSummary(
+        "work:1",
+        "revision:1",
+        "summary:1",
+        "snapshot:1",
+        ("這是舊論文的最新版本摘要。",),
+    )
+    usecase, queue = command(
+        events=(revision,),
+        summaries={("work:1", "revision:1"): summary},
+        relevance={
+            ("revision:1", "snapshot:1"): (
+                DigestRelevance("machine_learning", "direct"),
+            )
+        },
+    )
+
+    result = usecase(request(), created_at=NOW)
+
+    assert result.state == "queued"
+    preview = queue.calls[0][0]
+    assert preview.items[0].event_kind == "revision_available"
+    assert preview.subject == "Paper Radar｜論文更新 1 篇"
+    assert "1. [更新] Paper" in preview.text_body
+    assert "類型：論文更新" in preview.text_body
+    assert "[更新] Paper" in preview.html_body
+
+
 def test_same_work_multiple_events_uses_latest_event_identity_only():
     older = event(event_id="event:old", observed_at=NOW - timedelta(hours=2))
     newer = event(event_id="event:new", observed_at=NOW - timedelta(hours=1))
