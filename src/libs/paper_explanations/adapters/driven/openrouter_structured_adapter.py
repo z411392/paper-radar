@@ -17,7 +17,7 @@ from libs.paper_explanations.ports.model_http_transport_port import ModelHttpTra
 ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions'
 
 
-PROVIDER_SCHEMA_PROFILE = "gemini-structured-subset-v1"
+PROVIDER_SCHEMA_PROFILE = "gemini-structural-shape-v2"
 
 
 class OpenRouterStructuredAdapter:
@@ -53,7 +53,19 @@ class OpenRouterStructuredAdapter:
         }
     )
     _LOCAL_ONLY_SCHEMA_KEYS = frozenset(
-        {"pattern", "uniqueItems", "minLength", "maxLength"}
+        {
+            "format",
+            "enum",
+            "minItems",
+            "maxItems",
+            "minimum",
+            "maximum",
+            "const",
+            "pattern",
+            "uniqueItems",
+            "minLength",
+            "maxLength",
+        }
     )
 
     def __init__(self, transport: ModelHttpTransportPort, policy: OpenRouterPolicy) -> None:
@@ -88,7 +100,12 @@ class OpenRouterStructuredAdapter:
         return value
 
     @classmethod
-    def _provider_schema(cls, value: object) -> dict:
+    def _provider_schema(
+        cls,
+        value: object,
+        *,
+        depth: int = 0,
+    ) -> dict:
         if not isinstance(value, dict):
             raise ModelGatewayError("invalid_generation_request")
         unknown = set(value) - cls._PROVIDER_SCHEMA_KEYS
@@ -99,33 +116,41 @@ class OpenRouterStructuredAdapter:
         for key, item in value.items():
             if key in cls._LOCAL_ONLY_SCHEMA_KEYS:
                 continue
-            if key == "const":
-                if "enum" in value and value["enum"] != [item]:
-                    raise ModelGatewayError("invalid_generation_request")
-                result["enum"] = [item]
-                continue
             if key in {"properties", "$defs"}:
                 if not isinstance(item, dict):
                     raise ModelGatewayError("invalid_generation_request")
                 result[key] = {
-                    name: cls._provider_schema(schema)
+                    name: cls._provider_schema(
+                        schema,
+                        depth=depth + 1,
+                    )
                     for name, schema in item.items()
                     if isinstance(name, str) and name
                 }
                 if len(result[key]) != len(item):
                     raise ModelGatewayError("invalid_generation_request")
                 continue
-            if key in {"items", "additionalProperties"}:
-                if key == "additionalProperties" and isinstance(item, bool):
-                    result[key] = item
-                else:
-                    result[key] = cls._provider_schema(item)
+            if key == "additionalProperties":
+                if depth > 0:
+                    continue
+                if not isinstance(item, bool):
+                    raise ModelGatewayError("invalid_generation_request")
+                result[key] = item
+                continue
+            if key == "items":
+                result[key] = cls._provider_schema(
+                    item,
+                    depth=depth + 1,
+                )
                 continue
             if key in {"prefixItems", "anyOf", "oneOf"}:
                 if not isinstance(item, list):
                     raise ModelGatewayError("invalid_generation_request")
                 result[key] = [
-                    cls._provider_schema(schema)
+                    cls._provider_schema(
+                        schema,
+                        depth=depth + 1,
+                    )
                     for schema in item
                 ]
                 continue
