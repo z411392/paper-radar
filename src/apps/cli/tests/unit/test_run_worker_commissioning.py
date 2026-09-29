@@ -272,6 +272,22 @@ def test_execution_policy_fingerprint_versions_provider_schema(
     )
 
 
+def test_execution_policy_fingerprint_versions_reasoning_profile(
+    monkeypatch,
+) -> None:
+    current = commissioning.commissioned_openrouter_execution_policy_fingerprint()
+    monkeypatch.setattr(
+        commissioning,
+        "PROVIDER_REASONING_PROFILE",
+        "reasoning-disabled-v2",
+    )
+
+    assert (
+        commissioning.commissioned_openrouter_execution_policy_fingerprint()
+        != current
+    )
+
+
 def test_commissioned_openrouter_reservation_matches_policy_bounds() -> None:
     assert commissioned_openrouter_reservation_micros() == 265_984
 
