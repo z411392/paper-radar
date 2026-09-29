@@ -1,5 +1,6 @@
 import hashlib
 import json
+from datetime import timedelta
 
 from libs.discovery.dtos.arxiv_observation_replay import ArxivObservationReplay
 from libs.scholarly_catalog.domain.services.normalize_paper_identifier import (
@@ -25,6 +26,8 @@ from libs.scholarly_catalog.ports.resolve_paper_identity_port import (
 
 
 class ProjectArxivObservation:
+    BACKFILL_WINDOW = timedelta(days=14)
+
     def __init__(
         self,
         resolve: ResolvePaperIdentityPort,
@@ -34,6 +37,30 @@ class ProjectArxivObservation:
         self._resolve = resolve
         self._record_revision = record_revision
         self._abstract_evidence = abstract_evidence
+
+    @classmethod
+    def _event(cls, replay: ArxivObservationReplay) -> tuple[str, object]:
+        record = replay.record
+        occurrence = (
+            record.published_at
+            if record.version in {None, 1}
+            else record.updated_at
+        )
+        if (
+            occurrence.tzinfo is None
+            or occurrence.utcoffset() is None
+            or replay.observed_at.tzinfo is None
+            or replay.observed_at.utcoffset() is None
+        ):
+            raise PaperIdentityError("invalid_arxiv_projection")
+        age = replay.observed_at - occurrence
+        if age < timedelta(0):
+            raise PaperIdentityError("invalid_arxiv_projection")
+        if age > cls.BACKFILL_WINDOW:
+            return ("late_discovery", occurrence)
+        if record.version in {None, 1}:
+            return ("new_work", occurrence)
+        return ("revision_available", occurrence)
 
     @staticmethod
     def _fingerprint(value: ArxivObservationReplay) -> str:
@@ -119,13 +146,14 @@ class ProjectArxivObservation:
             "content_fingerprint": fingerprint,
             "doi": record.doi,
         }
+        event_kind, occurred_at = self._event(replay)
         event_id = self._record_revision(
             work_id=resolution.work_id,
             revision_id=resolution.revision_id,
-            event_kind="revision_available",
+            event_kind=event_kind,
             source_evidence_id=resolution.revision_id,
             source_evidence=evidence,
-            occurred_at=record.updated_at,
+            occurred_at=occurred_at,
             observed_at=replay.observed_at,
         )
         evidence_state = "not_configured"
