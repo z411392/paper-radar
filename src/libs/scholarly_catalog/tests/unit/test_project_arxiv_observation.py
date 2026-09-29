@@ -1,5 +1,5 @@
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -156,3 +156,69 @@ def test_inconsistent_record_identity_fails_before_resolver_side_effect() -> Non
         project(replay)
     assert resolver.observations == []
     assert recorder.calls == []
+
+
+def test_old_arxiv_observation_is_recorded_as_late_discovery() -> None:
+    resolver = Resolver()
+    recorder = Recorder()
+    project = ProjectArxivObservation(resolver, recorder)
+    old = replace(
+        _replay(),
+        record=replace(
+            _record(),
+            published_at=NOW - timedelta(days=3650),
+            updated_at=NOW - timedelta(days=3650),
+        ),
+    )
+
+    project(old)
+
+    assert recorder.calls[0]["event_kind"] == "late_discovery"
+    assert recorder.calls[0]["occurred_at"] == NOW - timedelta(days=3650)
+
+
+def test_recent_arxiv_v1_is_recorded_as_new_work() -> None:
+    resolver = Resolver()
+    recorder = Recorder()
+    project = ProjectArxivObservation(resolver, recorder)
+
+    project(_replay(1))
+
+    assert recorder.calls[0]["event_kind"] == "new_work"
+
+
+def test_recent_arxiv_v2_is_recorded_as_revision_available() -> None:
+    resolver = Resolver()
+    recorder = Recorder()
+    project = ProjectArxivObservation(resolver, recorder)
+    replay = replace(
+        _replay(2),
+        record=replace(
+            _record(2),
+            source_record_id="2501.12345v2",
+            source_url="https://arxiv.org/abs/2501.12345v2",
+            version=2,
+        ),
+    )
+
+    project(replay)
+
+    assert recorder.calls[0]["event_kind"] == "revision_available"
+
+
+def test_fourteen_day_boundary_is_still_current_not_late() -> None:
+    resolver = Resolver()
+    recorder = Recorder()
+    project = ProjectArxivObservation(resolver, recorder)
+    boundary = replace(
+        _replay(),
+        record=replace(
+            _record(),
+            published_at=NOW - timedelta(days=14),
+            updated_at=NOW - timedelta(days=14),
+        ),
+    )
+
+    project(boundary)
+
+    assert recorder.calls[0]["event_kind"] == "new_work"
