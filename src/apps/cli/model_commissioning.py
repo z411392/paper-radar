@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation, ROUND_CEILING
 
 from libs.paper_explanations.adapters.driven.openrouter_structured_adapter import (
+    PROVIDER_REASONING_PROFILE,
     PROVIDER_SCHEMA_PROFILE,
 )
 from libs.paper_explanations.dtos.openrouter_policy import OpenRouterPolicy
@@ -35,6 +36,7 @@ def commissioned_openrouter_execution_policy_fingerprint() -> str:
             "max_response_bytes": policy.max_response_bytes,
             "timeout_seconds": policy.timeout_seconds,
             "provider_schema_profile": PROVIDER_SCHEMA_PROFILE,
+            "provider_reasoning_profile": PROVIDER_REASONING_PROFILE,
             "provider": {
                 "require_parameters": True,
                 "allow_fallbacks": False,
