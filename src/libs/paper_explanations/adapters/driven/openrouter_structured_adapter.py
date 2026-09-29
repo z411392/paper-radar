@@ -18,6 +18,7 @@ ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions'
 
 
 PROVIDER_SCHEMA_PROFILE = "gemini-structural-shape-v2"
+PROVIDER_REASONING_PROFILE = "reasoning-disabled-v1"
 
 
 class OpenRouterStructuredAdapter:
@@ -174,7 +175,10 @@ class OpenRouterStructuredAdapter:
             raise ModelGatewayError(code)
         provider_schema = self._provider_schema(schema)
         body = GenerationJson.canonical({
-            'model': MODEL_NAME, 'stream': False, 'max_tokens': self._policy.max_output_tokens,
+            'model': MODEL_NAME,
+            'stream': False,
+            'max_tokens': self._policy.max_output_tokens,
+            'reasoning': {'enabled': False},
             'messages': [
                 {'role': 'system', 'content': request.system_prompt},
                 {'role': 'user', 'content': GenerationJson.canonical({
