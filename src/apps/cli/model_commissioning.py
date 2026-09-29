@@ -104,7 +104,6 @@ def commissioned_openrouter_budget_period(
     return (f"{utc.year:04d}-{utc.month:02d}", "USD")
 
 
-
 def model_budget_usd_to_micros(value: str) -> int:
     try:
         if (
