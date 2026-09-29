@@ -1,5 +1,5 @@
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from libs.discovery.dtos.arxiv_observation_replay import ArxivObservationReplay
@@ -12,6 +12,9 @@ from libs.kernel.adapters.driven.sqlite_schema_connection_factory import (
 )
 from libs.kernel.adapters.driven.sqlite_workspace_bootstrap_adapter import (
     SqliteWorkspaceBootstrapAdapter,
+)
+from libs.scholarly_catalog.adapters.driven.sqlite_digest_research_event_adapter import (
+    SqliteDigestResearchEventAdapter,
 )
 from libs.scholarly_catalog.adapters.driven.sqlite_paper_identity_store_adapter import (
     SqlitePaperIdentityStoreAdapter,
@@ -133,3 +136,41 @@ def test_new_native_version_creates_new_revision_even_with_same_text(
         ).fetchone()[0] == 2
     finally:
         connection.close()
+
+
+def test_late_discovery_is_persisted_but_not_exposed_to_daily_digest(
+    tmp_path: Path,
+) -> None:
+    schema, project = _projector(tmp_path / "runtime")
+    old_time = NOW - timedelta(days=3650)
+    old = replace(
+        _replay("observation:" + "d" * 64, 1),
+        record=replace(
+            _record(1),
+            published_at=old_time,
+            updated_at=old_time,
+        ),
+    )
+
+    projected = project(old)
+
+    connection = schema.connect()
+    try:
+        event = connection.execute(
+            "SELECT event_kind,observed_at FROM research_events "
+            "WHERE id=?",
+            (projected.event_id,),
+        ).fetchone()
+        assert tuple(event) == (
+            "late_discovery",
+            NOW.isoformat(),
+        )
+    finally:
+        connection.close()
+
+    events = SqliteDigestResearchEventAdapter(schema.connect)(
+        NOW - timedelta(days=1),
+        NOW + timedelta(minutes=1),
+    )
+
+    assert events == ()
