@@ -88,8 +88,7 @@ SMTP transport 必須明示加密模式：implicit TLS（常見 port 465）使�
 正常 arXiv 路徑不會把多年以前的 paper 當成今日新論文寄出：若一筆 arXiv revision
 在 Paper Radar 第一次觀測時，距離其 published/updated occurrence 已超過 14 天，
 catalog 會將事件記成 `late_discovery`。這筆歷史仍保留，但 daily digest event reader
-不把 `late_discovery` 列入候選。full live smoke 使用 2017 年
-`Attention Is All You Need` 是刻意的固定驗收樣本，不代表正常 daily selection。
+不把 `late_discovery` 列入候選。
 
 要直接查看「已寄／未寄／失敗／狀態不明」，使用同一份 worker env：
 
@@ -112,14 +111,16 @@ SMTP 與 public arXiv 各自已有獨立 live smoke；要驗證完整產品主�
 `Live MVP paper email smoke`。這個 workflow 只有手動 `workflow_dispatch`，不會在
 push/PR 自動執行。
 
-它會用固定的 public arXiv 論文 `Attention Is All You Need` 跑完整 production path：
+它會先透過 production arXiv query compiler、rate limiter、HTTPS transport 與 parser，
+在最近 7 天的 `cs.LG/stat.ML` 找一篇仍落在 freshness window 內的真實論文，再用該篇
+exact title 跑完整 production path：
 
-`real arXiv -> real OpenRouter -> verified zh-TW summary -> real Gmail SMTP`
+`real recent arXiv -> real OpenRouter -> verified zh-TW summary -> real Gmail SMTP`
 
 digest 與寄送不再由測試直接呼叫 use case；live smoke 會透過實際 worker scheduler
 依序跑 `harvest_window/explain_snapshot -> prepare_digest -> dispatch_digest`，最後再跑一輪
-replay 確認不會重寄。為了避免 smoke 從 2017 cursor 繼續歷史 catch-up，測試只注入可控
-workflow clock 與一筆已 catch-up 的 harvest history marker；production 預設 clock 不變。
+replay 確認不會重寄。probe 與 worker 共用 production arXiv rate-limit state；worker 的
+24 小時 submittedDate window 會定位在 probe 找到的實際 submission，而不是歷史固定 cursor。
 
 除了既有 7 個 SMTP Repository secrets，還需要：
 
@@ -135,13 +136,15 @@ full-live stage 使用 $2 的 test budget admission。這是會產生實際 Open
 email 的 `live_external` 驗證；只需要執行一次 `Live MVP paper email smoke`，不需要先
 另外跑 `Live OpenRouter smoke`。
 
-2026-09-29 已取得完整 live PASS：GitHub Actions run `36524033966`（underlying MVP head
-`5a65bff2a43ff0183d615791074666bcdfa99f83`）先通過 paid OpenRouter gate，再通過
+2026-09-29 已取得一次完整 live PASS：GitHub Actions run `36524033966`（underlying
+MVP head `5a65bff2a43ff0183d615791074666bcdfa99f83`）先通過 paid OpenRouter gate，再通過
 `real arXiv -> 4 real model stages -> verified zh-TW summary -> prepare_digest ->
 dispatch_digest -> Gmail SMTP`；full-live pytest receipt 為 `1 passed, 15 deselected in
-52.73s`。收件 Gmail 亦可看到主旨 `Paper Radar｜每日精選 1 篇` 的 inbox message，
-snippet 含 `Attention Is All You Need` 與繁中摘要。isolated one-shot branch 在 run 建立後
-已恢復為 manual-only head，`main` 與 MVP branch 沒有 push-trigger live workflow。
+52.73s`。當時的舊 smoke head 尚未套用 late-discovery freshness 修正，固定 target 是
+2017 年的 `Attention Is All You Need`，因此 Gmail 收到的那封信只作為歷史 transport/E2E
+PASS 證據，不代表今日論文選擇。現行 smoke 已改成 recent-paper discovery，不再把 Attention
+當真實每日精選 target。isolated one-shot branch 在 run 建立後已恢復為 manual-only head，
+`main` 與 MVP branch 沒有 push-trigger live workflow。
 
 ### 手動 GitHub Action：live SMTP smoke（非 CI）
 
