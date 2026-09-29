@@ -1,6 +1,6 @@
 import hashlib
 import json
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from libs.discovery.dtos.arxiv_observation_replay import ArxivObservationReplay
 from libs.scholarly_catalog.domain.services.normalize_paper_identifier import (
@@ -39,7 +39,7 @@ class ProjectArxivObservation:
         self._abstract_evidence = abstract_evidence
 
     @classmethod
-    def _event(cls, replay: ArxivObservationReplay) -> tuple[str, object]:
+    def _event(cls, replay: ArxivObservationReplay) -> tuple[str, datetime]:
         record = replay.record
         occurrence = (
             record.published_at
