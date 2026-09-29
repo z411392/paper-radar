@@ -1615,14 +1615,17 @@ def _discover_recent_live_arxiv_target(
             if record.version in {None, 1}
             else record.updated_at
         )
+        age = response.received_at - occurrence
         if (
             title
             and '"' not in title
             and "\\" not in title
             and len(title.encode("utf-8")) <= 512
-            and response.received_at - occurrence <= timedelta(days=14)
+            and timedelta(0) <= age <= timedelta(days=14)
         ):
-            return title, occurrence
+            # The production arXiv query uses submittedDate, so the worker
+            # harvest window must be anchored to the initial submission time.
+            return title, record.published_at
     raise AssertionError("no recent safe-title arXiv target found")
 
 
