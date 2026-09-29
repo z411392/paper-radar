@@ -119,7 +119,6 @@ class SqliteDeliveryStoreAdapter:
             raise DeliveryStoreError("invalid_digest_items")
         paper_kinds = {
             "new_work",
-            "late_discovery",
             "revision_available",
             "newly_accessible",
         }
