@@ -7,12 +7,27 @@ class DigestPreviewTemplate:
     @staticmethod
     def _heading(items: tuple[SelectedDigestItem, ...]) -> tuple[str, str]:
         status_count = sum(item.item_kind == "status_notice" for item in items)
+        revision_count = sum(
+            item.item_kind == "paper"
+            and item.event_kind == "revision_available"
+            for item in items
+        )
+        non_new_paper_count = sum(
+            item.item_kind == "paper"
+            and item.event_kind != "new_work"
+            for item in items
+        )
         if status_count == len(items):
             return (
                 f"Paper Radar｜研究狀態更新 {status_count} 則",
                 "Paper Radar 研究狀態更新",
             )
-        if status_count:
+        if revision_count == len(items):
+            return (
+                f"Paper Radar｜論文更新 {revision_count} 篇",
+                "Paper Radar 論文更新",
+            )
+        if status_count or non_new_paper_count:
             return (
                 f"Paper Radar｜每日更新 {len(items)} 則",
                 "Paper Radar 每日更新",
@@ -33,6 +48,11 @@ class DigestPreviewTemplate:
         text_lines = [heading, ""]
         html_items: list[str] = []
         labels = {"correction": "更正通知", "retraction": "撤稿通知"}
+        paper_labels = {
+            "revision_available": ("更新", "論文更新"),
+            "newly_accessible": ("新可讀", "新增可取得"),
+            "late_discovery": ("較早收錄", "較早發現"),
+        }
 
         for index, item in enumerate(items, start=1):
             if item.item_kind == "status_notice":
@@ -48,15 +68,27 @@ class DigestPreviewTemplate:
                 meta_html = f"<p>類型：{label_html}</p>"
             else:
                 domains = "、".join(item.domains)
+                paper_label = paper_labels.get(item.event_kind)
+                prefix = "" if paper_label is None else f"[{paper_label[0]}] "
+                meta_lines = [f"領域：{domains}"]
+                meta_html_parts = [
+                    f"<p>領域：{html.escape(domains)}</p>",
+                ]
+                if paper_label is not None:
+                    meta_lines.insert(0, f"類型：{paper_label[1]}")
+                    meta_html_parts.insert(
+                        0,
+                        f"<p>類型：{html.escape(paper_label[1])}</p>",
+                    )
                 text_lines.extend(
                     [
-                        f"{index}. {item.title}",
-                        f"領域：{domains}",
+                        f"{index}. {prefix}{item.title}",
+                        *meta_lines,
                         *[f"- {line}" for line in item.plain_language],
                     ]
                 )
-                title = html.escape(item.title)
-                meta_html = f"<p>領域：{html.escape(domains)}</p>"
+                title = html.escape(prefix + item.title)
+                meta_html = "".join(meta_html_parts)
 
             if item.source_url is not None:
                 text_lines.append(f"來源：{item.source_url}")
