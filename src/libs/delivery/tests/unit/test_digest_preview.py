@@ -123,6 +123,53 @@ def status_item(event_id: str, event_kind: str, priority: int = 100) -> DigestCa
     )
 
 
+def test_revision_available_is_labeled_as_paper_update() -> None:
+    revision = replace(
+        item("event:revision", "work:old-paper", 20),
+        event_kind="revision_available",
+        title="An older paper with a new revision",
+    )
+
+    preview = PrepareDigest()(request((revision,)))
+
+    assert preview.subject == "Paper Radar｜論文更新 1 篇"
+    assert "1. [更新] An older paper with a new revision" in (
+        preview.text_body
+    )
+    assert "類型：論文更新" in preview.text_body
+    assert "[更新]" in preview.html_body
+    assert "類型：論文更新" in preview.html_body
+
+
+def test_newly_accessible_is_not_rendered_as_new_work() -> None:
+    accessible = replace(
+        item("event:accessible", "work:older-paper", 20),
+        event_kind="newly_accessible",
+        title="An older paper that became accessible",
+    )
+
+    preview = PrepareDigest()(request((accessible,)))
+
+    assert preview.subject == "Paper Radar｜每日更新 1 則"
+    assert "1. [新可讀] An older paper that became accessible" in (
+        preview.text_body
+    )
+    assert "類型：新增可取得" in preview.text_body
+
+
+def test_mixed_new_work_and_revision_uses_daily_update_heading() -> None:
+    new = item("event:new", "work:new", 20)
+    revision = replace(
+        item("event:revision", "work:revision", 20),
+        event_kind="revision_available",
+    )
+
+    preview = PrepareDigest()(request((new, revision)))
+
+    assert preview.subject == "Paper Radar｜每日更新 2 則"
+    assert "Paper Radar 每日更新" in preview.text_body
+
+
 def test_status_notices_keep_distinct_event_identity_for_same_work() -> None:
     correction = status_item("event:correction", "correction")
     retraction = status_item("event:retraction", "retraction")
