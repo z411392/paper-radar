@@ -94,7 +94,7 @@ def test_projection_maps_arxiv_identity_and_revision_event() -> None:
     assert observed.published_at == _record().published_at
     assert result.revision_id.startswith("revision:fixture:")
     event = recorder.calls[0]
-    assert event["event_kind"] == "revision_available"
+    assert event["event_kind"] == "new_work"
     assert event["source_evidence_id"] == result.revision_id
     assert event["source_evidence"]["revision_id"] == result.revision_id
     assert event["source_evidence"]["doi"] == "10.1234/example"
