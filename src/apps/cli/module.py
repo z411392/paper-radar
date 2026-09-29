@@ -7,6 +7,9 @@ from apps.cli.model_commissioning import COMMISSIONED_OPENROUTER_POLICY
 from libs.delivery.adapters.driven.json_recipient_resolver_adapter import (
     JsonRecipientResolverAdapter,
 )
+from libs.delivery.adapters.driven.sqlite_delivery_history_adapter import (
+    SqliteDeliveryHistoryAdapter,
+)
 from libs.delivery.adapters.driven.sqlite_email_subscription_adapter import (
     SqliteEmailSubscriptionAdapter,
 )
@@ -29,6 +32,7 @@ from libs.delivery.ports.configure_email_subscription_port import (
 from libs.delivery.ports.dispatch_digest_port import DispatchDigestPort
 from libs.delivery.ports.mail_sender_port import MailSenderPort
 from libs.delivery.ports.prepare_scheduled_digest_port import PrepareScheduledDigestPort
+from libs.delivery.ports.read_delivery_history_port import ReadDeliveryHistoryPort
 from libs.delivery.ports.recipient_resolver_port import RecipientResolverPort
 from libs.discovery.adapters.driven.arxiv_atom_parser_adapter import PARSER_VERSION, ArxivAtomParserAdapter
 from libs.discovery.adapters.driven.arxiv_query_compiler_adapter import ArxivQueryCompilerAdapter
@@ -432,6 +436,12 @@ class DeliveryCliModule(Module):
             ConfigureEmailSubscriptionPort,
             to=InstanceProvider(
                 SqliteEmailSubscriptionAdapter(connection.connect)
+            ),
+        )
+        binder.bind(
+            ReadDeliveryHistoryPort,
+            to=InstanceProvider(
+                SqliteDeliveryHistoryAdapter(connection.connect)
             ),
         )
 
