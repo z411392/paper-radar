@@ -85,26 +85,6 @@ SMTP transport 必須明示加密模式：implicit TLS（常見 port 465）使�
 `PAPER_RADAR_SMTP_SECURITY=starttls`。不支援 plaintext SMTP。
 
 
-### GitHub Actions live SMTP smoke
-
-真 SMTP 驗證是 opt-in，不會跟一般 push／PR CI 一起寄信。Repository secrets 使用：
-
-- `PAPER_RADAR_LIVE_SMTP_HOST`
-- `PAPER_RADAR_LIVE_SMTP_PORT`：`465`（ssl）或 `587`（starttls）
-- `PAPER_RADAR_LIVE_SMTP_SECURITY`：`ssl` 或 `starttls`
-- `PAPER_RADAR_LIVE_SMTP_SENDER`
-- `PAPER_RADAR_LIVE_SMTP_USERNAME`
-- `PAPER_RADAR_LIVE_SMTP_PASSWORD`
-- `PAPER_RADAR_LIVE_SMTP_RECIPIENT`
-
-`.github/workflows/live-smtp.yml` 每次只送一封固定 smoke message，並且不輸出 secret
-內容。workflow 在目前 MVP branch 上只會於 `.github/live-smtp-trigger` 被新增／修改時執行；
-因此 secrets 設好後才建立或更新該 trigger 檔。workflow merge 到 default branch 後，也可直接
-用 Actions 的 `Run workflow` 手動觸發。
-
-若 GitHub-hosted runner 或 SMTP provider 的網路／IP policy 阻止連線，這代表 external smoke
-沒有執行成功，不應解讀為產品邏輯 PASS 或 FAIL。
-
 
 ### GitHub Actions full live MVP smoke
 
