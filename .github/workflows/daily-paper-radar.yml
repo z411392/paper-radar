@@ -1,0 +1,194 @@
+name: Daily Paper Radar
+
+on:
+  schedule:
+    - cron: "15 8 * * *"
+      timezone: "Asia/Taipei"
+  workflow_dispatch:
+    inputs:
+      bootstrap:
+        description: "Allow durable workspace bootstrap when no prior artifact exists"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: daily-paper-radar
+  cancel-in-progress: false
+
+jobs:
+  daily-worker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      UV_PYTHON: "3.13.5"
+      PAPER_RADAR_RUNTIME_SHA: "89f6caa6aeebbe0579ac769e43d969d6e2f80f8b"
+      PAPER_RADAR_WORKSPACE_DIR: ${{ runner.temp }}/paper-radar-data
+      PAPER_RADAR_ENV_FILE: ${{ runner.temp }}/paper-radar-worker.env
+      PAPER_RADAR_OPENROUTER_API_KEY: ${{ secrets.PAPER_RADAR_OPENROUTER_API_KEY }}
+      PAPER_RADAR_SMTP_HOST: ${{ secrets.PAPER_RADAR_SMTP_HOST }}
+      PAPER_RADAR_SMTP_PORT: ${{ secrets.PAPER_RADAR_SMTP_PORT }}
+      PAPER_RADAR_SMTP_SECURITY: ${{ secrets.PAPER_RADAR_SMTP_SECURITY }}
+      PAPER_RADAR_SMTP_SENDER: ${{ secrets.PAPER_RADAR_SMTP_SENDER }}
+      PAPER_RADAR_SMTP_USERNAME: ${{ secrets.PAPER_RADAR_SMTP_USERNAME }}
+      PAPER_RADAR_SMTP_PASSWORD: ${{ secrets.PAPER_RADAR_SMTP_PASSWORD }}
+      PAPER_RADAR_SMTP_RECIPIENT: ${{ secrets.PAPER_RADAR_SMTP_RECIPIENT }}
+
+    steps:
+      - name: Check required repository secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in \
+            PAPER_RADAR_OPENROUTER_API_KEY \
+            PAPER_RADAR_SMTP_HOST \
+            PAPER_RADAR_SMTP_PORT \
+            PAPER_RADAR_SMTP_SECURITY \
+            PAPER_RADAR_SMTP_SENDER \
+            PAPER_RADAR_SMTP_USERNAME \
+            PAPER_RADAR_SMTP_PASSWORD \
+            PAPER_RADAR_SMTP_RECIPIENT
+          do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::Missing repository secret: $name"
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ env.PAPER_RADAR_RUNTIME_SHA }}
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: 0.10.0
+          enable-cache: false
+
+      - name: Install the locked runtime
+        run: uv sync --locked
+
+      - name: Find latest durable workspace artifact
+        id: state
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BOOTSTRAP_REQUESTED: ${{ github.event_name == 'workflow_dispatch' && inputs.bootstrap }}
+        run: |
+          set -euo pipefail
+          artifacts="$(
+            gh api               "repos/${GITHUB_REPOSITORY}/actions/artifacts?name=paper-radar-daily-workspace&per_page=100"
+          )"
+          prior_run_id="$(
+            jq -r '
+              [.artifacts[] | select(.expired == false)]
+              | sort_by(.created_at)
+              | last
+              | .workflow_run.id // empty
+            ' <<<"$artifacts"
+          )"
+          if [[ -n "$prior_run_id" ]]; then
+            echo "found=true" >>"$GITHUB_OUTPUT"
+            echo "run_id=$prior_run_id" >>"$GITHUB_OUTPUT"
+            echo "bootstrap=false" >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          runs="$(
+            gh api               "repos/${GITHUB_REPOSITORY}/actions/workflows/daily-paper-radar.yml/runs?per_page=20"
+          )"
+          prior_count="$(
+            jq --argjson current "${GITHUB_RUN_ID}"               '[.workflow_runs[] | select(.id != $current)] | length'               <<<"$runs"
+          )"
+          if [[ "$prior_count" == "0" || "${BOOTSTRAP_REQUESTED:-false}" == "true" ]]; then
+            echo "found=false" >>"$GITHUB_OUTPUT"
+            echo "bootstrap=true" >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "::error::Durable Paper Radar workspace artifact is missing."
+          echo "::error::Refusing automatic re-bootstrap because prior daily runs exist."
+          echo "::error::After investigating state loss, manually dispatch with bootstrap=true if reset is intentional."
+          exit 1
+
+      - name: Restore durable workspace
+        if: steps.state.outputs.found == 'true'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: paper-radar-daily-workspace
+          path: ${{ env.PAPER_RADAR_WORKSPACE_DIR }}
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.state.outputs.run_id }}
+
+      - name: Build private worker env
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          {
+            printf 'PAPER_RADAR_WORKSPACE=%s\n' "$PAPER_RADAR_WORKSPACE_DIR"
+            printf 'PAPER_RADAR_ALLOW_LIVE_SOURCE=true\n'
+            printf 'PAPER_RADAR_ALLOW_LIVE_MODEL=true\n'
+            printf 'PAPER_RADAR_ALLOW_LIVE_MAIL=true\n'
+            printf 'PAPER_RADAR_PROFILE_DOMAINS=software_engineering,deep_learning,machine_learning,statistics\n'
+            printf 'PAPER_RADAR_PROFILE_SCOPE=關注軟體工程、深度學習、機器學習與統計學的新 arXiv 論文。\n'
+            printf 'PAPER_RADAR_OPENROUTER_API_KEY=%s\n' "$PAPER_RADAR_OPENROUTER_API_KEY"
+            printf 'PAPER_RADAR_MODEL_MONTHLY_BUDGET_USD=2.00\n'
+            printf 'PAPER_RADAR_RECIPIENT_EMAIL=%s\n' "$PAPER_RADAR_SMTP_RECIPIENT"
+            printf 'PAPER_RADAR_SMTP_HOST=%s\n' "$PAPER_RADAR_SMTP_HOST"
+            printf 'PAPER_RADAR_SMTP_PORT=%s\n' "$PAPER_RADAR_SMTP_PORT"
+            printf 'PAPER_RADAR_SMTP_SECURITY=%s\n' "$PAPER_RADAR_SMTP_SECURITY"
+            printf 'PAPER_RADAR_SMTP_SENDER=%s\n' "$PAPER_RADAR_SMTP_SENDER"
+            printf 'PAPER_RADAR_SMTP_USERNAME=%s\n' "$PAPER_RADAR_SMTP_USERNAME"
+            printf 'PAPER_RADAR_SMTP_PASSWORD=%s\n' "$PAPER_RADAR_SMTP_PASSWORD"
+            printf 'PAPER_RADAR_DIGEST_TIMEZONE=Asia/Taipei\n'
+            printf 'PAPER_RADAR_DIGEST_LOCAL_TIME=08:00\n'
+            printf 'PAPER_RADAR_DIGEST_MAX_ITEMS=5\n'
+            printf 'PAPER_RADAR_POLL_SECONDS=10\n'
+            printf 'PAPER_RADAR_MAX_NEW_JOBS=50\n'
+            printf 'PAPER_RADAR_MAX_JOBS=50\n'
+            printf 'PAPER_RADAR_LEASE_SECONDS=300\n'
+          } >"$PAPER_RADAR_ENV_FILE"
+          chmod 600 "$PAPER_RADAR_ENV_FILE"
+
+      - name: Bootstrap durable workspace once
+        id: workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ steps.state.outputs.bootstrap }}" == "true" ]]; then
+            uv run --locked python -m apps.cli init               --env-file "$PAPER_RADAR_ENV_FILE"
+            uv run --locked python -m apps.cli effects enable               --env-file "$PAPER_RADAR_ENV_FILE"
+          fi
+          test -d "$PAPER_RADAR_WORKSPACE_DIR"
+          echo "ready=true" >>"$GITHUB_OUTPUT"
+
+      - name: Run bounded daily worker window
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout             --preserve-status             --signal=TERM             --kill-after=30s             8m             uv run --locked python -m apps.cli run-worker               --env-file "$PAPER_RADAR_ENV_FILE"
+
+      - name: Show durable delivery status
+        if: always() && steps.workspace.outputs.ready == 'true'
+        shell: bash
+        run: |
+          uv run --locked python -m apps.cli digest status             --env-file "$PAPER_RADAR_ENV_FILE"             --limit 10
+
+      - name: Persist durable workspace
+        if: always() && steps.workspace.outputs.ready == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: paper-radar-daily-workspace
+          path: ${{ env.PAPER_RADAR_WORKSPACE_DIR }}
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 6
+          include-hidden-files: true
