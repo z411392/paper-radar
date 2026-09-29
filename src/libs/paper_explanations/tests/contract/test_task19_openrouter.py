@@ -66,7 +66,7 @@ def test_maps_fixed_model_strict_schema_and_explicit_price_limits():
     assert len(result.receipt.request_sha256) == 64
 
 
-def test_provider_schema_uses_gemini_supported_subset_without_mutating_local_schema():
+def test_provider_schema_uses_structural_subset_without_mutating_local_schema():
     strict_schema = {
         "type": "object",
         "additionalProperties": False,
@@ -108,12 +108,9 @@ def test_provider_schema_uses_gemini_supported_subset_without_mutating_local_sch
         "properties": {
             "schema_version": {
                 "type": "string",
-                "enum": ["v1"],
             },
             "items": {
                 "type": "array",
-                "minItems": 1,
-                "maxItems": 4,
                 "items": {
                     "type": "string",
                 },
