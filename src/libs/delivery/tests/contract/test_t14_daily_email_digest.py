@@ -1,6 +1,7 @@
 import hashlib
 import sqlite3
 import threading
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -201,6 +202,48 @@ def test_queue_saves_digest_item_outbox_and_ledger_atomically(tmp_path: Path) ->
     assert queued.replayed is False
     assert queued.payload_sha256 == object_id.split(":", 1)[1]
     assert _counts(path) == (1, 1, 1, 1)
+
+
+def test_late_discovery_cannot_reach_delivery_outbox(
+    tmp_path: Path,
+) -> None:
+    path, store = _setup(tmp_path)
+    _seed_item(
+        path,
+        event_id="event:late",
+        work_id="work:late",
+        revision_id="revision:late",
+        summary_id="summary:late",
+    )
+    preview = _preview(
+        period="2026-09-23",
+        event_id="event:late",
+        work_id="work:late",
+        revision_id="revision:late",
+        summary_id="summary:late",
+    )
+    preview = replace(
+        preview,
+        items=(
+            replace(
+                preview.items[0],
+                event_kind="late_discovery",
+            ),
+        ),
+    )
+
+    with pytest.raises(
+        DeliveryStoreError,
+        match="invalid_digest_items",
+    ):
+        store.queue(
+            _request(
+                preview,
+                _object(path, b"late discovery must not send"),
+            )
+        )
+
+    assert _counts(path) == (0, 0, 0, 0)
 
 
 def test_exact_replay_returns_same_business_notification(tmp_path: Path) -> None:
