@@ -143,6 +143,28 @@ def test_equivalent_observation_uses_revision_identity_for_event_replay() -> Non
     assert recorder.calls[0]["source_evidence"] == recorder.calls[1]["source_evidence"]
 
 
+def test_future_source_occurrence_fails_before_identity_side_effect() -> None:
+    resolver = Resolver()
+    recorder = Recorder()
+    project = ProjectArxivObservation(resolver, recorder)
+    replay = replace(
+        _replay(),
+        record=replace(
+            _record(),
+            published_at=NOW + timedelta(minutes=1),
+        ),
+    )
+
+    with pytest.raises(
+        PaperIdentityError,
+        match="invalid_arxiv_projection",
+    ):
+        project(replay)
+
+    assert resolver.observations == []
+    assert recorder.calls == []
+
+
 def test_inconsistent_record_identity_fails_before_resolver_side_effect() -> None:
     resolver = Resolver()
     recorder = Recorder()
