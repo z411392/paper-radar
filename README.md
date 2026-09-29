@@ -84,6 +84,17 @@ SMTP transport 必須明示加密模式：implicit TLS（常見 port 465）使�
 `PAPER_RADAR_SMTP_SECURITY=ssl`；需要 STARTTLS（常見 port 587）的 provider 改成
 `PAPER_RADAR_SMTP_SECURITY=starttls`。不支援 plaintext SMTP。
 
+每日信不把所有 paper event 都當「新論文」顯示：
+- `new_work`：一般每日精選；
+- `revision_available`：標成 `[更新]`／「論文更新」；
+- `newly_accessible`：標成 `[新可讀]`／「新增可取得」；
+- `late_discovery`：保留在 catalog history，不進正常 daily paper candidates。
+
+是否真的寄過，不靠 subject 或畫面猜測；用
+`paper-radar digest status --env-file ...` 讀 durable delivery history。
+`notification_ledger=accepted` 才代表 provider 已明確接受該通知；`reserved` 是尚未完成，
+`unknown` 則因可能已送達而禁止自動重寄。
+
 
 正常 arXiv 路徑不會把多年以前的 paper 當成今日新論文寄出：若一筆 arXiv revision
 在 Paper Radar 第一次觀測時，距離其 published/updated occurrence 已超過 14 天，
