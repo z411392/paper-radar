@@ -188,7 +188,7 @@ reading card、1 次 support verification，也就是 `selected_domains + 3` 次
 domain-independent 的 claims／reading card／support verification 會走 durable generation cache，
 不會因同一 paper 跨 domain 重複付費。
 
-canonical 四-domain profile 因此最多需要 7 次 reservation，現在合計約 `$1.861888`；
+canonical 四-domain profile 因此最多需要 7 次 reservation，現在合計約 `$1.978368`；
 月預算低於依所選 domain 數動態計算的門檻時，worker 會在啟動時直接拒絕。
 canonical example 使用 `$2.00/月`，至少能保守 admission 一篇 paper 完成四個 domain 的
 relevance coverage 與 verified summary。
