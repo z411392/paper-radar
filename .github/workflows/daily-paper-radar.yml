@@ -2,7 +2,7 @@ name: Daily Paper Radar
 
 on:
   schedule:
-    - cron: "15 8 * * *"
+    - cron: "17 8 * * *"
       timezone: "Asia/Taipei"
   workflow_dispatch:
     inputs:
