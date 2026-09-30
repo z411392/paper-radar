@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -213,7 +213,7 @@ def replay_with_time(observation_id):
     return SimpleNamespace(
         observation_id=observation_id,
         unit_id=UNIT,
-        observed_at=NOW,
+        observed_at=NOW - timedelta(hours=3),
     )
 
 
