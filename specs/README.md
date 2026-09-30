@@ -1,28 +1,33 @@
 # Story 規格與交付入口
 
-歸屬依 [Rule80](../.claude/rules/80-documentation.md)，角色及安全依 [Rule15](../.claude/rules/15-execution-strategy.md)。
+歸屬依 [Rule80](../.claude/rules/80-documentation.md)，但產品 scope 以 [共通需求](../docs/delivery/requirements-specification.md) 與 [路線圖](../docs/delivery/mvp-phases.md) 為最高優先。
 
-## 目前採 GIT_RETAINED
+## 目前產品
 
-規格留 Git 是可長期使用的正式選擇，不必為形式一致搬進 Issue。開單使用既有 [Issue Forms](../.github/ISSUE_TEMPLATE/)，按成果或研究問題選型，不為每件小事補造 Epic/Story。
+Paper Radar 是 GitHub Actions 排程的新論文翻譯 Email bot：
 
-既有 spec.md 保留 SC/AC，必要 plan.md 保留版本化設計，不能因治理更新先刪除。Issue 引用適用版本，不把最新本文當已接受規格。新 Story 不強制建立三檔；新正式規格先指定一個 Git owner，版本保存/核可/恢復與切換能力驗收後才可改由 Issue 承擔。
+`schedule -> 抓新論文 -> 篩選/去重 -> OpenRouter 繁中整理 -> digest -> SMTP Email`
 
-progress.md 不再追加手動進度或重複收據；原檔與 Git 歷史保留。研究、失敗、驗證寫 comments；Issue 關閉不使仍適用的規格自動失效。必要長期設計按責任回 BC/合作規格，不在 Story 形成另一套永久規則。
+既有 spec 檔案保留 Git 歷史，不代表仍是產品 backlog。對應 Issue 若已用 `not planned` 關閉，該 spec 只供歷史查閱，後續 agent 不得因檔案存在而重新施工。
 
-Task 本文即施工資訊，派工引用具體版本。小 Task 可無 Parent Story；工作階層與 BC 分開，子任務關閉不代替整合驗收。
+## Active / in-scope Story 導覽
 
-## Story 導覽
+- [durable workspace 與關注範圍](5-local-workspace/spec.md) — [Issue #5](https://github.com/z411392/paper-radar/issues/5)
+- [增量取得 arXiv 論文並正確續跑](9-arxiv-discovery/spec.md) — [Issue #9](https://github.com/z411392/paper-radar/issues/9)
+- [來源 identity / evidence 與去重基礎](13-versioned-evidence/spec.md) — [Issue #13](https://github.com/z411392/paper-radar/issues/13)
+- [繁體中文白話解說](17-grounded-explanations/spec.md) — [Issue #17](https://github.com/z411392/paper-radar/issues/17)
+- [每日 Email digest 與防重寄](21-daily-email-digest/spec.md) — [Issue #21](https://github.com/z411392/paper-radar/issues/21)
+- [可選：擴充新論文來源／領域 coverage](29-five-domain-coverage/spec.md) — [Issue #29](https://github.com/z411392/paper-radar/issues/29)
 
-- [初始化本機工作區並發布可增減的關注範圍](5-local-workspace/spec.md) — [Issue](https://github.com/z411392/paper-radar/issues/5)
-- [增量取得 arXiv 論文並在失敗後從正確位置續跑](9-arxiv-discovery/spec.md) — [Issue](https://github.com/z411392/paper-radar/issues/9)
-- [把來源記錄整理成研究身份、版本與可引用證據](13-versioned-evidence/spec.md) — [Issue](https://github.com/z411392/paper-radar/issues/13)
-- [產生能回查原文的繁體中文白話解說](17-grounded-explanations/spec.md) — [Issue](https://github.com/z411392/paper-radar/issues/17)
-- [預覽並可靠寄出每日精選，重跑不重建通知](21-daily-email-digest/spec.md) — [Issue](https://github.com/z411392/paper-radar/issues/21)
-- [讓本機自動執行並在睡眠或中斷後有界續跑](25-durable-cli-worker/spec.md) — [Issue](https://github.com/z411392/paper-radar/issues/25)
-- [補齊羽球與跨出版社來源，分清每個領域的實際覆蓋](29-five-domain-coverage/spec.md) — [Issue](https://github.com/z411392/paper-radar/issues/29)
-- [以 SQLite 全文與 FAISS 語意搜尋找回論文，索引可重建](33-local-hybrid-retrieval/spec.md) — [Issue](https://github.com/z411392/paper-radar/issues/33)
-- [把重要修訂與更正通知給曾經收到研究的人](37-revision-correction-notices/spec.md) — [Issue](https://github.com/z411392/paper-radar/issues/37)
-- [在本機回查閱讀紀錄並調整關注與回饋](41-local-reading-feedback/spec.md) — [Issue](https://github.com/z411392/paper-radar/issues/41)
-- [備份與恢復本機研究資料，復原後不誤寄歷史內容](45-consistent-backup-restore/spec.md) — [Issue](https://github.com/z411392/paper-radar/issues/45)
-- [看見來源健康、解說品質與成本，完成有證據的整合驗收](49-operational-evidence/spec.md) — [Issue](https://github.com/z411392/paper-radar/issues/49)
+## Historical / out-of-scope specs
+
+以下檔案保留作歷史紀錄，但對應工作已 `not planned`，不是後續 roadmap：
+
+- `25-durable-cli-worker/`：本機 daemon / launchd 不是正式部署；GitHub Actions 才是 production scheduler。
+- `33-local-hybrid-retrieval/`：FTS / FAISS / embedding / hybrid retrieval。
+- `37-revision-correction-notices/`：revision / correction / retraction 主動通知。
+- `41-local-reading-feedback/`：閱讀歷史、收藏、feedback、localhost UI/RSS。
+- `45-consistent-backup-restore/`：使用者 backup / restore 產品。
+- `49-operational-evidence/`：health/cost dashboard 與較廣 operational productization。
+
+安全底線（secrets、不可信 abstract、bounded fetch、HTML escaping）仍屬核心，但不因此恢復上述 operational-dashboard scope。
