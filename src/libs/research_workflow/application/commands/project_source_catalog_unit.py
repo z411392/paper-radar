@@ -71,7 +71,13 @@ class ProjectSourceCatalogUnit:
         except (TypeError, ValueError, UnicodeEncodeError, RecursionError) as exc:
             raise Error("invalid_source_catalog_explanation_job") from exc
 
-    def _enqueue_explanation(self, context, replay, result) -> None:
+    def _enqueue_explanation(
+        self,
+        context,
+        replay,
+        result,
+        scheduled_at: datetime,
+    ) -> None:
         if self._unit_context is None or self._jobs is None:
             return
         state = getattr(result, "evidence_state", None)
@@ -85,14 +91,13 @@ class ProjectSourceCatalogUnit:
         revision_id = getattr(result, "revision_id", None)
         work_id = getattr(result, "work_id", None)
         observation_id = getattr(result, "observation_id", None)
-        observed_at = getattr(replay, "observed_at", None)
         if (
             not isinstance(revision_id, str)
             or not isinstance(work_id, str)
             or not isinstance(observation_id, str)
-            or not isinstance(observed_at, datetime)
-            or observed_at.tzinfo is None
-            or observed_at.utcoffset() is None
+            or not isinstance(scheduled_at, datetime)
+            or scheduled_at.tzinfo is None
+            or scheduled_at.utcoffset() is None
         ):
             raise Error("source_catalog_projection_result_mismatch")
         payload = {
@@ -124,8 +129,8 @@ class ProjectSourceCatalogUnit:
                 business_key=business_key,
                 input_json=encoded,
                 input_fingerprint=fingerprint,
-                due_at=observed_at,
-                created_at=observed_at,
+                due_at=scheduled_at,
+                created_at=scheduled_at,
             )
         )
 
@@ -188,7 +193,12 @@ class ProjectSourceCatalogUnit:
             if result.observation_id != observation_id:
                 raise Error("source_catalog_projection_result_mismatch")
             if context is not None:
-                self._enqueue_explanation(context, replay, result)
+                self._enqueue_explanation(
+                    context,
+                    replay,
+                    result,
+                    projected_at,
+                )
             progress = self._store.advance(
                 unit_id,
                 source,
