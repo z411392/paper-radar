@@ -110,6 +110,28 @@ def test_equivalent_observations_reuse_revision_and_event(tmp_path: Path) -> Non
         connection.close()
 
 
+def test_recent_v1_persists_new_work_event(tmp_path: Path) -> None:
+    schema, project = _projector(tmp_path / "runtime")
+
+    projected = project(_replay("observation:" + "e" * 64, 1))
+
+    connection = schema.connect()
+    try:
+        event = connection.execute(
+            "SELECT event_kind,revision_id,occurred_at,observed_at "
+            "FROM research_events WHERE id=?",
+            (projected.event_id,),
+        ).fetchone()
+        assert tuple(event) == (
+            "new_work",
+            projected.revision_id,
+            _record(1).published_at.isoformat(),
+            NOW.isoformat(),
+        )
+    finally:
+        connection.close()
+
+
 def test_new_native_version_creates_new_revision_even_with_same_text(
     tmp_path: Path,
 ) -> None:
