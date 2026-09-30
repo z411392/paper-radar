@@ -1,10 +1,10 @@
 # Paper Radar
 
-本機論文雷達。正式產品需求、架構與交付入口見 [docs/README.md](docs/README.md)；開發者先讀 [CLAUDE.md](CLAUDE.md)。
+GitHub Actions 排程的新論文翻譯 Email bot。正式產品需求、架構與交付入口見 [docs/README.md](docs/README.md)；開發者先讀 [CLAUDE.md](CLAUDE.md)。
 
 目前 60 分 MVP 已具備可執行的本機工作區、arXiv 採集、canonical paper/evidence 投影、OpenRouter 繁體中文解說、daily digest、SMTP Email 與 durable worker 主線。main 是可執行 source of truth；正式排程直接執行 main 的 workflow event SHA，不再依賴 detached runtime pin。
 
-本輪刻意不把 FAISS／hybrid retrieval、完整五領域覆蓋、reading feedback、backup/restore 產品化、health dashboard、localhost HTTP/RSS 當作可用 MVP 的前置條件；這些保留為後續工作，不阻擋每天找新論文、生成解說與寄送。
+FAISS／hybrid retrieval、搜尋／閱讀後台、reading history／bookmark／feedback、localhost HTTP／RSS、修訂更正通知、產品化 backup/restore、health dashboard、macOS launchd 正式部署都已明確移出產品 scope，不是延後 backlog。未來擴充只接受能直接改善「找到哪些新論文、如何篩選、如何翻譯整理、如何可靠寄 Email」的能力。
 
 ## 入口
 
@@ -86,11 +86,7 @@ SMTP transport 必須明示加密模式：implicit TLS（常見 port 465）使�
 `PAPER_RADAR_SMTP_SECURITY=ssl`；需要 STARTTLS（常見 port 587）的 provider 改成
 `PAPER_RADAR_SMTP_SECURITY=starttls`。不支援 plaintext SMTP。
 
-每日信不把所有 paper event 都當「新論文」顯示：
-- `new_work`：一般每日精選；
-- `revision_available`：標成 `[更新]`／「論文更新」；
-- `newly_accessible`：標成 `[新可讀]`／「新增可取得」；
-- `late_discovery`：保留在 catalog history，不進正常 daily paper candidates。
+每日 Email 只寄 `new_work`。`late_discovery`、`revision_available`、`newly_accessible`、`correction`、`retraction` 可留在內部 catalog/history，但不進正式 daily digest。
 
 是否真的寄過，不靠 subject 或畫面猜測；用
 `paper-radar digest status --env-file ...` 讀 durable delivery history。
@@ -203,10 +199,7 @@ cost receipt。API key 只由 GitHub secret 注入，不寫入 repo 或 log。
 
 ### GitHub Actions 每日正式排程（非 CI）
 
-`Daily Paper Radar` 是正式 daily worker，不是 smoke/CI。workflow 每天在
-`Asia/Taipei 08:15` 執行，runtime pin 在已取得 full-live receipt 的 exact SHA
-`89f6caa6aeebbe0579ac769e43d969d6e2f80f8b`；後續開發 branch 繼續 commit 不會自動改變
-每天寄信的 production code。
+`Daily Paper Radar` 是正式 daily worker，不是 smoke/CI。workflow 每天在 `Asia/Taipei 08:17` 執行，直接 checkout 該次 workflow event 的 `main` source；不再使用 detached runtime SHA pin。
 
 GitHub-hosted runner 每次都是新機器，因此 daily workflow 不把 workspace 當暫存資料。
 每輪會從 `paper-radar-daily-workspace` artifact 還原完整 workspace，包含 harvest cursor、
@@ -284,32 +277,10 @@ uv run --locked python -m apps.cli run-worker \
   --env-file "$HOME/.config/paper-radar/worker.env"
 ```
 
-### macOS launchd
+### 本機 CLI 的定位
 
-長期每天自動跑時，launchd 也使用同一份 `worker.env`，不另外保存 workspace、polling、
-provider flags 或 secrets。複製 `deploy/macos/com.paper-radar.worker.plist.example` 到
-`~/Library/LaunchAgents/com.paper-radar.worker.plist`，只把兩個 placeholder 換成絕對路徑：
+本機 `run-worker`、`worker.env` 與相容 flags 只供開發、診斷及手動 smoke；正式長期部署只有 GitHub Actions `Daily Paper Radar`。不維護 launchd 作為產品安裝方式。
 
-- `__PYTHON__`：已安裝 Paper Radar 的 Python，例如 repo 的 `.venv/bin/python`。
-- `__ENV_FILE__`：owner-only `worker.env` 的絕對路徑。
-
-載入／重載：
-
-```bash
-launchctl bootout "gui/$(id -u)" \
-  "$HOME/Library/LaunchAgents/com.paper-radar.worker.plist" 2>/dev/null || true
-
-launchctl bootstrap "gui/$(id -u)" \
-  "$HOME/Library/LaunchAgents/com.paper-radar.worker.plist"
-
-launchctl kickstart -k "gui/$(id -u)/com.paper-radar.worker"
-```
-
-plist 本身不應放 OpenRouter key、SMTP password 或其他 runtime 設定；修改日常設定只改
-`worker.env`，再重啟 launchd worker。
-
-`--env-file` 模式不允許再混用 workspace/source/model/mail runtime flags，避免兩套設定互相覆蓋。
-舊 flags 暫時保留相容；MVP 正常操作以 `config/worker.env.example` 為準。
 
 
 設定檔須為普通 UTF-8 檔案，最多 1,000,000 bytes，不接受最終 symlink 或 FIFO。全部參數先解析，錯誤非零退出；成功才輸出 JSON。真正安裝 wheel 後也能在 repo 外執行，SQL 不依賴目前目錄；範例檔仍須用自己可存取的路徑指定。
