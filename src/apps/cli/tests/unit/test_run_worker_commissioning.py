@@ -273,12 +273,12 @@ def test_execution_policy_fingerprint_versions_provider_schema(
 
 
 def test_commissioned_openrouter_reservation_matches_policy_bounds() -> None:
-    assert commissioned_openrouter_reservation_micros() == 282_624
+    assert commissioned_openrouter_reservation_micros() == 303_104
 
 
-def test_commissioned_verified_summary_reservation_covers_four_calls() -> None:
-    assert commissioned_verified_summary_reservation_micros() == 1_130_496
+def test_commissioned_verified_summary_reservation_covers_three_calls() -> None:
+    assert commissioned_verified_summary_reservation_micros() == 909_312
 
 
-def test_four_domain_summary_reservation_covers_seven_calls() -> None:
-    assert commissioned_verified_summary_reservation_micros(4) == 1_978_368
+def test_four_domain_summary_reservation_covers_six_calls() -> None:
+    assert commissioned_verified_summary_reservation_micros(4) == 1_818_624
