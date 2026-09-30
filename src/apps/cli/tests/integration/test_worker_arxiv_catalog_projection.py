@@ -446,7 +446,7 @@ def test_worker_arxiv_projection_runs_tracked_explanation_to_current_summary(
         runs = connection.execute(
             "SELECT id,task_kind,state FROM model_runs ORDER BY task_kind"
         ).fetchall()
-        assert len(runs) == 4
+        assert len(runs) == 3
         assert {row["task_kind"] for row in runs} == set(generator.calls)
         assert all(row["state"] == "succeeded" for row in runs)
         assert all(row["id"].startswith("run:") for row in runs)
@@ -2050,7 +2050,6 @@ def test_live_arxiv_openrouter_gmail_e2e(tmp_path: Path) -> None:
             "claim_extraction",
             "relevance_assessment",
             "abstract_reading_card",
-            "support_verification",
         ]
         assert all(row["state"] == "succeeded" for row in runs)
         assert all(
