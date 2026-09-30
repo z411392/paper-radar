@@ -1,9 +1,6 @@
 name: Daily Paper Radar
 
 on:
-  push:
-    branches:
-      - codex/mvp-paper-email-e2e
   schedule:
     - cron: "17 8 * * *"
       timezone: "Asia/Taipei"
