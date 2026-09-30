@@ -31,6 +31,9 @@ from libs.scholarly_catalog.application.commands.record_paper_revision import (
 from libs.scholarly_catalog.application.commands.resolve_paper_identity import (
     ResolvePaperIdentity,
 )
+from libs.scholarly_catalog.dtos.paper_identity_observation import (
+    PaperIdentityObservation,
+)
 from libs.scholarly_catalog.domain.services.normalize_paper_identifier import (
     NormalizePaperIdentifier,
 )
@@ -106,6 +109,89 @@ def test_equivalent_observations_reuse_revision_and_event(tmp_path: Path) -> Non
         assert connection.execute(
             "SELECT count(*) FROM catalog_field_provenance"
         ).fetchone()[0] == 2
+    finally:
+        connection.close()
+
+
+def test_projection_recovers_after_identity_commit_before_event(
+    tmp_path: Path,
+) -> None:
+    schema, project = _projector(tmp_path / "runtime")
+    replay = _replay("observation:" + "f" * 64, 1)
+    record = replay.record
+    fingerprint = ProjectArxivObservation._fingerprint(replay)
+    identity = SqlitePaperIdentityStoreAdapter(schema.connect)
+    resolve = ResolvePaperIdentity(
+        NormalizePaperIdentifier(),
+        identity,
+    )
+    resolved = resolve(
+        PaperIdentityObservation(
+            source_observation_id=replay.observation_id,
+            identifier_namespace="arxiv",
+            identifier_value=record.source_record_id,
+            title=record.title,
+            content_fingerprint=fingerprint,
+            manifestation_kind="preprint",
+            landing_url=record.source_url,
+            publication_status="preprint",
+            observed_at=replay.observed_at,
+            source_updated_at=record.updated_at,
+            published_at=record.published_at,
+        )
+    )
+
+    connection = schema.connect()
+    try:
+        assert connection.execute(
+            "SELECT count(*) FROM paper_works"
+        ).fetchone()[0] == 1
+        assert connection.execute(
+            "SELECT count(*) FROM paper_revisions"
+        ).fetchone()[0] == 1
+        assert connection.execute(
+            "SELECT count(*) FROM catalog_field_provenance"
+        ).fetchone()[0] == 1
+        assert connection.execute(
+            "SELECT count(*) FROM research_events"
+        ).fetchone()[0] == 0
+    finally:
+        connection.close()
+
+    recovered = project(replay)
+
+    assert recovered.work_id == resolved.work_id
+    assert recovered.manifestation_id == resolved.manifestation_id
+    assert recovered.revision_id == resolved.revision_id
+    assert recovered.created_work is False
+    assert recovered.created_manifestation is False
+    assert recovered.created_revision is False
+
+    connection = schema.connect()
+    try:
+        assert connection.execute(
+            "SELECT count(*) FROM paper_works"
+        ).fetchone()[0] == 1
+        assert connection.execute(
+            "SELECT count(*) FROM paper_manifestations"
+        ).fetchone()[0] == 1
+        assert connection.execute(
+            "SELECT count(*) FROM paper_revisions"
+        ).fetchone()[0] == 1
+        assert connection.execute(
+            "SELECT count(*) FROM catalog_field_provenance"
+        ).fetchone()[0] == 1
+        event = connection.execute(
+            "SELECT event_kind,revision_id,occurred_at,observed_at "
+            "FROM research_events WHERE id=?",
+            (recovered.event_id,),
+        ).fetchone()
+        assert tuple(event) == (
+            "new_work",
+            resolved.revision_id,
+            record.published_at.isoformat(),
+            NOW.isoformat(),
+        )
     finally:
         connection.close()
 
