@@ -7,13 +7,11 @@ from libs.scholarly_catalog.exceptions.digest_event_read_error import DigestEven
 
 
 class SqliteDigestResearchEventAdapter:
-    _PAPER_KINDS = (
-        "new_work",
-        "revision_available",
-        "newly_accessible",
-    )
-    _STATUS_KINDS = ("correction", "retraction")
-    _KINDS = _PAPER_KINDS + _STATUS_KINDS
+    # Product boundary: the scheduled email bot sends new papers only.
+    # Other catalog events remain durable history but are not digest candidates.
+    _PAPER_KINDS = ("new_work",)
+    _STATUS_KINDS: tuple[str, ...] = ()
+    _KINDS = _PAPER_KINDS
 
     def __init__(self, connect: Callable[[], sqlite3.Connection]) -> None:
         self._connect = connect
