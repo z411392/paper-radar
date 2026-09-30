@@ -2,7 +2,7 @@
 
 GitHub Actions 排程的新論文翻譯 Email bot。正式產品需求、架構與交付入口見 [docs/README.md](docs/README.md)；開發者先讀 [CLAUDE.md](CLAUDE.md)。
 
-目前 60 分 MVP 已具備可執行的本機工作區、arXiv 採集、canonical paper/evidence 投影、OpenRouter 繁體中文解說、daily digest、SMTP Email 與 durable worker 主線。main 是可執行 source of truth；正式排程直接執行 main 的 workflow event SHA，不再依賴 detached runtime pin。
+目前 MVP 已具備可執行的 durable workspace、arXiv 採集、canonical paper/evidence 投影、OpenRouter 繁體中文解說、daily digest、SMTP Email 與 durable worker 主線，並已取得 recent-paper live E2E PASS。main 是可執行 source of truth；正式排程直接執行 main 的 workflow event SHA，不再依賴 detached runtime pin。
 
 FAISS／hybrid retrieval、搜尋／閱讀後台、reading history／bookmark／feedback、localhost HTTP／RSS、修訂更正通知、產品化 backup/restore、health dashboard、macOS launchd 正式部署都已明確移出產品 scope，不是延後 backlog。未來擴充只接受能直接改善「找到哪些新論文、如何篩選、如何翻譯整理、如何可靠寄 Email」的能力。
 
@@ -121,7 +121,7 @@ SMTP 與 public arXiv 各自已有獨立 live smoke；要驗證完整產品主�
 push/PR 自動執行。
 
 它會先透過 production arXiv query compiler、rate limiter、HTTPS transport 與 parser，
-在最近 7 天的 `cs.LG/stat.ML` 找一篇仍落在 freshness window 內的真實論文，再用該篇
+在最近 23 小時的 `cs.LG/stat.ML` 找一篇仍落在 production 24 小時 harvest window 內的真實論文，再用該篇
 exact title 跑完整 production path：
 
 `real recent arXiv -> real OpenRouter -> verified zh-TW summary -> real Gmail SMTP`
@@ -144,15 +144,16 @@ full-live stage 使用 $2 的 test budget admission。這是會產生實際 Open
 email 的 `live_external` 驗證；只需要執行一次 `Live MVP paper email smoke`，不需要先
 另外跑 `Live OpenRouter smoke`。
 
-2026-09-29 已取得一次完整 live PASS：GitHub Actions run `36524033966`（underlying
-MVP head `5a65bff2a43ff0183d615791074666bcdfa99f83`）先通過 paid OpenRouter gate，再通過
-`real arXiv -> 4 real model stages -> verified zh-TW summary -> prepare_digest ->
-dispatch_digest -> Gmail SMTP`；full-live pytest receipt 為 `1 passed, 15 deselected in
-52.73s`。當時的舊 smoke head 尚未套用 late-discovery freshness 修正，固定 target 是
-2017 年的 `Attention Is All You Need`，因此 Gmail 收到的那封信只作為歷史 transport/E2E
-PASS 證據，不代表今日論文選擇。現行 smoke 已改成 recent-paper discovery，不再把 Attention
-當真實每日精選 target。isolated one-shot branch 在 run 建立後已恢復為 manual-only head，
-`main` 與 MVP branch 沒有 push-trigger live workflow。
+2026-09-30 已取得目前收斂版的完整 live PASS：GitHub Actions run `36723227240`，產品 source 對應 `main` SHA `89e4522fa528be11d1316501e08835a8697ee078`；one-shot branch 只增加觸發用 workflow 差異，產品 Python source 與該 main 相同。實際 receipt 為 `1 passed, 15 deselected in 38.17s`，並驗證：
+
+- real recent arXiv target 被記為 `new_work`；
+- `claim_extraction`、`relevance_assessment`、`abstract_reading_card` 三個 real OpenRouter stage 全部 succeeded，且各有非零 cost receipt；
+- current summary 為 `zh-TW` 且 `qa_state=passed`；
+- worker 依序完成 `prepare_digest`、`dispatch_digest`；
+- `delivery_outbox.state=provider_accepted` 且只有 1 筆 delivery attempt；
+- 再跑一輪 worker 為 `processed_jobs == 0`，證明同一份 state 不會自動重寄。
+
+正式 `main` 的 live workflow 仍維持 manual-only `workflow_dispatch`；production daily workflow 不使用 push trigger。
 
 ### 手動 GitHub Action：live SMTP smoke（非 CI）
 
@@ -250,7 +251,7 @@ file，且 group/other 不可讀寫。
 reservation 由固定 OpenRouter request/token/price policy 自動推導，不是使用者設定。
 一篇 paper 的保守 admission 是 1 次 claims、每個 selected domain 各 1 次 relevance、1 次
 reading card，也就是 `selected_domains + 2` 次 request。
-domain-independent 的 claims／reading card／support verification 會走 durable generation cache，
+domain-independent 的 claims／reading card 會走 durable generation cache，
 不會因同一 paper 跨 domain 重複付費。
 
 canonical 四-domain profile 因此最多需要 6 次 reservation，現在合計約 `$1.818624`；
