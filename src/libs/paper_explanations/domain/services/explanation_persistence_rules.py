@@ -98,7 +98,15 @@ class ExplanationPersistenceRules:
             ):
                 raise ExplanationVerificationError("verification_result_mismatch")
         elif deterministic.verdict == "passed":
-            if verification.support_execution_state == "failed":
+            if verification.support_execution_state == "not_run":
+                if (
+                    verification.qa_state != "passed"
+                    or verification.support is not None
+                    or request.support_generation_run_id is not None
+                    or request.support_generation_fingerprint is not None
+                ):
+                    raise ExplanationVerificationError("verification_result_mismatch")
+            elif verification.support_execution_state == "failed":
                 if (
                     verification.qa_state != "pending"
                     or verification.support is not None
