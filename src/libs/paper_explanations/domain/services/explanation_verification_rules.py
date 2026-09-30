@@ -20,6 +20,8 @@ _NUMBER_RE = re.compile(r"(?<![A-Za-z0-9_])[+-]?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[
 _UNIT_RE = re.compile(
     r"(?P<number>[+-]?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)\s*"
     r"(?P<unit>%|(?:mhz|khz|hz|ms|mm|cm|km|kg|m|s|g)(?:/[A-Za-z0-9µμ°]+)?|"
+    r"hours?|minutes?|seconds?|meters?|metres?|centimeters?|centimetres?|"
+    r"millimeters?|millimetres?|kilometers?|kilometres?|kilograms?|grams?|"
     r"公尺|公分|毫米|公里|秒|毫秒|分鐘|小時|人|段|篇|次)"
     r"(?![A-Za-z0-9µμ°])",
     re.IGNORECASE,
@@ -79,8 +81,28 @@ class ExplanationVerificationRules:
         return Counter(match.group(0) for match in _NUMBER_RE.finditer(text))
 
     @staticmethod
-    def _unit_pairs(text: str) -> Counter[tuple[str, str]]:
-        return Counter((m.group("number"), m.group("unit").casefold()) for m in _UNIT_RE.finditer(text))
+    def _canonical_unit(value: str) -> str:
+        unit = value.casefold()
+        aliases = {
+            "hour": "h", "hours": "h", "小時": "h",
+            "minute": "min", "minutes": "min", "分鐘": "min",
+            "second": "s", "seconds": "s", "秒": "s",
+            "millisecond": "ms", "milliseconds": "ms", "毫秒": "ms",
+            "meter": "m", "meters": "m", "metre": "m", "metres": "m", "公尺": "m",
+            "centimeter": "cm", "centimeters": "cm", "centimetre": "cm", "centimetres": "cm", "公分": "cm",
+            "millimeter": "mm", "millimeters": "mm", "millimetre": "mm", "millimetres": "mm", "毫米": "mm",
+            "kilometer": "km", "kilometers": "km", "kilometre": "km", "kilometres": "km", "公里": "km",
+            "kilogram": "kg", "kilograms": "kg",
+            "gram": "g", "grams": "g",
+        }
+        return aliases.get(unit, unit)
+
+    @classmethod
+    def _unit_pairs(cls, text: str) -> Counter[tuple[str, str]]:
+        return Counter(
+            (m.group("number"), cls._canonical_unit(m.group("unit")))
+            for m in _UNIT_RE.finditer(text)
+        )
 
     @staticmethod
     def _is_subset(left: Counter, right: Counter) -> bool:
@@ -123,14 +145,9 @@ class ExplanationVerificationRules:
         if not cls._is_subset(cls._unit_pairs(text), cls._unit_pairs(source)):
             findings.append(VerificationFinding("unit_mismatch", source_kind, source_index, claim_ids))
 
-        source_roles = cls._role_numbers(source)
-        text_roles = cls._role_numbers(text)
-        for role in ("baseline", "proposed"):
-            if text_roles[role] and not text_roles[role] <= source_roles[role]:
-                findings.append(
-                    VerificationFinding("role_value_mismatch", source_kind, source_index, claim_ids)
-                )
-                break
+        # Numeric proximity to words such as "baseline" is not stable across
+        # English -> zh-TW word-order changes. Exact numeric literals and units
+        # are checked separately; do not infer role swaps from token distance.
 
         source_negated = bool(_NEGATION_RE.search(source))
         text_negated = bool(_NEGATION_RE.search(text))
