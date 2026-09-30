@@ -194,3 +194,25 @@ def test_unit_prefix_cannot_turn_milliseconds_into_meters():
     draft, claims = fixture(text, translation=text, quote=quote)
     codes = {finding.code for finding in ExplanationVerificationRules.deterministic(draft, claims).findings}
     assert "unit_mismatch" in codes
+
+
+def test_cross_language_hour_unit_is_normalized() -> None:
+    quote = "We pretrain on about 4,000 hours of fMRI."
+    text = "我們使用約 4,000 小時的 fMRI 資料進行預訓練。"
+    draft, claims = fixture(text, translation=text, quote=quote)
+    codes = {
+        finding.code
+        for finding in ExplanationVerificationRules.deterministic(draft, claims).findings
+    }
+    assert "unit_mismatch" not in codes
+
+
+def test_cross_language_baseline_word_order_does_not_fake_role_swap() -> None:
+    quote = "Across 5 datasets, 11 parcellations and 6 targets, we match the KRR baseline."
+    text = "相較於 KRR 基準，我們在 5 個資料集、11 種分區與 6 個目標上達到相當表現。"
+    draft, claims = fixture(text, translation=text, quote=quote)
+    codes = {
+        finding.code
+        for finding in ExplanationVerificationRules.deterministic(draft, claims).findings
+    }
+    assert "role_value_mismatch" not in codes
