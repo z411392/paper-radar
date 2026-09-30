@@ -2128,7 +2128,9 @@ def test_live_arxiv_openrouter_gmail_e2e(tmp_path: Path) -> None:
     os.environ.get("PAPER_RADAR_LIVE_ARXIV") != "1",
     reason="set PAPER_RADAR_LIVE_ARXIV=1 for the bounded public arXiv smoke",
 )
-def test_live_arxiv_attention_paper_reaches_fake_email(tmp_path: Path) -> None:
+def test_live_arxiv_attention_paper_becomes_late_discovery_summary(
+    tmp_path: Path,
+) -> None:
     root = _workspace(tmp_path)
     _seed_live_arxiv_mvp(root)
     model = FakeOpenRouterHttpTransport()
@@ -2186,14 +2188,18 @@ def test_live_arxiv_attention_paper_reaches_fake_email(tmp_path: Path) -> None:
     connection = SqliteConnectionFactory(root).connect()
     try:
         paper = connection.execute(
-            "SELECT e.observed_at,r.title "
+            "SELECT e.observed_at,e.event_kind,r.title "
             "FROM research_events e "
             "JOIN paper_revisions r ON r.id=e.revision_id "
             "WHERE lower(r.title) LIKE '%attention is all you need%' "
             "ORDER BY e.observed_at DESC LIMIT 1"
         ).fetchone()
         assert paper is not None
+        assert paper["event_kind"] == "late_discovery"
         observed_at = datetime.fromisoformat(paper["observed_at"])
+        assert connection.execute(
+            "SELECT count(*) FROM current_summaries"
+        ).fetchone()[0] == 1
     finally:
         connection.close()
 
@@ -2208,16 +2214,7 @@ def test_live_arxiv_attention_paper_reaches_fake_email(tmp_path: Path) -> None:
         ),
         created_at=cutoff,
     )
-    assert prepared.state == "queued"
-    assert prepared.item_count == 1
-    assert prepared.outbox_id is not None
-
-    delivered = injector.get(ProcessRevisionNoticePort)(
-        RevisionNoticeRequest(prepared.outbox_id)
-    )
-    assert delivered.state == "succeeded"
-    assert len(mail.messages) == 1
-    message = mail.messages[0]
-    assert message.recipient == "reader@example.com"
-    assert "Attention Is All You Need" in message.text_body
-    assert "這份研究提供 arXiv 摘要證據。" in message.text_body
+    assert prepared.state == "empty"
+    assert prepared.item_count == 0
+    assert prepared.outbox_id is None
+    assert mail.messages == []
