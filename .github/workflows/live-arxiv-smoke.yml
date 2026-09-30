@@ -41,5 +41,5 @@ jobs:
           -k 'local_provider_defer_waits_without_durable_failed_capture or
           long_provider_defer_remains_durable_retry_not_local_sleep'
 
-      - name: Run bounded public arXiv smoke
+      - name: Run bounded public arXiv freshness smoke
         run: make mvp-live-arxiv
