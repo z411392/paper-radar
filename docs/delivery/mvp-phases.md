@@ -22,6 +22,12 @@ Paper Radar 是一個 GitHub Actions 排程的論文 Email bot，不是本機研
 
 目前 main 已作為可執行 source of truth；正式 Daily Paper Radar 直接執行 main 的 workflow event SHA。
 
+## MVP Exit — COMPLETE（2026-09-30）
+
+核心產品已取得 production-shaped live receipt：Actions run `36723227240` 以 recent arXiv `new_work` 經 3-stage real OpenRouter 生成 zh-TW summary，再由 worker 完成 digest 與 SMTP dispatch；SQLite readback 為 `delivery_outbox=provider_accepted`、單一 delivery attempt，replay worker 無新增 job。對應 main source SHA 為 `89e4522fa528be11d1316501e08835a8697ee078`。
+
+此 Exit 代表 scheduled paper email bot 已完成；後續來源增加不再阻擋產品完成判定。
+
 ## 可選的後續擴充
 
 只有「增加可寄送的新論文來源／領域覆蓋」仍屬同一產品方向，例如 PubMed／PMC、Crossref 或新的領域 source adapter。這些擴充必須直接改善「能找到並寄出哪些新論文」，不能藉機擴成研究管理產品。
