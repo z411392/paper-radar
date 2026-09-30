@@ -1,0 +1,127 @@
+import re
+from datetime import datetime, timezone
+
+from libs.scholarly_catalog.dtos.abstract_evidence import (
+    AbstractEvidenceRequest,
+    AbstractEvidenceResult,
+)
+from libs.scholarly_catalog.dtos.evidence_anchor_request import EvidenceAnchorRequest
+from libs.scholarly_catalog.dtos.evidence_preparation_input import (
+    EvidencePreparationInput,
+)
+from libs.scholarly_catalog.exceptions.evidence_snapshot_error import (
+    EvidenceSnapshotError,
+)
+from libs.scholarly_catalog.ports.prepare_evidence_snapshot_port import (
+    PrepareEvidenceSnapshotPort,
+)
+
+
+class PrepareAbstractEvidence:
+    def __init__(self, prepare: PrepareEvidenceSnapshotPort) -> None:
+        self._prepare = prepare
+
+    @staticmethod
+    def _identifier(value: object, code: str) -> str:
+        if (
+            not isinstance(value, str)
+            or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9:_-]{0,127}", value)
+            is None
+        ):
+            raise EvidenceSnapshotError(code)
+        return value
+
+    @staticmethod
+    def _parser_version(value: object) -> str:
+        if (
+            not isinstance(value, str)
+            or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,111}", value)
+            is None
+        ):
+            raise EvidenceSnapshotError("invalid_parser_version")
+        derived = value + ":abstract-v1"
+        if len(derived) > 128:
+            raise EvidenceSnapshotError("invalid_parser_version")
+        return derived
+
+    @staticmethod
+    def _instant(value: object) -> datetime:
+        if (
+            not isinstance(value, datetime)
+            or value.tzinfo is None
+            or value.utcoffset() is None
+        ):
+            raise EvidenceSnapshotError("invalid_evidence_time")
+        try:
+            return value.astimezone(timezone.utc)
+        except (ValueError, OverflowError):
+            raise EvidenceSnapshotError("invalid_evidence_time") from None
+
+    @staticmethod
+    def _normalize(value: object) -> str:
+        if not isinstance(value, str):
+            raise EvidenceSnapshotError("invalid_abstract_evidence")
+        try:
+            value.encode("utf-8")
+        except UnicodeEncodeError:
+            raise EvidenceSnapshotError("invalid_abstract_evidence") from None
+        if "\x00" in value:
+            raise EvidenceSnapshotError("invalid_abstract_evidence")
+        text = value.replace("\r\n", "\n").replace("\r", "\n").strip()
+        if not text:
+            raise EvidenceSnapshotError("invalid_abstract_evidence")
+        return text
+
+    def __call__(
+        self,
+        request: AbstractEvidenceRequest,
+    ) -> AbstractEvidenceResult:
+        if not isinstance(request, AbstractEvidenceRequest):
+            raise EvidenceSnapshotError("invalid_evidence_input")
+        revision_id = self._identifier(
+            request.revision_id,
+            "invalid_revision_identity",
+        )
+        work_id = self._identifier(request.work_id, "invalid_work_identity")
+        parser_version = self._parser_version(request.parser_version)
+        observed_at = self._instant(request.observed_at)
+        if request.abstract is None:
+            return AbstractEvidenceResult(
+                "unavailable",
+                revision_id,
+                work_id,
+                None,
+            )
+
+        text = self._normalize(request.abstract)
+        snapshot = self._prepare(
+            EvidencePreparationInput(
+                revision_id=revision_id,
+                work_id=work_id,
+                source_bytes=text.encode("utf-8"),
+                source_media_type="text/plain; charset=utf-8",
+                parser_version=parser_version,
+                normalized_text=text,
+                content_scope="abstract",
+                document_complete=False,
+                included_sections=("abstract",),
+                missing_required_sections=(),
+                parser_error_code=None,
+                anchors=(
+                    EvidenceAnchorRequest(
+                        text,
+                        0,
+                        len(text),
+                        "abstract",
+                        "abstract",
+                    ),
+                ),
+                created_at=observed_at,
+            )
+        )
+        return AbstractEvidenceResult(
+            "available",
+            revision_id,
+            work_id,
+            snapshot.snapshot_id,
+        )

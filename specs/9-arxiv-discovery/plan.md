@@ -35,3 +35,22 @@ Focused unit／integration → contract／acceptance → `make ci-fast` → 獨�
 ## 開工前必填
 
 真實 Task branch、base SHA、candidate SHA、cwd、write owner、frozen paths、provider／live authority 依 Rule15 Fresh Task Pack 補齊。未補齊不宣稱 READY。模型、收件者或後續 HTTP 未定只阻擋直接需要它的操作，不阻擋 hermetic 契約工作。
+
+
+## 2026-09-23 Task #10：來源查詢與分頁契約
+
+本批依暫行直接實作授權，使用 PR #57 的 `2ffd067a79ec8dcb3a87b424eecacdc694c6dc14` 作技術基線，不當成已驗收 main。新分支 codex/10-arxiv-query-contract；S1–S3 分別保留 commits，沒有獨立 Architect freeze 或 Reviewer ACCEPT。
+
+輸入為 discovery 自己的 SourceQueryInput／DomainQuerySnapshot，含 profile identity、revision、fingerprint、精確 domain revision、provider-specific categories、詞組及時間窗。workflow 後續負責取得已發布且仍有效的設定並映射；discovery 不 import watch_profiles、不讀它的私有表。輸入 hash 不是簽章，編譯也不證明設定此刻仍 active/current。
+
+CompileSourceQuery inbound 用例只呼叫 SourceQueryCompilerPort，arXiv 語法由 ArxivQueryCompilerAdapter 擁有。純編譯不執行 HTTP、SQLite、clock 或模型。分類 OR 領域 aliases/include 的 title/abstract 詞組，再 AND 個人 include、ANDNOT 排除詞，是本案明示的召回政策，不是 arXiv 或研究報告指定的普遍語意。分類只核對語法；來源是否仍接受需 #11 真實能力核對。
+
+官方 User Manual §§3.1.1／3.3／5.1： https://info.arxiv.org/help/api/user-manual.html 。本次只核對到 submittedDate 的原生日期篩選，GMT、分鐘精度；lastUpdatedDate 是排序能力，不冒稱同樣支援完整修訂時間窗。只接受明確時區與分鐘邊界，轉為 inclusive-minutes-utc。新投稿窗口不能取代舊文章更新的 reconciliation。
+
+language、free_only、allow_preprints=false、自然語言 scope 都不是此 compiler 的原生篩選。預設 reject；只有呼叫端明示 deferred_mode=defer 才產生候選查詢，並將原始條件和值、unsupported_at_source、必須處理的下游階段放入 plan。下游尚未驗證時不能當作符合條件。引號／反斜線片語沒有已查證的 escape 時直接拒絕，不刪字改義。
+
+完整 provenance 保存 compiler/capability/policy 版本、設定 snapshot、查詢、UTC 時間窗、每頁大小與後置條件。query_fingerprint 識別整份計画；request_fingerprint 另綁 GET URL／offset／page size，不把每一頁當成新關注內容。預設200筆、單頁上限2000、窗口上限30000及16000-byte查詢上限是本版明示工程限制，不是來源 SLA。
+
+EvaluateSourcePage 只回下一頁提案，不寫 checkpoint。失敗頁、query/offset不符、頁內重複identity、異常空頁、未到結尾的短頁、已知total改變與超窗總量皆明確失敗。只有成功且有效的首次total=0空頁可標verified_empty。arXiv offset pagination沒有本次已核對的snapshot／同時間次排序保證；total不變也不能證明完整。fixtures是合成parsed-page DTO，不是真實論文或HTTP/Atom解析證據。
+
+真正HTTP／Atom parser與全provider共用至少3秒及單一連線節流屬 #11；durable raw保存、binding/version checkpoint與bounded reconciliation屬 #12。官方節流來源：https://info.arxiv.org/help/api/tou.html 。本批只記能力不執行收集。新測試位置 src/libs/discovery/tests/contract/test_t04_arxiv_discovery.py；既有 Story AC、source、SQL、lock、架構／治理測試不修改。

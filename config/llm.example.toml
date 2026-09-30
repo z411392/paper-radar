@@ -1,0 +1,23 @@
+# Planning example for Task #19; no runtime loader consumes this file yet.
+# Canonical product decision: docs/delivery/requirements-specification.md#r10
+# Never store an API key here. Configure OPENROUTER_API_KEY locally.
+# Choosing a model is not authorization to execute paid requests.
+
+[llm]
+enabled = false
+gateway = "openrouter"
+base_url = "https://openrouter.ai/api/v1"
+model = "google/gemini-3.8-flash"
+api_key_env = "OPENROUTER_API_KEY"
+allow_model_fallback = false
+
+# This is an application policy, not a raw OpenRouter request body.
+# Model fallback and same-model provider failover are distinct controls.
+# No provider pin, reasoning effort, pricing or budget is inferred here.
+# Task #19 must validate credentials, budget and endpoint capabilities first.
+
+[llm.structured_output]
+response_format = "json_schema"
+strict = true
+require_parameters = true
+local_validation_required = true

@@ -26,7 +26,6 @@ jobs:
     timeout-minutes: 15
     env:
       UV_PYTHON: "3.13.5"
-      PAPER_RADAR_RUNTIME_SHA: "5049a97b5e47d64a27f9221dade63dd688e13604"
       PAPER_RADAR_OPENROUTER_API_KEY: ${{ secrets.PAPER_RADAR_OPENROUTER_API_KEY }}
       PAPER_RADAR_SMTP_HOST: ${{ secrets.PAPER_RADAR_SMTP_HOST }}
       PAPER_RADAR_SMTP_PORT: ${{ secrets.PAPER_RADAR_SMTP_PORT }}
@@ -68,7 +67,6 @@ jobs:
 
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: ${{ env.PAPER_RADAR_RUNTIME_SHA }}
           persist-credentials: false
 
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4

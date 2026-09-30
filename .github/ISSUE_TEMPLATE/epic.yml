@@ -1,18 +1,33 @@
 name: Epic
-description: 繁體中文導讀與可追溯正式契約
+description: "共同交付成果與整體驗收，不建立永久領域工作單"
 labels: ["type:epic"]
 body:
   - type: textarea
     id: human
     attributes:
       label: 白話說明
-      description: 問題、原因、成果與不代表什麼。
+      description: "這批需求要一起完成什麼？為何需要共同追蹤？"
     validations:
       required: true
   - type: textarea
     id: contract
     attributes:
-      label: Formal Contract
-      description: Authority、parent、scope、AC 連結、inputs/outputs、依賴、writer、writable/frozen、GWT 與停止點；Task Subtask 留在本卡。
+      label: Formal Contract／正式依據與工作內容
+      description: 只填本次必要內容；不要貼上秘密或複製另一份現行規格。
+      value: |
+        交付協調責任：<角色；目前指派與進度只讀指定欄位>
+        涉及領域：<實際 BC，可多個>
+
+        ## 整體成果
+        <整批完成後帶來的價值>
+        ## 範圍與不做事項
+        <只寫本次交付邊界，不重抄領域規則>
+        ## 相關需求與依賴
+        <引用真實 Stories，不複製其本文>
+        ## 整體驗收
+        <不是只數子工作單結案；如何驗證整體成果>
+        ## 正式依據與版本
+        <產品/領域/合作規格的適用 Git 版本>
+        未接受提案與研究留 comments；Epic 不接管長期 BC 規則。
     validations:
       required: true

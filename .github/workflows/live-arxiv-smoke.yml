@@ -29,5 +29,12 @@ jobs:
       - name: Install the locked development environment
         run: uv sync --locked
 
-      - name: Run bounded public arXiv smoke
+      - name: Verify bounded local arXiv deferral
+        run: >-
+          uv run --locked pytest -q
+          src/libs/research_workflow/tests/contract/test_resumable_harvest.py
+          -k 'local_provider_defer_waits_without_durable_failed_capture or
+          long_provider_defer_remains_durable_retry_not_local_sleep'
+
+      - name: Run bounded public arXiv freshness smoke
         run: make mvp-live-arxiv

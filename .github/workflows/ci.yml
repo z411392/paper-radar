@@ -1,0 +1,44 @@
+name: Offline engineering checks
+on:
+  push:
+    branches: [main, 'codex/**', 'consolidate/**']
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  checks:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            python: '3.12'
+          - os: ubuntu-latest
+            python: '3.13.5'
+          - os: macos-latest
+            python: '3.13.5'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    env:
+      UV_PYTHON: ${{ matrix.python }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: 0.10.0
+          enable-cache: false
+      - name: Install the locked development environment
+        run: uv sync --locked
+      - name: Verify the implemented engineering scope
+        run: make ci-fast
+      - name: Show formatting differences on failure
+        if: failure()
+        run: uv run --locked --offline ruff format --diff src
+      - name: Confirm validation did not rewrite tracked files
+        if: always()
+        run: git diff --exit-code

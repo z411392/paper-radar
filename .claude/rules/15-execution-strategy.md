@@ -2,6 +2,21 @@
 
 依 Kaledoxa `6862a93f1a1cc133a5dedfa25ec414b460f3b4ed` 現行 Rule 15 移植。這是 Paper Radar 的唯一 execution routing authority；模型名稱是沿用的派工設定，不是本次對模型可用性作出的查證。不得默默換 provider／model／effort。
 
+<a id="temporary-direct-implementation"></a>
+## 2026-09-22 暫行直接實作
+
+使用者在 [Epic #1](https://github.com/z411392/paper-radar/issues/1#issuecomment-5774317170) 明示暫由本對話實作。此節在明確範圍內優先於下方預設 runtime 矩陣；不是永久撤除 Kaledoxa 的角色治理。
+
+本對話可以在既有產品範圍內整理必要 Task-local 技術契約、實作、以 uv 執行隔離測試、建立候選分支／Subtask commits／PR，以及維護 Issues。Git writer 與批次協調暫由本對話負責，不冒稱 Antigravity Commander 或 Codex agent 已啟動。
+
+若尚無獨立設計 runtime，必要的工程測試由本對話先明列正反結果並保留 RED，再進行實作；這些是作者制定的測試，不標為獨立 Architect frozen receipt。現有 Story AC、產品規則、已凍結外部 oracle 不因本例外而放寬。後續調整測試須說明是修正缺陷或排版，不得修改期待結果換綠燈。
+
+自測與 CI 通過只允許交付候選，不構成 independent ACCEPT。未取得另一位實際隔離且非作者的 Reviewer exact-candidate 收據前，不合流 main、不關閉 Task、不標 Project Done。S1／S2 的已實作和自測證據與待驗收分開記錄。技術依賴仍可使用已明示為未驗收的候選，不冒充已接受基線。
+
+不取得付費模型、真來源、模型下載、真實郵件、正式資料變更、部署或永久刪除歷史的額外授權。Project 的寫入需要實際工具／權限與 readback；Issue 操作不代表 Project 欄位已同步。既有 roster 留 UNBOUND，不填造 runtime IDs。
+
+本輪第一批為 Task #6 的 S1／S2 工程基礎，S3 實際初始化仍需要 #7 的公開契約與儲存實作。收束到已測、已推送的候選分支／PR即可結束本批；這不是整張 Task 或 Roadmap 已完成。使用者收回暫行委派或實際綁定獨立 runtime 時，後續派工回到下方預設拓撲。
+
 <a id="execution-topology-and-dispatch"></a>
 ## 執行拓撲與控制面
 
@@ -18,7 +33,7 @@
 
 不採每 BC 一個 Architect／Reviewer，也不採一個全能 agent 兼 Design→Implement→Accept。真正獨立產品可有自己的角色 sessions；禁止把 Kaledoxa 既有 session IDs 複製進本產品。`.agents/roster.json` 是 noncanonical projection，task IDs 未建立時用 null，不能偽造 ID 或宣稱 agent 已啟動。
 
-BC 隔離靠每次完整 fresh Task Pack。共享角色以序列或實際可隔離的 runtime 使用；Implementers 可以按 owner 拆開，不能同時寫相同檔案。優先重用本產品既有適任 named task。只有角色衝突、review isolation、context 污染、session 失效、安全隔離或真正不同產品才新建，不因不同 BC 新建 Astra 角色。
+BC 隔離靠當次 Task 的版本化引用、Affected BCs 與按需展開。共享角色以序列或實際可隔離的 runtime 使用；Implementers 可以按 owner 拆開，不能同時寫相同檔案。優先重用本產品既有適任 named task。只有角色衝突、review isolation、context 污染、session 失效、安全隔離或真正不同產品才新建，不因不同 BC 新建 Astra 角色。
 
 ## Effort
 
@@ -26,40 +41,13 @@ Medium 是 analysis、普通 design／review／schema 審查的預設。High 必
 
 禁止 Low、xhigh、max、ultra。Commander 決定 escalation，worker 不自行升級。真實 runtime 不支援指定模型時，回報路由缺件，不以替代模型假裝相同收據。
 
-## Fresh Task Pack 必填
+## Task 本文與最小派工信封
 
-```text
-ROLE:
-ASTRA_EFFORT: MEDIUM | HIGH
-ESCALATION_REASON:
-CURRENT_TASK:
-CURRENT_SUBTASK:
-CURRENT_BC:
-current_main_sha:
-candidate_sha:
-branch:
-cwd:
-AUTHORITIES:
-SC_AND_AC:
-ROADMAP_PHASE_AND_EXIT:
-ROADMAP_EFFECT:
-INPUTS:
-OUTPUTS:
-WRITABLE:
-READ_ONLY_DEPENDENCIES:
-FROZEN:
-POSITIVE_ORACLES:
-NEGATIVE_ORACLES:
-REQUIRED_READSET:
-REQUIRED_COMMANDS:
-GIT_WRITER:
-INTEGRATION_OWNER:
-SIDE_EFFECT_AUTHORITY:
-ROLE_BOUNDARY:
-ROUTE_RETURN_CONDITION:
-```
+依 Rule80，Task 本文是施工資訊唯一維護處，不另存內容相同的完整 Task Pack。信封只引用 Task URL、適用規格版本/body checksum、程式 base/candidate、角色/effort、branch/cwd、必要操作授權及返回條件。缺件補 owning Task，不維護兩份各自演化的內容。
 
-Persistent context 只能作背景，不取代最新 authority。當前 seed Task 是派工前契約，不包含真實 branch/cwd/candidate 或 route receipt；Commander dispatch 前必須補實際值。
+Task 需能找到成果、正式依據、修改範圍、Affected BCs、步驟、失敗處理、檢查與停止條件。獨立小 Task 可無 Parent Story；只展開必要契約、使用方和測試，安全仍必讀。hash 識別版本，不證明核可。
+
+修改本文前 fresh-read 與版本比對；單一 writer 序列更新後讀回。沒有跨工具原子更新保證時明示限制。新規範不沿用舊核可，今天的 Issue 不覆蓋舊分支適用規格。
 
 <a id="task-local-readiness"></a>
 ## Task-local readiness
@@ -89,7 +77,7 @@ leaf queue 為空須重讀 Roadmap、OPEN Epic／Story、PO handoff 和 main；�
 
 真正外部 blocker 必須有 exact scope、dependency、為何本機無法解決、owner 與 clear condition；局部阻塞不凍結全案。若 runtime 無法取得 route completion，明示 LOCAL_RUNTIME_CONTINUATION_UNAVAILABLE，不能虛構稍後會自動喚醒。
 
-本次授權僅規劃與建庫；規劃包完成不自動授權整條產品 backlog 實作，未來由 Commander 依當次 PO scope 接續。
+先前規劃／建庫批次的授權不自動等於整條 backlog 完成；後續逐批開發依最新 PO 授權與本檔暫行直接實作條款執行。
 
 <a id="project-status-synchronization"></a>
 ## GitHub Project Status
