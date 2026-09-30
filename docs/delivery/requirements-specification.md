@@ -4,7 +4,7 @@
 
 本文件為本產品的共通規則 owner。最新使用者明示裁決在被取代範圍內優先；本文件／Story spec 為本次規劃基線，不代表使用者逐項核准所有可調預設，也不代表架構 freeze 或產品 ACCEPT。
 
-2026-09-22 明示：偵測新論文、白話解說、推送、關注領域可增減；本機檔案系統＋FAISS＋SQLite；文件、治理與 agents 分工跟 Kaledoxa 一致；本次可整理規格及建 GitHub repo／Project／工作分解。保留獨立產品，不修改 Kaledoxa。
+2026-09-22 的早期規劃曾包含本機檔案系統、FAISS、SQLite 與較廣的研究管理能力。\n\n2026-09-30 最新明示裁決取代上述產品範圍：Paper Radar 是 GitHub Actions 排程的論文 Email bot。產品只需要定時抓新論文、篩選／去重、用 OpenRouter 產生繁中翻譯與白話整理、建立 daily digest 並以 SMTP 寄送；只保存完成這條流程所需的最小 durable state。FAISS／檢索、閱讀後台、閱讀歷史／收藏／回饋、localhost HTTP／RSS、修訂更正通知、產品化 backup/restore、health dashboard、本機 launchd 正式部署均不屬於產品 backlog。
 
 2026-09-23 補充裁決：產品 LLM 使用 OpenRouter 的 Gemini 3.8 Flash。具體選型歸 R10／D01，決策與查證紀錄見 [Story #17](https://github.com/z411392/paper-radar/issues/17#issuecomment-5782002995)。這不改變工程 agents 的分工，也不代表 embedding 模型已決定或已授權執行付費推論。
 
@@ -13,11 +13,11 @@
 ## 共通規則
 
 <a id="r01"></a>
-### R01 — 本機與儲存
+### R01 — GitHub Actions 與最小 durable state
 
-單一讀者、本機執行；SQLite 保存狀態及關聯，檔案保存允許留存的原文／證據／原始向量，FAISS 是可重建的索引。沒有 PostgreSQL、pgvector、Redis、Kafka 或雲端物件庫前置。
+正式部署是 GitHub Actions scheduled workflow。SQLite／artifact 只用來保存來源 checkpoint、去重 identity、模型結果、digest/outbox 與通知狀態，使下一次 ephemeral runner 能安全續跑；它不是使用者研究資料庫。不得要求 FAISS、向量庫、後台服務或本機 daemon 才能完成正式每日寄送。
 
-共通驗收：重啟讀到相同設定與論文；刪除衍生 index 不遺失書目或原始向量；缺少原始物件明示完整性錯誤。
+共通驗收：正常重跑不重抓／重寄；durable artifact 遺失時 fail closed；secrets 不寫入 artifact。
 
 <a id="r02"></a>
 ### R02 — 可增減的關注範圍
@@ -85,11 +85,9 @@ Work／Manifestation／Revision 分層。確定識別碼與可信明示關係優
 共通驗收：舊請求晚回不得發布為 current；額度不足保存 budget_blocked；不靜默換模型或追加付費。回傳 JSON、來源與數字驗證不能因已選模型而跳過。記錄 gateway、requested/returned model、實際 provider（可得時）、參數版本及用量；model slug 不當成 immutable weights 或輸出逐位可重現的證據。
 
 <a id="r11"></a>
-### R11 — 檢索與向量
+### R11 — Out of scope：檢索與向量
 
-SQLite FTS5 與 FAISS 按明示模式運作；同一 embedding space 的模型版本、dimension、normalization、query/document prefix 固定。FAISS 只輸出穩定 embedding IDs，回查 SQLite 做資格過濾。
-
-共通驗收：索引丟失可由原始向量重建；space 不符拒絕；已刪除／過期投影不出現在有效結果；degraded 模式需明示。
+FTS、FAISS、embedding search、hybrid retrieval、搜尋 UI 不屬於 Paper Radar Email bot 的產品需求。既有歷史規格／migration 可保留相容性，但不得作為 release exit、active backlog 或 daily pipeline 前置。
 
 <a id="r12"></a>
 ### R12 — 每日精選與推送
@@ -99,25 +97,21 @@ email 為第一通道；固定 digest snapshot 與 transactional outbox。通知
 共通驗收：相同事件重播不增加 request；SMTP 可能已接受而本端逾時時保留 delivery_unknown，不無條件重送。
 
 <a id="r13"></a>
-### R13 — 取消與更正
+### R13 — Out of scope：修訂／更正通知產品
 
-停用設定、來源更正／撤稿、摘要失效在寄送前重查；更正通知可越過一般新文免費 gate，通知先前接收者。已寄版本不事後改寫。
-
-共通驗收：取消後的 queued digest 不發送；更正能指出原訊息與受影響研究；不把更正誤記為新論文。
+正式產品只寄「新論文」daily digest。revision/correction/retraction 可留作內部 catalog metadata 或既有相容性，但不要求主動寄送更正通知，也不作 release exit。
 
 <a id="r14"></a>
-### R14 — 本機排程與中斷
+### R14 — GitHub Actions 排程
 
-第一版長駐入口為 apps/cli 的 run-worker 子命令，呼叫 libs 用例；不是額外 BC 或 AI agent。排程與工作執行共一程序，持久 jobs 可續跑。
+正式長期入口為 `.github/workflows/daily-paper-radar.yml`。workflow 由 GitHub Actions schedule 啟動，恢復 durable workspace，跑 bounded worker window，最後無論成功失敗都嘗試保存最新 workspace。CLI `run-worker` 是 workflow 的執行入口及本機開發／診斷工具，不是要交付給使用者的本機常駐產品。
 
-共通驗收：睡眠／關機期間不承諾執行；甦醒有界 catch-up，不連寄多天舊摘要；失去 lease 的舊程序不可提交。
+共通驗收：schedule 重跑安全；runner 重建後可續跑；工作失敗使 Actions 明確失敗而不是偽裝成零篇論文。
 
 <a id="r15"></a>
-### R15 — 備份與恢復
+### R15 — Out of scope：使用者 backup / restore 產品
 
-一致 SQLite snapshot＋它引用的 immutable objects 才是可還原資料。FAISS 與 exports 可重建；原始向量不可只存 index。恢復到新 workspace，預設停用外部副作用。
-
-共通驗收：恢復較舊備份可能缺少已寄紀錄，必須先 reconcile 再啟用寄送；不能聲稱舊備份本身能保證全歷史不重寄。
+不提供獨立 backup/restore UI、CLI 產品或搬移研究資料庫的產品承諾。正式排程只需要 GitHub Actions artifact 的最小 durable state 恢復契約；artifact 缺失時 fail closed，是否人工 reset 由 workflow_dispatch 明示處理。
 
 <a id="r16"></a>
 ### R16 — 安全與隱私
@@ -127,18 +121,14 @@ email 為第一通道；固定 digest snapshot 與 transactional outbox。通知
 共通驗收：惡意摘要無法讀密鑰或更換收件者；log 不含 secrets／完整私人註記；GET 不修改閱讀偏好。
 
 <a id="r17"></a>
-### R17 — 健康與品質
+### R17 — 最小可觀測性
 
-健康檢查顯示來源最後成功、最老 job、coverage、QA 拒絕、token 花費、index freshness 和 unknown delivery。結果數為零與失敗分開。
-
-共通驗收：固定回放與跨五領域標註樣本分帳；deterministic PASS、live capability、data-backed consumer、independent ACCEPT 分開。
+不做 health/cost dashboard。GitHub Actions run 本身是主要操作介面；失敗必須紅燈，log/step summary 能看出 source/model/mail 哪一段失敗，並能讀 durable delivery status。模型仍保留月費 budget gate，避免失控付費。
 
 <a id="r18"></a>
-### R18 — 閱讀與回饋
+### R18 — Out of scope：閱讀後台與回饋
 
-第一版可讀 email／Markdown export；後續 localhost HTTP 提供歷史、搜尋、收藏、偏好及來源健康；RSS／額外來源為後续切片。
-
-共通驗收：回饋只改推薦，不改研究事實；重開可讀相同 evidence；外部郵件不放手機無法使用的 localhost 控制連結。
+localhost HTTP、RSS 閱讀產品、搜尋、收藏、閱讀歷史、reader feedback 均不屬於目前產品。Email 是正式使用者介面。
 
 ## 可調整的初始預設
 
@@ -151,10 +141,10 @@ email 為第一通道；固定 digest snapshot 與 transactional outbox。通知
 D01（模型選型已決定）：2026-09-23 PO 選用 OpenRouter／`google/gemini-3.8-flash`，產品 LLM 不要求本地推論。模型選型不再是待決事項；憑證、推論参数、預算、實際 endpoint capability 和受控 live commissioning 留在 #19／#20／#50，不冒作已通過。Embedding model 仍另行配置。
 D02：寄件服務與指定收件者。由 PO 在 S05 controlled delivery 前指定；不影響 outbox 與 preview。
 D03：每日閱讀量與費用上限。提案值可改；發信／付費前確認，不自動帶入前報告的舊模型價格。
-D04：後續 HTTP/RSS 是否納入首個正式 release。S10 先列後續產品工作，不作第一封 email 的前置。
+D04：HTTP/RSS 已依 2026-09-30 產品裁決移出 scope，不再是待決事項。
 
 工程缺件、adapter 實測、runtime session 尚未建立，留在 owning Task，不把它們偽裝成未決產品需求。
 
 ## 非目標
 
-不做全學術宇宙完整收錄承諾、不驗證研究結論必然正確、不公開鏡像 PDF、不做多租戶 SaaS／社群收集／GraphRAG、不自動發文或投資建議，不先建立跨產品共用平台。未來擴充需走相同 authority 和影響檢查。
+不做全學術宇宙完整收錄承諾、不驗證研究結論必然正確、不公開鏡像 PDF、不做多租戶 SaaS／社群收集／GraphRAG、不自動發文或投資建議，不先建立跨產品共用平台。也不做 FAISS／全文搜尋、閱讀後台、收藏回饋、localhost HTTP/RSS、修訂更正通知、使用者 backup/restore 或 health dashboard。未來擴充原則上只接受能直接改善「找到哪些新論文、如何篩選、如何翻譯整理、如何可靠寄信」的能力。
