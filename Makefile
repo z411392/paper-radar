@@ -24,6 +24,7 @@ test:
 		src/apps/cli/tests/acceptance/test_mvp_arxiv_profile.py \
 		src/libs/research_workflow/tests/contract/test_resumable_harvest.py \
 		src/libs/research_workflow/tests/unit/test_project_source_catalog_unit.py \
+		src/libs/paper_explanations/tests/contract/test_t12_grounded_explanations.py \
 		src/libs/delivery/tests/integration/test_scheduled_digest_pipeline.py \
 		src/libs/delivery/tests/unit/test_digest_preview.py \
 		-m 'not live_external' \
