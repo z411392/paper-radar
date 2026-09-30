@@ -1,10 +1,6 @@
 name: Daily Paper Radar
 
 on:
-  push:
-    branches: [codex/mvp-paper-email-e2e]
-    paths:
-      - ".github/workflows/daily-paper-radar.yml"
   schedule:
     - cron: "17 8 * * *"
       timezone: "Asia/Taipei"
