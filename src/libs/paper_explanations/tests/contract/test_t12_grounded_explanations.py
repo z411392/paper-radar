@@ -87,8 +87,12 @@ def test_deterministic_accepts_role_unit_number_preserving_card():
     assert report.verdict == "passed" and report.findings == ()
 
 
-def test_swapped_proposed_and_baseline_is_rejected_even_when_all_numbers_exist():
-    draft, claims = fixture("新方法誤差為 0.58 m，基準為 0.42 m。")
+def test_same_language_swapped_proposed_and_baseline_is_rejected():
+    quote = "新方法誤差為 0.42 m，基準為 0.58 m。"
+    draft, claims = fixture(
+        "新方法誤差為 0.58 m，基準為 0.42 m。",
+        quote=quote,
+    )
     report = ExplanationVerificationRules.deterministic(draft, claims)
     assert report.verdict == "rejected"
     assert "role_value_mismatch" in {finding.code for finding in report.findings}
