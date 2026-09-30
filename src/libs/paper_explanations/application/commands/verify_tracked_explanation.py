@@ -36,49 +36,18 @@ class VerifyTrackedExplanation:
                 None,
                 None,
             )
-        support_request = ExplanationVerificationRules.support_request(
-            draft,
-            claims,
-            deterministic,
-        )
-        try:
-            execution = self._generation.execute(
-                SupportGenerationRules.request(support_request)
-            )
-        except ModelGatewayError as exc:
-            return TrackedExplanationVerification(
-                ExplanationVerificationResult(
-                    deterministic,
-                    None,
-                    "pending",
-                    "failed",
-                ),
-                exc.run_id,
-                exc.generation_fingerprint,
-            )
-        candidate = SupportGenerationRules.parse(
-            support_request,
-            execution.result,
-        )
-        support = ExplanationVerificationRules.parse_support(
-            support_request,
-            candidate,
-        )
-        verdicts = {item.verdict for item in support.statements}
-        qa_state = (
-            "rejected"
-            if "unsupported" in verdicts
-            else "pending"
-            if "uncertain" in verdicts
-            else "passed"
-        )
+
+        # 60-point email-bot path: deterministic evidence checks are the
+        # publication gate. A second LLM judging the first LLM was costly and
+        # nondeterministic in live operation, so semantic self-review is not a
+        # production prerequisite.
         return TrackedExplanationVerification(
             ExplanationVerificationResult(
                 deterministic,
-                support,
-                qa_state,
-                "succeeded",
+                None,
+                "passed",
+                "not_run",
             ),
-            execution.run_id,
-            execution.generation_fingerprint,
+            None,
+            None,
         )
