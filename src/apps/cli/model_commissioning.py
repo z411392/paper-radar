@@ -13,7 +13,7 @@ from libs.paper_explanations.dtos.structured_generation_request import MODEL_NAM
 OPENROUTER_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
 
 COMMISSIONED_OPENROUTER_POLICY = OpenRouterPolicy(
-    4096,
+    8192,
     "1",
     "5",
     enabled=True,
@@ -70,7 +70,7 @@ def commissioned_openrouter_reservation_micros() -> int:
     return result
 
 
-COMMISSIONED_DOMAIN_INDEPENDENT_MODEL_CALLS = 3
+COMMISSIONED_DOMAIN_INDEPENDENT_MODEL_CALLS = 2
 
 
 def commissioned_verified_summary_reservation_micros(
