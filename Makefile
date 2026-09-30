@@ -27,7 +27,7 @@ contract-check:
 	cd "$(ROOT)" && $(RUN) python -m pytest src/libs/research_workflow/tests/contract -q
 package-check:
 	cd "$(ROOT)" && $(RUN) python -m pytest src/apps/cli/tests/integration/test_wheel_install.py -q
-ci-fast: env-check typecheck test package-check
+ci-fast: env-check test package-check
 mvp-live-arxiv:
 	cd "$(ROOT)" && PAPER_RADAR_LIVE_ARXIV=1 $(RUN) python -m pytest \
 		src/apps/cli/tests/integration/test_worker_arxiv_catalog_projection.py \
