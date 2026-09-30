@@ -137,9 +137,8 @@ replay 確認不會重寄。probe 與 worker 共用 production arXiv rate-limit 
 
 每次手動 run 先做 1 次 bounded OpenRouter structured-generation smoke；只有這個
 provider boundary PASS 才繼續完整 MVP job。完整路徑使用 canonical `machine_learning`
-domain，再執行 4 次 real model-backed stage（claims、relevance、reading card、support
-verification），最後只寄一封 digest smoke。因此一次成功的手動 run 最多 5 次 real
-OpenRouter request；第一個 provider smoke 失敗時不會繼續燒後續 4 次或寄信。
+domain，再執行 3 次 real model-backed stage（claims、relevance、reading card），最後只寄一封 digest smoke。因此一次成功的手動 run 最多 4 次 real
+OpenRouter request；第一個 provider smoke 失敗時不會繼續燒後續 3 次或寄信。
 
 full-live stage 使用 $2 的 test budget admission。這是會產生實際 OpenRouter 費用與真實
 email 的 `live_external` 驗證；只需要執行一次 `Live MVP paper email smoke`，不需要先
@@ -250,11 +249,11 @@ file，且 group/other 不可讀寫。
 模型預算只需要設定 `PAPER_RADAR_MODEL_MONTHLY_BUDGET_USD`。單次 request 的 budget
 reservation 由固定 OpenRouter request/token/price policy 自動推導，不是使用者設定。
 一篇 paper 的保守 admission 是 1 次 claims、每個 selected domain 各 1 次 relevance、1 次
-reading card、1 次 support verification，也就是 `selected_domains + 3` 次 request。
+reading card，也就是 `selected_domains + 2` 次 request。
 domain-independent 的 claims／reading card／support verification 會走 durable generation cache，
 不會因同一 paper 跨 domain 重複付費。
 
-canonical 四-domain profile 因此最多需要 7 次 reservation，現在合計約 `$1.978368`；
+canonical 四-domain profile 因此最多需要 6 次 reservation，現在合計約 `$1.818624`；
 月預算低於依所選 domain 數動態計算的門檻時，worker 會在啟動時直接拒絕。
 canonical example 使用 `$2.00/月`，至少能保守 admission 一篇 paper 完成四個 domain 的
 relevance coverage 與 verified summary。
