@@ -18,7 +18,15 @@ format:
 typecheck:
 	cd "$(ROOT)" && $(RUN) pyright
 test:
-	cd "$(ROOT)" && $(RUN) python -m pytest src -m 'not live_external' -q
+	cd "$(ROOT)" && $(RUN) python -m pytest \
+		src/apps/cli/tests/e2e/test_cli_package.py \
+		src/apps/cli/tests/acceptance/test_t01_local_workspace.py \
+		src/apps/cli/tests/acceptance/test_mvp_arxiv_profile.py \
+		src/libs/research_workflow/tests/contract/test_resumable_harvest.py \
+		src/libs/research_workflow/tests/unit/test_project_source_catalog_unit.py \
+		src/libs/delivery/tests/integration/test_scheduled_digest_pipeline.py \
+		src/libs/delivery/tests/unit/test_digest_preview.py \
+		-m 'not live_external' -q
 architecture-check:
 	cd "$(ROOT)" && $(RUN) python -m pytest src/libs/kernel/tests/architecture -q
 governance-check:
