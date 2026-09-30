@@ -1572,7 +1572,10 @@ def _discover_recent_live_arxiv_target(
         second=0,
         microsecond=0,
     )
-    window_start = window_end - timedelta(days=7)
+    # Match the production arXiv scheduler's 24-hour harvest interval.
+    # Keep a small safety margin so the target remains inside the worker
+    # window after the probe's rate-limit wait and setup time.
+    window_start = window_end - timedelta(hours=23)
     compiler = ArxivQueryCompilerAdapter()
     query = SourceQueryInput(
         source_id="arxiv",
@@ -1628,7 +1631,7 @@ def _discover_recent_live_arxiv_target(
             and '"' not in title
             and "\\" not in title
             and len(title.encode("utf-8")) <= 512
-            and timedelta(0) <= age <= timedelta(days=14)
+            and timedelta(0) <= age <= timedelta(hours=23)
         ):
             # The production arXiv query uses submittedDate, so the worker
             # harvest window must be anchored to the initial submission time.
@@ -2036,10 +2039,7 @@ def test_live_arxiv_openrouter_gmail_e2e(tmp_path: Path) -> None:
         ).fetchone()
         assert paper is not None
         assert paper["title"] == target_title
-        assert paper["event_kind"] in {
-            "new_work",
-            "revision_available",
-        }
+        assert paper["event_kind"] == "new_work"
         observed_at = datetime.fromisoformat(paper["observed_at"])
 
         runs = connection.execute(
