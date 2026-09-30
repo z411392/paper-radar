@@ -2,7 +2,9 @@
 
 本機論文雷達。正式產品需求、架構與交付入口見 [docs/README.md](docs/README.md)；開發者先讀 [CLAUDE.md](CLAUDE.md)。
 
-目前 60 分 MVP 已具備可執行的本機工作區、arXiv 採集、canonical paper/evidence 投影、OpenRouter 繁體中文解說、daily digest、SMTP Email 與 durable worker 主線。main 是可執行 source of truth；正式排程直接執行 main 的 workflow event SHA，不再依賴 detached runtime pin。\n\n本輪刻意不把 FAISS／hybrid retrieval、完整五領域覆蓋、reading feedback、backup/restore 產品化、health dashboard、localhost HTTP/RSS 當作可用 MVP 的前置條件；這些保留為後續工作，不阻擋每天找新論文、生成解說與寄送。
+目前 60 分 MVP 已具備可執行的本機工作區、arXiv 採集、canonical paper/evidence 投影、OpenRouter 繁體中文解說、daily digest、SMTP Email 與 durable worker 主線。main 是可執行 source of truth；正式排程直接執行 main 的 workflow event SHA，不再依賴 detached runtime pin。
+
+本輪刻意不把 FAISS／hybrid retrieval、完整五領域覆蓋、reading feedback、backup/restore 產品化、health dashboard、localhost HTTP/RSS 當作可用 MVP 的前置條件；這些保留為後續工作，不阻擋每天找新論文、生成解說與寄送。
 
 ## 入口
 
