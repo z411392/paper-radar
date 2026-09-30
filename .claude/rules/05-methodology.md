@@ -8,7 +8,7 @@
 
 Analysis 確認差距及直接證據；Plan 確認可觀察成果和依賴；Design 固定契約與外部 oracle；Implement 只改明示 writable；Verify 保存實際 deterministic 證據；Accept 由獨立 Reviewer；Integration 由 Commander。這些不是更多層級的 Agile issues。
 
-完整 dispatch 寫在當次 Task issue，包含人類可理解目的、真實 Task／Subtask ID、parent Story、Roadmap effect、完整 required readset、base/candidate SHA、branch/cwd、inputs、outputs、writable/frozen、正反 oracle、實際命令、預期結果、writer/integration owner、權限與停止點。
+完整 dispatch 寫在當次 Task issue，包含人類可理解目的、真實 Task／Subtask ID、必要時的 parent Story、適用成果、必要 required readset、base/candidate SHA、branch/cwd、inputs、outputs、writable/frozen、正反 oracle、實際命令、預期結果、writer/integration owner、權限與停止點。
 
 缺件只停止受影響範圍，回報 exact blocker、owner、clear condition；不要用「全案還沒設計」代替局部推理。規格已足夠時，不重複派設計增加成本。worker 停止代表本次 route 返回，不代表 Commander 整批結束，接續依 Rule 15。
 

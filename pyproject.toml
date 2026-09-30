@@ -1,11 +1,75 @@
+[build-system]
+requires = ["hatchling==1.27.0"]
+build-backend = "hatchling.build"
+
 [project]
 name = "paper-radar"
 version = "0.1.0"
-description = "Local paper radar planning and provisioning baseline"
-requires-python = ">=3.12, <3.14"
-dependencies = []
+description = "Local-first research paper discovery and grounded reading"
+requires-python = ">=3.12,<3.14"
+dependencies = ["fire==0.7.0", "injector==0.22.0"]
+
+[dependency-groups]
+dev = [
+    "hatchling==1.27.0",
+    "pytest>=8.3,<9",
+    "pyright>=1.1.400,<2",
+    "ruff>=0.9,<1",
+]
 
 [tool.uv]
-# Planning stage: no product package exists yet. T01 will define the build
-# backend and src/apps + src/libs package installation when code is introduced.
-package = false
+package = true
+cache-keys = [{ file = "pyproject.toml" }, { file = "config/domain-seeds.json" }, { file = "migrations/0001-object-registry.sql" }, { file = "migrations/0002-watch-profiles.sql" }, { file = "migrations/0003-scholarly-catalog.sql" }, { file = "migrations/0004-discovery.sql" }, { file = "migrations/0005-paper-explanations.sql" }, { file = "migrations/0006-retrieval.sql" }, { file = "migrations/0007-delivery.sql" }, { file = "migrations/0008-workflow-jobs.sql" }, { file = "migrations/0009-relevance-assessment-domains.sql" }, { file = "migrations/0010-pubmed-harvest.sql" }, { file = "migrations/0011-crossref-harvest.sql" }, { file = "migrations/0012-crossref-repair.sql" }, { file = "migrations/0013-crossref-window-splits.sql" }, { file = "migrations/0014-crossref-capture-claims.sql" }, { file = "migrations/0015-crossref-capture-inbox.sql" }, { file = "migrations/0016-crossref-capture-resolutions.sql" }, { file = "migrations/0017-crossref-capture-recoveries.sql" }, { file = "migrations/0018-crossref-provider-revisions.sql" }, { file = "migrations/0019-crossref-projection-quarantines.sql" }, { file = "migrations/0020-crossref-relation-assertions.sql" }, { file = "migrations/0021-crossref-integrity-assertions.sql" }, { file = "migrations/0022-crossref-integrity-work-bindings.sql" }, { file = "migrations/0023-delivery-digest-rebuilds.sql" }, { file = "migrations/0024-source-catalog-projection.sql" }]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/apps", "src/libs"]
+exclude = ["**/tests/**", "**/__pycache__/**"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"migrations/0001-object-registry.sql" = "libs/kernel/resources/migrations/0001-object-registry.sql"
+"migrations/0002-watch-profiles.sql" = "libs/kernel/resources/migrations/0002-watch-profiles.sql"
+"migrations/0003-scholarly-catalog.sql" = "libs/kernel/resources/migrations/0003-scholarly-catalog.sql"
+"migrations/0004-discovery.sql" = "libs/kernel/resources/migrations/0004-discovery.sql"
+"migrations/0005-paper-explanations.sql" = "libs/kernel/resources/migrations/0005-paper-explanations.sql"
+"migrations/0006-retrieval.sql" = "libs/kernel/resources/migrations/0006-retrieval.sql"
+"migrations/0007-delivery.sql" = "libs/kernel/resources/migrations/0007-delivery.sql"
+"migrations/0008-workflow-jobs.sql" = "libs/kernel/resources/migrations/0008-workflow-jobs.sql"
+"migrations/0009-relevance-assessment-domains.sql" = "libs/kernel/resources/migrations/0009-relevance-assessment-domains.sql"
+"migrations/0010-pubmed-harvest.sql" = "libs/kernel/resources/migrations/0010-pubmed-harvest.sql"
+"migrations/0011-crossref-harvest.sql" = "libs/kernel/resources/migrations/0011-crossref-harvest.sql"
+"migrations/0012-crossref-repair.sql" = "libs/kernel/resources/migrations/0012-crossref-repair.sql"
+"migrations/0013-crossref-window-splits.sql" = "libs/kernel/resources/migrations/0013-crossref-window-splits.sql"
+"migrations/0014-crossref-capture-claims.sql" = "libs/kernel/resources/migrations/0014-crossref-capture-claims.sql"
+"migrations/0015-crossref-capture-inbox.sql" = "libs/kernel/resources/migrations/0015-crossref-capture-inbox.sql"
+"migrations/0016-crossref-capture-resolutions.sql" = "libs/kernel/resources/migrations/0016-crossref-capture-resolutions.sql"
+"migrations/0017-crossref-capture-recoveries.sql" = "libs/kernel/resources/migrations/0017-crossref-capture-recoveries.sql"
+"migrations/0018-crossref-provider-revisions.sql" = "libs/kernel/resources/migrations/0018-crossref-provider-revisions.sql"
+"migrations/0019-crossref-projection-quarantines.sql" = "libs/kernel/resources/migrations/0019-crossref-projection-quarantines.sql"
+"migrations/0020-crossref-relation-assertions.sql" = "libs/kernel/resources/migrations/0020-crossref-relation-assertions.sql"
+"migrations/0021-crossref-integrity-assertions.sql" = "libs/kernel/resources/migrations/0021-crossref-integrity-assertions.sql"
+"migrations/0022-crossref-integrity-work-bindings.sql" = "libs/kernel/resources/migrations/0022-crossref-integrity-work-bindings.sql"
+"migrations/0023-delivery-digest-rebuilds.sql" = "libs/kernel/resources/migrations/0023-delivery-digest-rebuilds.sql"
+"migrations/0024-source-catalog-projection.sql" = "libs/kernel/resources/migrations/0024-source-catalog-projection.sql"
+"config/domain-seeds.json" = "apps/cli/resources/domain-seeds.json"
+
+[tool.hatch.build.targets.sdist]
+include = ["/src", "/migrations/0001-object-registry.sql", "/migrations/0002-watch-profiles.sql", "/migrations/0003-scholarly-catalog.sql", "/migrations/0004-discovery.sql", "/migrations/0005-paper-explanations.sql", "/migrations/0006-retrieval.sql", "/migrations/0007-delivery.sql", "/migrations/0008-workflow-jobs.sql", "/migrations/0009-relevance-assessment-domains.sql", "/migrations/0010-pubmed-harvest.sql", "/migrations/0011-crossref-harvest.sql", "/migrations/0012-crossref-repair.sql", "/migrations/0013-crossref-window-splits.sql", "/migrations/0014-crossref-capture-claims.sql", "/migrations/0015-crossref-capture-inbox.sql", "/migrations/0016-crossref-capture-resolutions.sql", "/migrations/0017-crossref-capture-recoveries.sql", "/migrations/0018-crossref-provider-revisions.sql", "/migrations/0019-crossref-projection-quarantines.sql", "/migrations/0020-crossref-relation-assertions.sql", "/migrations/0021-crossref-integrity-assertions.sql", "/migrations/0022-crossref-integrity-work-bindings.sql", "/migrations/0023-delivery-digest-rebuilds.sql", "/migrations/0024-source-catalog-projection.sql", "/config/domain-seeds.json", "/pyproject.toml", "/uv.lock", "/.python-version", "/README.md", "/Makefile"]
+
+[tool.pytest.ini_options]
+testpaths = ["src"]
+addopts = ["--import-mode=importlib", "--strict-markers", "--strict-config", "-ra"]
+markers = ["live_external: opt-in external source, model or email verification"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "ERA"]
+
+[tool.pyright]
+include = ["src"]
+exclude = ["src/**/tests", "**/__pycache__"]
+typeCheckingMode = "standard"
+pythonVersion = "3.12"

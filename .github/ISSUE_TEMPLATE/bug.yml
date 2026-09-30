@@ -1,18 +1,36 @@
 name: Bug
-description: 繁體中文導讀與可追溯正式契約
+description: "沿用既有缺陷類型，以有界 Task 要求修正"
 labels: ["type:bug"]
 body:
   - type: textarea
     id: human
     attributes:
       label: 白話說明
-      description: 問題、原因、成果與不代表什麼。
+      description: "錯在哪裡、影響誰？不要附上金鑰或私人資料。"
     validations:
       required: true
   - type: textarea
     id: contract
     attributes:
-      label: Formal Contract
-      description: Authority、parent、scope、AC 連結、inputs/outputs、依賴、writer、writable/frozen、GWT 與停止點；Task Subtask 留在本卡。
+      label: Formal Contract／正式依據與工作內容
+      description: 只填本次必要內容；不要貼上秘密或複製另一份現行規格。
+      value: |
+        關聯需求：<獨立修正不強制補造 Story>
+        目標版本：<出錯程式及適用規格版本>
+        指派來源：<目前指派與進度只讀指定欄位>
+
+        ## 預期與實際
+        <規格要求與觀察行為分開；引用正式版本>
+        ## 重現步驟
+        <安全的合成輸入、步驟與可驗證結果>
+        ## 修改範圍與使用方
+        <允許/保持不變/禁止修改，直接與必要間接影響>
+        ## 驗證與失敗處理
+        正常結果：<修正後應成功的行為>
+        反例結果：<固定重現缺陷且不得放寬既有期待>
+        未驗證事項：<未跑的檢查與原因>
+        ## 完成與升級處理
+        <必要審查與整合；需求或公開介面修改另經接受>
+        未接受提案、研究、失敗與修正追加 comments；沿用 type:bug，不新增另一套流程。
     validations:
       required: true

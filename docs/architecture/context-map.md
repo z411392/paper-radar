@@ -47,29 +47,14 @@ research_workflow → delivery, discovery, watch_profiles,
 
 Root composition 在 apps/cli/module.py 注入 adapters。學術來源只用明示 source adapters；不借用 Kaledoxa browser session／私有資料。
 
-## 程式輪廓
+## 導航與供應方規格
 
-```text
-src/apps/cli/{__main__.py,entrypoints.py,module.py,adapters/driving,tests}
-src/libs/{watch_profiles,discovery,scholarly_catalog,paper_explanations,
-          delivery,retrieval,research_workflow,kernel}/
-  application/{commands,queries,policies}
-  domain/services
-  ports
-  dtos
-  adapters/driven
-  exceptions
-  tests/{unit,integration,contract,fixtures}
-```
-
-只建立已用到的目錄，無 `__init__.py`。CLI 的 run-worker 是長駐入口：clock lifecycle 在 app，due jobs／lease／補抓政策在 workflow。未設獨立 apps/worker。未來有真實 HTTP contract 才加入 apps/http；不為展示目錄先建立假 endpoint。
-
-Runtime objects／SQLite／vectors／index 與備份目錄唯一契約見 [data-model](../data-model.md)。技術資料模型和 migrations 有各 owner；不能用共用 DB 繞過邊界。
+程式/測試路徑由 [.context](../../.context/README.md) 維護，不在本圖保存目前 Task/PR 或每個函式。來源合作邊界見 [discovery](../domains/discovery.md)；其他 BC 沿用既有模型/儲存/正式介面，不按每個 lib 造 BC 文件。
 
 ## Agents 與工程 ownership
 
 角色拓撲唯一引用 [Rule15](../../.claude/rules/15-execution-strategy.md#execution-topology-and-dispatch)；本檔不複製模型矩陣。BC-local implementer 依 path ownership 組織；shared Architect／Reviewer 不因 BC 數量複製。並行時 migrations、composition、shared docs 必須指定唯一 writer 或序列合流。
 
-## 與前一版輪廓差異
+## 治理採用
 
-使用者的治理裁決取代先前 docs/product、docs/contexts、docs/operations 的方案。產品語言在 Event Storming；公開交接與 source navigation 在本檔；方案在 Story plan；操作規則在 Rule90／有界 Task。不另外保留平行總計畫。
+2026-09-23 依 Rule80 分階段採用。本圖保留模型/上下游/import邊界，程式導航與候選歷史不再追加。原 Task #6/#8/#10 的方案仍可從原 Git 版本、相應 Story plan 與 Issues 取回；不由舊圖上文字推論現況，未驗收內容不因搬移而升格。

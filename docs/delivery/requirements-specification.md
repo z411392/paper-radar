@@ -6,6 +6,8 @@
 
 2026-09-22 明示：偵測新論文、白話解說、推送、關注領域可增減；本機檔案系統＋FAISS＋SQLite；文件、治理與 agents 分工跟 Kaledoxa 一致；本次可整理規格及建 GitHub repo／Project／工作分解。保留獨立產品，不修改 Kaledoxa。
 
+2026-09-23 補充裁決：產品 LLM 使用 OpenRouter 的 Gemini 3.8 Flash。具體選型歸 R10／D01，決策與查證紀錄見 [Story #17](https://github.com/z411392/paper-radar/issues/17#issuecomment-5782002995)。這不改變工程 agents 的分工，也不代表 embedding 模型已決定或已授權執行付費推論。
+
 `paper-radar`／私有 repository 為保守的初始化名稱與可見性選擇。worker 收進 CLI 是前輪解釋後沿用的第一版設計選擇，不是六邊形架構的硬性條件。
 
 ## 共通規則
@@ -78,7 +80,9 @@ Work／Manifestation／Revision 分層。確定識別碼與可信明示關係優
 
 快取綁 source revision、evidence hash、schema／prompt／model／glossary／output profile。變更關注範圍只重判推薦，無需重寫未變的論文內容。
 
-共通驗收：舊請求晚回不得發布為 current；額度不足保存 budget_blocked；不靜默換模型或追加付費。
+依 2026-09-23 使用者裁決，產品內的 LLM 抽取、翻譯、白話解說及必要語意核對採 OpenRouter gateway，model ID 為 `google/gemini-3.8-flash`。本機優先是儲存與程序部署，不再以必須本地推論為前提；embedding 模型仍獨立選型。不得自動換其他模型、加入 model fallback 清單、改成 `openrouter/auto` 或自行加日期／free／batch suffix。模型不可用時明示失敗或保留待重試工作，不用其他模型假裝完成。工程 agents 的 provider/model/effort 仍唯一依 Rule15，不由這項產品選型改動。
+
+共通驗收：舊請求晚回不得發布為 current；額度不足保存 budget_blocked；不靜默換模型或追加付費。回傳 JSON、來源與數字驗證不能因已選模型而跳過。記錄 gateway、requested/returned model、實際 provider（可得時）、參數版本及用量；model slug 不當成 immutable weights 或輸出逐位可重現的證據。
 
 <a id="r11"></a>
 ### R11 — 檢索與向量
@@ -140,11 +144,11 @@ email 為第一通道；固定 digest snapshot 與 transactional outbox。通知
 
 這些是提案設定，不是來源 SLA，也不是當次收集／寄送授權：Asia/Taipei 每日 08:00；目標 5 篇、上限 10 篇、不湊數；初次回填 14 天；預印本允許並標記；新文推送要求已查證免費全文入口；即時推送關閉。機器讀過的證據範圍與使用者免費入口分開。
 
-預設 `delivery_enabled=false`，直到 live commissioning 設定完整。LLM／embedding model、最大 token 預算、收件地址、SMTP／API 寄送方式均需明確配置；可先完成 hermetic 路徑，不以 credentials 缺失阻擋純工程工作。
+預設 `delivery_enabled=false`，直到 live commissioning 設定完整。LLM gateway/model 已依 R10 選定；embedding model、最大 token／金額預算、收件地址、SMTP／API 寄送方式仍需明確配置。LLM 憑證只留本機安全環境，範例預設 `enabled=false`；模型已選不等於已授權付費呼叫。可先完成 hermetic 路徑，不以 credentials 缺失阻擋純工程工作。
 
 ## 局部待決事項
 
-D01：真實模型與是否採本地 LLM。由 PO 在 S04 live commissioning 前指定；不影響 schema、fake port、grounding validators。
+D01（模型選型已決定）：2026-09-23 PO 選用 OpenRouter／`google/gemini-3.8-flash`，產品 LLM 不要求本地推論。模型選型不再是待決事項；憑證、推論参数、預算、實際 endpoint capability 和受控 live commissioning 留在 #19／#20／#50，不冒作已通過。Embedding model 仍另行配置。
 D02：寄件服務與指定收件者。由 PO 在 S05 controlled delivery 前指定；不影響 outbox 與 preview。
 D03：每日閱讀量與費用上限。提案值可改；發信／付費前確認，不自動帶入前報告的舊模型價格。
 D04：後續 HTTP/RSS 是否納入首個正式 release。S10 先列後續產品工作，不作第一封 email 的前置。

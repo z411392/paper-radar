@@ -1,0 +1,2 @@
+class DeliveryStoreError(RuntimeError):
+    pass

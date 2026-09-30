@@ -1,0 +1,21 @@
+{
+  "id": "personal",
+  "reader_id": "local",
+  "name": "我的研究閱讀",
+  "scope_text": "關注軟體工程、深度學習、機器學習、統計學與羽球研究；偏好可解釋的方法和實際限制。",
+  "domains": [
+    {"id": "software_engineering", "revision": 1},
+    {"id": "deep_learning", "revision": 1},
+    {"id": "machine_learning", "revision": 1},
+    {"id": "statistics", "revision": 1},
+    {"id": "badminton", "revision": 1}
+  ],
+  "filters": {
+    "include": [],
+    "exclude": [],
+    "languages": ["en", "zh-Hant", "zh-Hans"],
+    "sources": ["arxiv", "pubmed", "crossref"],
+    "free_only": true,
+    "allow_preprints": true
+  }
+}

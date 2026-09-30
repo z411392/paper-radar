@@ -1,20 +1,16 @@
 # Story 規格與交付入口
 
-文件歸屬依 [Rule 80](../.claude/rules/80-documentation.md)，角色、派工與執行接續依 [Rule 15](../.claude/rules/15-execution-strategy.md)。本頁只提供操作模板與導航。
+歸屬依 [Rule80](../.claude/rules/80-documentation.md)，角色及安全依 [Rule15](../.claude/rules/15-execution-strategy.md)。
 
-## 唯一層級
+## 目前採 GIT_RETAINED
 
-`Epic → Story → Task／Bug／Spike` 使用 GitHub 原生 parent/sub-issue；Task 內有限步驟以 S1、S2、S3 等 checklist 表示，不另建第四層 issue。每張 issue 恰好一個 type label。
+規格留 Git 是可長期使用的正式選擇，不必為形式一致搬進 Issue。開單使用既有 [Issue Forms](../.github/ISSUE_TEMPLATE/)，按成果或研究問題選型，不為每件小事補造 Epic/Story。
 
-Story 取得真實 GitHub issue number 後才建立 `specs/<number>-<slug>/`，只放 `spec.md`、`plan.md`、`progress.md`。建庫前的 seed 不進 repository，也不成為日後的同步資料源。
+既有 spec.md 保留 SC/AC，必要 plan.md 保留版本化設計，不能因治理更新先刪除。Issue 引用適用版本，不把最新本文當已接受規格。新 Story 不強制建立三檔；新正式規格先指定一個 Git owner，版本保存/核可/恢復與切換能力驗收後才可改由 Issue 承擔。
 
-## 操作
+progress.md 不再追加手動進度或重複收據；原檔與 Git 歷史保留。研究、失敗、驗證寫 comments；Issue 關閉不使仍適用的規格自動失效。必要長期設計按責任回 BC/合作規格，不在 Story 形成另一套永久規則。
 
-從 Event Storming 取 actor／command／event／例外／可觀察終點，形成能交付使用者價值的 Story。spec 擁有專屬 SC／AC；plan 定介面、依賴、writable/frozen、正反 oracle 與整合；progress 記 dated evidence，不能複製 Project Status／Priority／Sprint。
-
-Task body 記 Task Pack、有限 Subtasks、直接依賴及停止點。每個 Subtask 的 Given／When／Then、exact scope、expected output、驗證命令與 Story AC 都要可追溯。Analysis／Design／Verify 是 leaf 內階段，不再建 Agile child。
-
-完整控制流程：需求影響檢查 → 模型與契約 → 真實 Issues → Story 三檔 → Task-local Ready → 明示派工 → deterministic Verify → 獨立 Review → Commander 合流 → Project field readback。沒有 agent runtime 或 live credential 的 leaf 留明確缺件，不影響無關工作。
+Task 本文即施工資訊，派工引用具體版本。小 Task 可無 Parent Story；工作階層與 BC 分開，子任務關閉不代替整合驗收。
 
 ## Story 導覽
 

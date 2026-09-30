@@ -1,0 +1,36 @@
+{
+  "id": "personal",
+  "reader_id": "local",
+  "name": "我的 arXiv 論文雷達",
+  "scope_text": "關注軟體工程、深度學習、機器學習與統計學的新 arXiv 論文；優先提供繁體中文摘要與研究重點。",
+  "domains": [
+    {
+      "id": "software_engineering",
+      "revision": 1
+    },
+    {
+      "id": "deep_learning",
+      "revision": 1
+    },
+    {
+      "id": "machine_learning",
+      "revision": 1
+    },
+    {
+      "id": "statistics",
+      "revision": 1
+    }
+  ],
+  "filters": {
+    "include": [],
+    "exclude": [],
+    "languages": [
+      "en"
+    ],
+    "sources": [
+      "arxiv"
+    ],
+    "free_only": true,
+    "allow_preprints": true
+  }
+}

@@ -35,3 +35,19 @@ Focused unit／integration → contract／acceptance → `make ci-fast` → 獨�
 ## 開工前必填
 
 真實 Task branch、base SHA、candidate SHA、cwd、write owner、frozen paths、provider／live authority 依 Rule15 Fresh Task Pack 補齊。未補齊不宣稱 READY。模型、收件者或後續 HTTP 未定只阻擋直接需要它的操作，不阻擋 hermetic 契約工作。
+
+## 2026-09-23 OpenRouter 接線方向（PO 已選模型，尚未實作）
+
+產品選型唯一引用 [共通 R10／D01](../../docs/delivery/requirements-specification.md#r10)。本節限定該選型的技術影響，不改工程 agents 的 routing authority。#19 的 provider adapter 透過現有 owner LLM port 接上 OpenRouter；application 不知道 HTTP DTO、API key 或供應商錯誤格式。無跨 owner 私有 adapter import。
+
+Gateway base URL 為 `https://openrouter.ai/api/v1`，Chat Completions 路徑為 `/chat/completions`，單一 model 使用已核對的 `google/gemini-3.8-flash`。API key 透過本機 `OPENROUTER_API_KEY` 提供，不寫入SQLite、config範例、log或Issue。初始配置範例見 [config/llm.example.toml](../../config/llm.example.toml)；目前沒有讀取此範例的runtime loader或LLM adapter，不能將檔案存在當成已接通。
+
+Structured output 預定使用 `response_format.type=json_schema`、明示schema與strict，以及 `provider.require_parameters=true`。官方文件提醒支援性按endpoint而異；即使結構化輸出成功，本地schema、anchor、數字及版本適用性驗證仍必須執行。截斷、invalid JSON、拒答或無支援endpoint是失敗，不降為無schema重試以通過驗收。模型語意核對也不代替確定性驗證或独立工程Reviewer。
+
+同模型的provider failover與跨模型fallback是不同維度：本產品只送一個model，不送其他models清單或auto router；不自動改model suffix。使用者未指定AI Studio／Vertex等上游provider，因此本次不假造provider pin。正式呼叫前固定符合privacy、參數與預算的provider routing policy；官方 `provider.allow_fallbacks` 不是本案 `allow_model_fallback` 的直接API映射。記錄可得的實際provider，無欄位時明示unknown。
+
+快取及執行收據遵守R10：generation identity綁gateway、requested model、版本化請求／routing參數、prompt/schema/glossary、evidence及output profile；attempt另記request ID、returned model/provider、token與實際費用。公開model slug不當作immutable weights；需要alias映射時僅接受來源可驗證的映射，不根據猜測串接日期尾碼。價格、上限與effort須以實際採用的服務條件核對，不沿用研究報告舊模型報價。
+
+先以假的HTTP/LLM port覆蓋401/403、429、timeout、quota不足、不支援schema、invalid/truncated JSON、回傳模型不符、提示注入及晚回覆。未啟用source search、tools、PDF處理或response-healing外掛；資料證據只來自已建立的evidence package。Budget、憑證和受控live驗證未齊前，`enabled=false`；此決策沒有發出任何付費推論。
+
+官方參考（2026-09-23核對）：[模型](https://openrouter.ai/google/gemini-3.8-flash)、[Quickstart](https://openrouter.ai/docs/quickstart)、[Structured Outputs](https://openrouter.ai/docs/guides/features/structured-outputs)、[Provider Routing](https://openrouter.ai/docs/guides/routing/provider-selection)。詳細研究與判斷留在 [#19 comments](https://github.com/z411392/paper-radar/issues/19#issuecomment-5782008358)。

@@ -10,7 +10,7 @@ Design 固定的 acceptance、contract、architecture、governance 外部 oracle
 
 ## BDD／TDD
 
-每個 Task／Subtask 追到 Event Storming anchor → Story SC／AC → Given/When/Then → oracle／commands → revision／evidence。正例、反例、零結果、重複、失敗、中斷／重播逐項指定，無適用時說原因。
+Task／Subtask 追到適用規格與 Given/When/Then → oracle／commands → revision／evidence。業務情境需要時引用 Event Storming/Story SC/AC；獨立治理或小修正不補造 Story。正例、反例、零結果、重複、失敗、中斷／重播逐項指定，無適用時說原因。
 
 實作走 RED→GREEN→Refactor；文件／schema 設計只做有界內容與結構驗證，不虛構產品 RED。CLI/HTTP E2E 走正式 composition，不偷逐個呼叫 downstream 補接線缺口。
 
