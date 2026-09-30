@@ -2,6 +2,11 @@ name: Live arXiv smoke
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - codex/mvp-paper-email-e2e
+    paths:
+      - .github/workflows/live-arxiv-smoke.yml
 
 permissions:
   contents: read
@@ -28,6 +33,13 @@ jobs:
 
       - name: Install the locked development environment
         run: uv sync --locked
+
+      - name: Verify bounded local arXiv deferral
+        run: >-
+          uv run --locked pytest -q
+          src/libs/research_workflow/tests/contract/test_resumable_harvest.py
+          -k 'local_provider_defer_waits_without_durable_failed_capture or
+          long_provider_defer_remains_durable_retry_not_local_sleep'
 
       - name: Run bounded public arXiv smoke
         run: make mvp-live-arxiv
