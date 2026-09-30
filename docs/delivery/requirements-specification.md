@@ -29,16 +29,16 @@
 <a id="r03"></a>
 ### R03 — 可信來源與權限
 
-官方學術來源優先、aggregator 只補充。公開書目、免費全文入口、自動取得權限、模型處理／保存用途分別判斷；unknown 不當成允許或禁止的證據。
+官方學術來源優先。MVP 以來源提供的書目與 abstract 為主要輸入；不要求免費全文才可進 daily email，也不為了補全文自動繞過來源限制。
 
-共通驗收：每份解說能回到 source observation／manifestation；只具摘要者不能冒稱有全文。未知存取權先保留待處理而不是偷偷抓取。
+共通驗收：每份解說能回到實際 source observation；只有 abstract 時不得冒稱讀過全文。
 
 <a id="r04"></a>
 ### R04 — 最新與版本
 
-分開首次公開、正式出版、來源更新、首次觀測及日期精度；new work、late discovery、revision、publication update、correction/retraction 分開事件。
+分開首次公開、來源更新、首次觀測及日期精度；catalog 可保留不同事件型別，但正式 daily Email 只消費 `new_work`。
 
-共通驗收：舊文晚被索引只標補收錄；arXiv v2 與正式 DOI 不自動變成全新研究。
+共通驗收：舊文晚被索引不寄成今日新論文；同一研究的後續 revision 不重新寄成新論文。
 
 <a id="r05"></a>
 ### R05 — 保守身份辨識
@@ -57,7 +57,7 @@ Work／Manifestation／Revision 分層。確定識別碼與可信明示關係優
 <a id="r07"></a>
 ### R07 — 相關性
 
-規則、語意相似度及必要 LLM assessment 分層；直接相關／相鄰／不確定／無關和執行失敗分開。羽球要求直接相關證據，泛運動另列相鄰。
+規則與必要 LLM assessment 分層；直接相關／相鄰／不確定／無關和執行失敗分開。不需要 embedding 或向量搜尋才能完成相關性判斷。
 
 共通驗收：同研究多領域只一張卡；不可把未校準分數呈現成機率；來源失敗不被視為零合格論文。
 
@@ -80,7 +80,7 @@ Work／Manifestation／Revision 分層。確定識別碼與可信明示關係優
 
 快取綁 source revision、evidence hash、schema／prompt／model／glossary／output profile。變更關注範圍只重判推薦，無需重寫未變的論文內容。
 
-依 2026-09-23 使用者裁決，產品內的 LLM 抽取、翻譯、白話解說及必要語意核對採 OpenRouter gateway，model ID 為 `google/gemini-3.8-flash`。本機優先是儲存與程序部署，不再以必須本地推論為前提；embedding 模型仍獨立選型。不得自動換其他模型、加入 model fallback 清單、改成 `openrouter/auto` 或自行加日期／free／batch suffix。模型不可用時明示失敗或保留待重試工作，不用其他模型假裝完成。工程 agents 的 provider/model/effort 仍唯一依 Rule15，不由這項產品選型改動。
+依 2026-09-23 使用者裁決，產品內的 LLM 抽取、翻譯、白話解說及必要語意核對採 OpenRouter gateway，model ID 為 `google/gemini-3.8-flash`。不得自動換其他模型、加入 model fallback 清單、改成 `openrouter/auto` 或自行加日期／free／batch suffix。模型不可用時明示失敗或保留待重試工作，不用其他模型假裝完成。工程 agents 的 provider/model/effort 仍唯一依 Rule15，不由這項產品選型改動。
 
 共通驗收：舊請求晚回不得發布為 current；額度不足保存 budget_blocked；不靜默換模型或追加付費。回傳 JSON、來源與數字驗證不能因已選模型而跳過。記錄 gateway、requested/returned model、實際 provider（可得時）、參數版本及用量；model slug 不當成 immutable weights 或輸出逐位可重現的證據。
 
@@ -132,13 +132,13 @@ localhost HTTP、RSS 閱讀產品、搜尋、收藏、閱讀歷史、reader feed
 
 ## 可調整的初始預設
 
-這些是提案設定，不是來源 SLA，也不是當次收集／寄送授權：Asia/Taipei 每日 08:00；目標 5 篇、上限 10 篇、不湊數；初次回填 14 天；預印本允許並標記；新文推送要求已查證免費全文入口；即時推送關閉。機器讀過的證據範圍與使用者免費入口分開。
+這些是提案設定，不是來源 SLA，也不是當次收集／寄送授權：Asia/Taipei 每日排程；目標 5 篇、不湊數；初次回填有界；預印本允許並標記；daily Email 只寄新論文。abstract 足以進 MVP 解說流程，不要求免費全文入口。
 
-預設 `delivery_enabled=false`，直到 live commissioning 設定完整。LLM gateway/model 已依 R10 選定；embedding model、最大 token／金額預算、收件地址、SMTP／API 寄送方式仍需明確配置。LLM 憑證只留本機安全環境，範例預設 `enabled=false`；模型已選不等於已授權付費呼叫。可先完成 hermetic 路徑，不以 credentials 缺失阻擋純工程工作。
+預設 `delivery_enabled=false`，直到 live commissioning 設定完整。LLM gateway/model 已依 R10 選定；金額預算、收件地址與 SMTP 寄送方式仍需明確配置。LLM 憑證只留本機安全環境，範例預設 `enabled=false`；模型已選不等於已授權付費呼叫。可先完成 hermetic 路徑，不以 credentials 缺失阻擋純工程工作。
 
 ## 局部待決事項
 
-D01（模型選型已決定）：2026-09-23 PO 選用 OpenRouter／`google/gemini-3.8-flash`，產品 LLM 不要求本地推論。模型選型不再是待決事項；憑證、推論参数、預算、實際 endpoint capability 和受控 live commissioning 留在 #19／#20／#50，不冒作已通過。Embedding model 仍另行配置。
+D01（模型選型已決定）：2026-09-23 PO 選用 OpenRouter／`google/gemini-3.8-flash`。模型選型不再是待決事項；憑證、推論參數、預算與受控 live commissioning 仍需明確配置。產品不需要 embedding model。
 D02：寄件服務與指定收件者。由 PO 在 S05 controlled delivery 前指定；不影響 outbox 與 preview。
 D03：每日閱讀量與費用上限。提案值可改；發信／付費前確認，不自動帶入前報告的舊模型價格。
 D04：HTTP/RSS 已依 2026-09-30 產品裁決移出 scope，不再是待決事項。
