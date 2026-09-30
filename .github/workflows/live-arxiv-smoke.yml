@@ -2,11 +2,6 @@ name: Live arXiv smoke
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - codex/mvp-paper-email-e2e
-    paths:
-      - .github/workflows/live-arxiv-smoke.yml
 
 permissions:
   contents: read
