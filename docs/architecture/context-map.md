@@ -2,7 +2,7 @@
 
 ## 邊界
 
-業務 BC 為 watch_profiles、discovery、scholarly_catalog、paper_explanations、delivery。retrieval 是檢索技術 owner；research_workflow 為協調／工程交付線；kernel 僅限共用 bytes、clock、connection／transaction 原語。論文學科是資料，不是 BC。
+業務 BC 為 watch_profiles、discovery、scholarly_catalog、paper_explanations、delivery。research_workflow 為 GitHub Actions worker 的協調線；kernel 僅限共用 bytes、clock、connection／transaction 原語。論文學科是資料，不是 BC。檢索／閱讀後台不屬於目前產品邊界。
 
 | owner | 擁有的資料／行為 | 不擁有 |
 |---|---|---|
@@ -10,9 +10,8 @@
 | discovery | source bindings、harvest units／attempts、raw observations | canonical Work／Summary |
 | scholarly_catalog | Work／Manifestation／Revision、access、evidence／anchors、typed events | 寄送及讀者偏好 |
 | paper_explanations | claims、Summary revisions、QA、模型使用與 current guards | 來源搜索、工作流排程 |
-| delivery | digest、outbox、ledger、subscription、feedback | Canonical identity、模型 verdict |
-| retrieval | search projection、embedding space／vectors、FAISS generations | 研究身份合併、是否科學正確 |
-| research_workflow | durable jobs／leases、跨 owner 用例協調、backup barrier | 任意寫其他 owner 私有資料表 |
+| delivery | digest、outbox、ledger、email subscription | Canonical identity、模型 verdict、閱讀管理 |
+| research_workflow | durable jobs／leases、GitHub Actions worker 跨 owner 用例協調 | 任意寫其他 owner 私有資料表 |
 | kernel | ObjectRef、ObjectStore、Clock、SQLite connection／UnitOfWork | Paper／Digest／Profile 專屬規則 |
 
 ## Supplier／consumer 公開契約
@@ -22,10 +21,7 @@
 | watch_profiles → discovery | published ProfileSnapshot → compiled source query | 無有效發布版本不猜範圍 |
 | discovery → scholarly_catalog | SourceObservationRef 與 SourceRecord DTO | raw 保存成功後才承接，parser failure 可重播 |
 | scholarly_catalog → paper_explanations | EvidenceSnapshotRef／RevisionIdentity | 缺失／權限未知先停止受影響篇 |
-| scholarly_catalog → retrieval | current SearchDocumentInput 與 revision fingerprint | 索引失效不修改書目 |
-| paper_explanations → retrieval | current verified SummaryProjection | 不合格 summary 不成為目前正文 |
 | scholarly_catalog／paper_explanations → delivery | EligiblePaper／VerifiedExplanation DTO | 寄前重新判 eligibility |
-| retrieval → watch_profiles | RankedCandidate DTO，僅提供相關性線索 | 缺 index 明示 degraded，不補假向量 |
 | workflow → 各 owner inbound ports | scan／process／digest／restore commands | step 成功不等於全流程成功 |
 
 ## Import DAG
@@ -34,10 +30,8 @@
 
 ```text
 research_workflow → delivery, discovery, watch_profiles,
-                    scholarly_catalog, paper_explanations, retrieval
+                    scholarly_catalog, paper_explanations
  delivery → scholarly_catalog, paper_explanations, watch_profiles
- watch_profiles → retrieval
- retrieval → scholarly_catalog, paper_explanations
  paper_explanations → scholarly_catalog
  scholarly_catalog → discovery.dtos（純交接型別，不回呼其 application）
  discovery → kernel
