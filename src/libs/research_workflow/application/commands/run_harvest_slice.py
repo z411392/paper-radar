@@ -1,3 +1,6 @@
+import math
+
+from libs.discovery.dtos.source_fetch_result import SourceFetchResult
 from libs.discovery.dtos.source_query_input import SourceQueryInput
 from libs.discovery.ports.fetch_source_page_port import FetchSourcePagePort
 from libs.discovery.ports.process_harvest_page_port import ProcessHarvestPagePort
@@ -15,6 +18,9 @@ from libs.watch_profiles.ports.read_watch_profile_port import ReadWatchProfilePo
 class RunHarvestSlice:
     """Bounded composition of public use cases; no network or storage transaction here."""
 
+    _LOCAL_DEFER_MAX_SECONDS = 5.0
+    _LOCAL_DEFER_MAX_RETRIES = 2
+
     def __init__(
         self,
         compiler: SourceQueryCompilerPort,
@@ -30,6 +36,25 @@ class RunHarvestSlice:
         self._compiler, self._resume, self._start = compiler, resume, start
         self._fetch, self._record, self._process = fetch, record, process
         self._profiles, self._runtime, self._parser_version = profiles, runtime, parser_version
+
+    def _fetch_with_local_defer(self, request) -> SourceFetchResult:
+        retries = 0
+        while True:
+            result = self._fetch(request)
+            if result.failure_code != "provider_deferred":
+                return result
+            delay = result.retry_after_seconds
+            if (
+                result.retryable is not True
+                or isinstance(delay, bool)
+                or not isinstance(delay, (int, float))
+                or not math.isfinite(delay)
+                or not 0 < delay <= self._LOCAL_DEFER_MAX_SECONDS
+                or retries >= self._LOCAL_DEFER_MAX_RETRIES
+            ):
+                return result
+            self._runtime.sleep(float(delay))
+            retries += 1
 
     def __call__(
         self, query: SourceQueryInput, *, max_pages: int = 10, retry_failed: bool = False
@@ -61,7 +86,7 @@ class RunHarvestSlice:
                 attempt = self._start(plan, request, self._runtime.new_attempt_id(), self._runtime.now())
                 if attempt.capture_json is not None:
                     raise HarvestWorkflowError("attempt_identity_collision")
-                response = self._fetch(request)
+                response = self._fetch_with_local_defer(request)
                 fetched += 1
                 attempt = self._record(attempt.attempt_id, response, self._runtime.now())
                 if not HarvestRunRules.profile_matches(query, self._profiles(query.profile_id)):
