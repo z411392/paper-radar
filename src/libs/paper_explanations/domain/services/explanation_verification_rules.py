@@ -167,17 +167,13 @@ class ExplanationVerificationRules:
                     )
                     break
 
-        source_negated = bool(_NEGATION_RE.search(source))
-        text_negated = bool(_NEGATION_RE.search(text))
-        if source_negated and not text_negated:
-            findings.append(VerificationFinding("negation_dropped", source_kind, source_index, claim_ids))
-        elif text_negated and not source_negated:
-            findings.append(VerificationFinding("negation_added", source_kind, source_index, claim_ids))
-
-        if _CAUSAL_RE.search(text) and not _CAUSAL_RE.search(source):
-            findings.append(VerificationFinding("causal_unsupported", source_kind, source_index, claim_ids))
-        if _HEDGE_RE.search(source) and _STRONG_RE.search(text):
-            findings.append(VerificationFinding("certainty_overstated", source_kind, source_index, claim_ids))
+        # The source is normally English while the product output is zh-TW.
+        # Keyword-level negation/causality/certainty comparison is not a
+        # language-independent invariant and produced false hard failures in
+        # live operation. Keep hard deterministic QA to invariants that can be
+        # checked reliably across languages: numeric literals, units and
+        # baseline/proposed role values. Semantic faithfulness is constrained
+        # by the prompt plus claim/anchor binding, not bilingual keyword regex.
         return findings
 
     @classmethod
