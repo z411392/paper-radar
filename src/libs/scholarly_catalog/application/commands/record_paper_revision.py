@@ -11,6 +11,8 @@ from libs.scholarly_catalog.ports.research_event_store_port import (
 class RecordPaperRevision:
     _KINDS = frozenset(
         {
+            "new_work",
+            "late_discovery",
             "revision_available",
             "metadata_changed",
             "publication_status_changed",
@@ -60,7 +62,16 @@ class RecordPaperRevision:
         evidence_id = self._text(source_evidence_id, 512)
         if event_kind not in self._KINDS:
             raise PaperIdentityError("invalid_research_event")
-        if event_kind in {"revision_available", "metadata_changed"} and revision is None:
+        if (
+            event_kind
+            in {
+                "new_work",
+                "late_discovery",
+                "revision_available",
+                "metadata_changed",
+            }
+            and revision is None
+        ):
             raise PaperIdentityError("research_event_revision_required")
         try:
             evidence_json = json.dumps(
