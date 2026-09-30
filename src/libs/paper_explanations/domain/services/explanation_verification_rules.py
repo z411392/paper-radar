@@ -109,6 +109,10 @@ class ExplanationVerificationRules:
         return all(count <= right[item] for item, count in left.items())
 
     @staticmethod
+    def _has_cjk(text: str) -> bool:
+        return any("\u3400" <= char <= "\u9fff" for char in text)
+
+    @staticmethod
     def _role_numbers(text: str) -> dict[str, set[str]]:
         found: dict[str, set[str]] = {"baseline": set(), "proposed": set()}
         number = r"([+-]?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)"
@@ -145,9 +149,23 @@ class ExplanationVerificationRules:
         if not cls._is_subset(cls._unit_pairs(text), cls._unit_pairs(source)):
             findings.append(VerificationFinding("unit_mismatch", source_kind, source_index, claim_ids))
 
-        # Numeric proximity to words such as "baseline" is not stable across
-        # English -> zh-TW word-order changes. Exact numeric literals and units
-        # are checked separately; do not infer role swaps from token distance.
+        # Numeric proximity to role words is useful only when source and
+        # output use the same writing system. English -> zh-TW translation can
+        # legitimately reorder "baseline"/"proposed" around the same numbers.
+        if cls._has_cjk(text) == cls._has_cjk(source):
+            source_roles = cls._role_numbers(source)
+            text_roles = cls._role_numbers(text)
+            for role in ("baseline", "proposed"):
+                if text_roles[role] and not text_roles[role] <= source_roles[role]:
+                    findings.append(
+                        VerificationFinding(
+                            "role_value_mismatch",
+                            source_kind,
+                            source_index,
+                            claim_ids,
+                        )
+                    )
+                    break
 
         source_negated = bool(_NEGATION_RE.search(source))
         text_negated = bool(_NEGATION_RE.search(text))
