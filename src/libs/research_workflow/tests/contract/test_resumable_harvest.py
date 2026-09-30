@@ -104,12 +104,17 @@ def env(tmp_path):
 class Runtime:
     def __init__(self):
         self.value = AT
+        self.sleep_calls = []
 
     def now(self):
         return self.value
 
     def new_attempt_id(self):
         return "attempt:" + uuid4().hex
+
+    def sleep(self, seconds):
+        self.sleep_calls.append(seconds)
+        self.value += timedelta(seconds=seconds)
 
 
 class Source:
@@ -260,6 +265,61 @@ def test_parse_failure_is_preserved_and_not_refetched(env, body):
     again = run(env.query, retry_failed=True)
     assert again.stop_reason == "processing_failed" and len(source.calls) == 1
     assert count(env, "source_observations") == 0
+
+
+class LocalDeferThenSuccess:
+    def __init__(self, runtime, *, delay=3.0):
+        self.runtime = runtime
+        self.delay = delay
+        self.calls = []
+        self.success = Source(runtime)
+
+    def __call__(self, request):
+        self.calls.append(request)
+        if len(self.calls) == 1:
+            return SourceFetchResult(
+                request.request_fingerprint,
+                None,
+                None,
+                "provider_deferred",
+                True,
+                self.delay,
+            )
+        return self.success(request)
+
+
+def test_local_provider_defer_waits_without_durable_failed_capture(env):
+    clock = Runtime()
+    source = LocalDeferThenSuccess(clock)
+    run, _, _ = workflow(env, source, clock)
+
+    result = run(env.query, max_pages=2)
+
+    assert result.stop_reason == "complete"
+    assert clock.sleep_calls == [3.0]
+    assert len(source.calls) == 3
+    assert count(env, "harvest_attempts") == 2
+    assert prior.database(
+        env,
+        "SELECT COUNT(*) FROM harvest_attempts WHERE state='failed'",
+    )[0][0] == 0
+
+
+def test_long_provider_defer_remains_durable_retry_not_local_sleep(env):
+    clock = Runtime()
+    source = Source(
+        clock,
+        error="provider_deferred",
+        delay=30.0,
+    )
+    run, _, _ = workflow(env, source, clock)
+
+    result = run(env.query)
+
+    assert result.stop_reason == "source_failed"
+    assert clock.sleep_calls == []
+    assert len(source.calls) == 1
+    assert count(env, "harvest_attempts") == 1
 
 
 @pytest.mark.parametrize("error", ["http_timeout", "http_rate_limited"])
