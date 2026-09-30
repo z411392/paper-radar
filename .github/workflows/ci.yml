@@ -1,7 +1,7 @@
 name: Offline engineering checks
 on:
   push:
-    branches: [main, 'codex/**']
+    branches: [main, 'codex/**', 'consolidate/**']
   pull_request:
 permissions:
   contents: read
