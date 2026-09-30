@@ -104,17 +104,17 @@ def test_unit_change_is_rejected():
     assert "unit_mismatch" in codes
 
 
-def test_added_causality_is_rejected():
+def test_cross_language_causality_keyword_is_not_a_hard_gate():
     draft, claims = fixture("新方法導致誤差為 0.42 m，基準為 0.58 m。")
     codes = {finding.code for finding in ExplanationVerificationRules.deterministic(draft, claims).findings}
-    assert "causal_unsupported" in codes
+    assert "causal_unsupported" not in codes
 
 
-def test_dropped_negation_is_rejected():
+def test_cross_language_negation_keyword_is_not_a_hard_gate():
     quote = "The method did not improve accuracy."
     draft, claims = fixture("這個方法提高準確率。", quote=quote)
     codes = {finding.code for finding in ExplanationVerificationRules.deterministic(draft, claims).findings}
-    assert "negation_dropped" in codes
+    assert "negation_dropped" not in codes
 
 
 def test_translation_number_multiplicity_is_checked():
