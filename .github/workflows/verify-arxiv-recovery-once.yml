@@ -1,0 +1,35 @@
+name: Verify arXiv projection recovery once
+
+on:
+  push:
+    branches:
+      - codex/mvp-paper-email-e2e
+
+permissions:
+  contents: read
+
+jobs:
+  recovery-regression:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      UV_PYTHON: "3.13.5"
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          version: 0.10.0
+          enable-cache: false
+
+      - name: Install locked environment
+        run: uv sync --locked
+
+      - name: Verify recovery after identity commit before event
+        run: >-
+          uv run --locked pytest -q
+          src/libs/scholarly_catalog/tests/integration/test_arxiv_catalog_projection.py
+          -k test_projection_recovers_after_identity_commit_before_event
