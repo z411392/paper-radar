@@ -7,6 +7,7 @@ from libs.research_workflow.domain.services.plan_catchup_jobs import PlanCatchup
 from libs.research_workflow.dtos.scheduler import (
     CoverageGap,
     DeliverySchedule,
+    ExplanationWorkflowJob,
     HarvestBindingSchedule,
     KnownWorkflowJob,
     PendingDeliveryDispatch,
@@ -186,6 +187,24 @@ def test_new_or_pending_harvest_work_defers_digest_until_a_later_tick() -> None:
         expected_jobs = ["harvest_window"] if not known else []
         assert [job.job_kind for job in plan.jobs] == expected_jobs
         assert plan.digest_deferred is True
+
+
+def test_pending_explanation_backlog_does_not_block_ready_daily_digest() -> None:
+    snapshot = SchedulerSnapshot(
+        harvest_bindings=(),
+        delivery_schedules=(delivery(NOW - timedelta(days=1)),),
+        known_jobs=(),
+        input_gaps=(),
+        explanation_jobs=(
+            ExplanationWorkflowJob("explain:old-a", "pending"),
+            ExplanationWorkflowJob("explain:old-b", "running"),
+        ),
+    )
+
+    plan = PlanCatchupJobs()(snapshot, now=NOW)
+
+    assert [job.job_kind for job in plan.jobs] == ["prepare_digest"]
+    assert plan.digest_deferred is False
 
 
 def test_failed_harvest_does_not_disappear_but_digest_may_continue_with_gap() -> None:

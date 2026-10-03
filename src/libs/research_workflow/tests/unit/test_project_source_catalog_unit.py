@@ -17,6 +17,7 @@ NOW = datetime(2026, 9, 26, tzinfo=timezone.utc)
 UNIT = "unit:" + "a" * 64
 O1 = "observation:" + "1" * 64
 O2 = "observation:" + "2" * 64
+O3 = "observation:" + "3" * 64
 
 
 class Store:
@@ -283,3 +284,34 @@ def test_unavailable_abstract_does_not_enqueue_explanation_job() -> None:
 
     assert result.state == "succeeded"
     assert jobs.requests == []
+
+
+def test_explanation_candidates_are_bounded_per_harvest_unit() -> None:
+    jobs = Jobs()
+
+    class ThreePage:
+        def __call__(self, unit_id, source, *, after_observation_id, limit):
+            assert unit_id == UNIT
+            assert after_observation_id is None
+            assert limit == 3
+            return SourceObservationPage(unit_id, source, (O1, O2, O3), True)
+
+    usecase = ProjectSourceCatalogUnit(
+        ThreePage(),
+        Store(),
+        replay_with_time,
+        project_with_evidence,
+        replay_with_time,
+        project_with_evidence,
+        Context(),
+        jobs,
+    )
+
+    result = usecase("arxiv", UNIT, max_observations=3, projected_at=NOW)
+
+    assert result.state == "succeeded"
+    assert result.projected_count == 3
+    assert [job.business_key for job in jobs.requests] == [
+        f"explain:{O1}:personal:3:statistics:1",
+        f"explain:{O2}:personal:3:statistics:1",
+    ]
