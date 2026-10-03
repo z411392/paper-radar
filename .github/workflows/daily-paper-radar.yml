@@ -22,6 +22,27 @@ concurrency:
 
 jobs:
   daily-worker:
+    name: daily-worker (${{ matrix.domain_label }})
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include:
+          - domain_id: deep_learning
+            domain_label: 深度學習
+            scope: 關注深度學習的新論文，包含神經網路、表示學習、生成模型與相關方法。
+          - domain_id: machine_learning
+            domain_label: 機器學習
+            scope: 關注機器學習的新論文，包含學習演算法、模型評估、泛化與相關方法。
+          - domain_id: statistics
+            domain_label: 統計
+            scope: 關注統計學的新論文，包含統計推論、方法論、應用統計與統計機器學習。
+          - domain_id: badminton
+            domain_label: 羽球
+            scope: 關注羽球相關的新研究，包含運動表現、訓練、傷害、復健、生理與運動醫學。
+          - domain_id: male_reproductive_urology
+            domain_label: 男性生殖學／泌尿科醫學
+            scope: 關注男性生殖學、男性不孕、男科學與泌尿科醫學的新研究。
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -34,6 +55,10 @@ jobs:
       PAPER_RADAR_SMTP_USERNAME: ${{ secrets.PAPER_RADAR_SMTP_USERNAME }}
       PAPER_RADAR_SMTP_PASSWORD: ${{ secrets.PAPER_RADAR_SMTP_PASSWORD }}
       PAPER_RADAR_SMTP_RECIPIENT: ${{ secrets.PAPER_RADAR_SMTP_RECIPIENT }}
+      PAPER_RADAR_DOMAIN_ID: ${{ matrix.domain_id }}
+      PAPER_RADAR_DOMAIN_LABEL: ${{ matrix.domain_label }}
+      PAPER_RADAR_DOMAIN_SCOPE: ${{ matrix.scope }}
+      PAPER_RADAR_ARTIFACT_NAME: paper-radar-daily-${{ matrix.domain_id }}
 
     steps:
       - name: Define runner-local paths
@@ -86,7 +111,7 @@ jobs:
         run: |
           set -euo pipefail
           artifacts="$(
-            gh api               "repos/${GITHUB_REPOSITORY}/actions/artifacts?name=paper-radar-daily-workspace&per_page=100"
+            gh api               "repos/${GITHUB_REPOSITORY}/actions/artifacts?name=${PAPER_RADAR_ARTIFACT_NAME}&per_page=100"
           )"
           prior_run_id="$(
             jq -r '
@@ -103,30 +128,15 @@ jobs:
             exit 0
           fi
 
-          runs="$(
-            gh api               "repos/${GITHUB_REPOSITORY}/actions/workflows/daily-paper-radar.yml/runs?per_page=20"
-          )"
-          prior_count="$(
-            jq --argjson current "${GITHUB_RUN_ID}" '
-              [
-                .workflow_runs[]
-                | select(.id != $current)
-                | select(
-                    .event == "schedule"
-                    or .event == "workflow_dispatch"
-                  )
-              ]
-              | length
-            ' <<<"$runs"
-          )"
-          if [[ "$prior_count" == "0" || "${BOOTSTRAP_REQUESTED:-false}" == "true" ]]; then
+          artifact_count="$(jq -r '.total_count // 0' <<<"$artifacts")"
+          if [[ "$artifact_count" == "0" || "${BOOTSTRAP_REQUESTED:-false}" == "true" ]]; then
             echo "found=false" >>"$GITHUB_OUTPUT"
             echo "bootstrap=true" >>"$GITHUB_OUTPUT"
             exit 0
           fi
 
-          echo "::error::Durable Paper Radar workspace artifact is missing."
-          echo "::error::Refusing automatic re-bootstrap because prior daily runs exist."
+          echo "::error::Durable Paper Radar workspace artifact is missing for $PAPER_RADAR_DOMAIN_ID."
+          echo "::error::Refusing automatic re-bootstrap because this domain had durable state before."
           echo "::error::After investigating state loss, manually dispatch with bootstrap=true if reset is intentional."
           exit 1
 
@@ -134,7 +144,7 @@ jobs:
         if: steps.state.outputs.found == 'true'
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          name: paper-radar-daily-workspace
+          name: ${{ env.PAPER_RADAR_ARTIFACT_NAME }}
           path: ${{ env.PAPER_RADAR_WORKSPACE_DIR }}
           github-token: ${{ github.token }}
           repository: ${{ github.repository }}
@@ -150,8 +160,8 @@ jobs:
             printf 'PAPER_RADAR_ALLOW_LIVE_SOURCE=true\n'
             printf 'PAPER_RADAR_ALLOW_LIVE_MODEL=true\n'
             printf 'PAPER_RADAR_ALLOW_LIVE_MAIL=true\n'
-            printf 'PAPER_RADAR_PROFILE_DOMAINS=software_engineering,deep_learning,machine_learning,statistics\n'
-            printf 'PAPER_RADAR_PROFILE_SCOPE=關注軟體工程、深度學習、機器學習與統計學的新 arXiv 論文。\n'
+            printf 'PAPER_RADAR_PROFILE_DOMAINS=%s\n' "$PAPER_RADAR_DOMAIN_ID"
+            printf 'PAPER_RADAR_PROFILE_SCOPE=%s\n' "$PAPER_RADAR_DOMAIN_SCOPE"
             printf 'PAPER_RADAR_OPENROUTER_API_KEY=%s\n' "$PAPER_RADAR_OPENROUTER_API_KEY"
             printf 'PAPER_RADAR_MODEL_MONTHLY_BUDGET_USD=2.00\n'
             printf 'PAPER_RADAR_RECIPIENT_EMAIL=%s\n' "$PAPER_RADAR_SMTP_RECIPIENT"
@@ -208,7 +218,7 @@ jobs:
           printf '%s\n' "$status_json"
 
           {
-            echo "## Paper Radar delivery status"
+            echo "## Paper Radar delivery status — $PAPER_RADAR_DOMAIN_LABEL"
             echo
             if [[ "$(jq '.deliveries | length' <<<"$status_json")" == "0" ]]; then
               echo "No delivery history yet."
@@ -238,7 +248,7 @@ jobs:
         if: always() && steps.workspace.outputs.ready == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: paper-radar-daily-workspace
+          name: ${{ env.PAPER_RADAR_ARTIFACT_NAME }}
           path: ${{ env.PAPER_RADAR_WORKSPACE_DIR }}
           if-no-files-found: error
           retention-days: 30
