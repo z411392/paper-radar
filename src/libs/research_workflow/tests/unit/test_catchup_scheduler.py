@@ -360,7 +360,7 @@ def test_pending_delivery_outbox_is_scheduled_even_when_harvest_blocks_new_diges
         "harvest_window",
     ]
     dispatch = PlanCatchupJobs.decode(plan.jobs[0].input_json)
-    assert dispatch == {"outbox_id": "outbox:status"}
+    assert dispatch == {"outbox_id": "outbox:status", "prepare_digest": None}
     assert plan.jobs[0].business_key == "dispatch:outbox:status"
     assert plan.digest_deferred is True
 
