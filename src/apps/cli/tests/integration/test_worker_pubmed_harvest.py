@@ -158,7 +158,10 @@ def test_worker_pubmed_harvest_projects_catalog_event_and_abstract_evidence(
     assert result.scheduler.coverage_gaps == ()
     assert result.processed_jobs == 1
     assert result.jobs[0].job_kind == "harvest_window"
-    assert result.jobs[0].state == "succeeded"
+    assert result.jobs[0].state == "succeeded", (
+        result.jobs[0].state,
+        result.jobs[0].error_code,
+    )
     assert len(transport.urls) == 2
     assert "esearch.fcgi" in transport.urls[0]
     assert "efetch.fcgi" in transport.urls[1]
