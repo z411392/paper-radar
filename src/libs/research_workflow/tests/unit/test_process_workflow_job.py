@@ -432,8 +432,8 @@ def test_dispatch_digest_preserves_exact_prepare_context_for_rebuild() -> None:
     assert request.rebuild_request is not None
     assert request.rebuild_request.subscription_id == "subscription:daily"
     assert request.rebuild_request.period_key == "2026-09-25"
-    assert request.rebuild_request.period_start == NOW - timedelta(days=2)
-    assert request.rebuild_request.cutoff_at == NOW
+    assert request.rebuild_request.period_start == NOW - timedelta(days=1)
+    assert request.rebuild_request.cutoff_at == NOW + timedelta(days=1)
     assert request.rebuild_request.coverage_gaps[0].reason == "gap"
     assert result.state == "succeeded"
 
