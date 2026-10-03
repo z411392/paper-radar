@@ -4,8 +4,28 @@ from libs.delivery.dtos.digest_preview import SelectedDigestItem
 
 
 class DigestPreviewTemplate:
-    @staticmethod
-    def _heading(items: tuple[SelectedDigestItem, ...]) -> tuple[str, str]:
+    DOMAIN_LABELS = {
+        "deep_learning": "深度學習",
+        "machine_learning": "機器學習",
+        "statistics": "統計",
+        "badminton": "羽球",
+        "male_reproductive_urology": "男性生殖學／泌尿科醫學",
+    }
+
+    @classmethod
+    def _domain_label(cls, items: tuple[SelectedDigestItem, ...]) -> str | None:
+        domains = {
+            item.domains[0]
+            for item in items
+            if item.item_kind == "paper" and len(item.domains) == 1
+        }
+        paper_count = sum(item.item_kind == "paper" for item in items)
+        if paper_count != len(items) or len(domains) != 1:
+            return None
+        return cls.DOMAIN_LABELS.get(next(iter(domains)))
+
+    @classmethod
+    def _heading(cls, items: tuple[SelectedDigestItem, ...]) -> tuple[str, str]:
         status_count = sum(item.item_kind == "status_notice" for item in items)
         revision_count = sum(
             item.item_kind == "paper"
@@ -31,6 +51,12 @@ class DigestPreviewTemplate:
             return (
                 f"Paper Radar｜每日更新 {len(items)} 則",
                 "Paper Radar 每日更新",
+            )
+        domain_label = cls._domain_label(items)
+        if domain_label is not None:
+            return (
+                f"Paper Radar｜{domain_label}｜每日精選 {len(items)} 篇",
+                f"Paper Radar {domain_label} 每日精選",
             )
         return (
             f"Paper Radar｜每日精選 {len(items)} 篇",
