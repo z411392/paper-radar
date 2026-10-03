@@ -271,9 +271,9 @@ class PlanCatchupJobs:
             }:
                 raise WorkflowJobError("invalid_scheduler_job_state")
             if explanation.state in {"pending", "running"}:
-                # A daily email must not wait for the entire explanation backlog.
-                # The digest selects from summaries that are already ready.
-                continue
+                # The user asked for all matching new papers, not a partial digest.
+                # Wait until the current explanation queue is drained.
+                blocks_digest = True
             elif explanation.state == "failed":
                 gaps.append(
                     CoverageGap(
