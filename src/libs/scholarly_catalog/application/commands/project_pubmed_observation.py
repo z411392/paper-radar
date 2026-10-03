@@ -109,10 +109,15 @@ class ProjectPubmedObservation:
             "doi": record.doi,
             "pmcid": record.pmcid,
         }
+        event_kind = (
+            "new_work"
+            if resolution.created_work or not resolution.created_revision
+            else "revision_available"
+        )
         event_id = self._record_revision(
             work_id=resolution.work_id,
             revision_id=resolution.revision_id,
-            event_kind="revision_available",
+            event_kind=event_kind,
             source_evidence_id=resolution.revision_id,
             source_evidence=evidence,
             occurred_at=None,

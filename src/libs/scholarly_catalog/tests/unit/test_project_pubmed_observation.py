@@ -86,6 +86,7 @@ def test_pubmed_projection_uses_pmid_without_inflating_date_precision() -> None:
     assert observed.source_updated_at is None
     event = recorder.calls[0]
     assert event["source_evidence_id"] == result.revision_id
+    assert event["event_kind"] == "new_work"
     assert event["occurred_at"] is None
     assert event["source_evidence"]["publication_date"] == "2026-Sep-20"
     assert event["source_evidence"]["publication_date_precision"] == "day"

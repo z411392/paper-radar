@@ -2,7 +2,7 @@
 
 GitHub Actions 排程的新論文翻譯 Email bot。正式產品需求、架構與交付入口見 [docs/README.md](docs/README.md)；開發者先讀 [CLAUDE.md](CLAUDE.md)。
 
-目前 MVP 已具備可執行的 durable workspace、arXiv 採集、canonical paper/evidence 投影、OpenRouter 繁體中文解說、daily digest、SMTP Email 與 durable worker 主線，並已取得 recent-paper live E2E PASS。main 是可執行 source of truth；正式排程直接執行 main 的 workflow event SHA，不再依賴 detached runtime pin。
+目前 MVP 已具備可執行的 durable workspace、arXiv／PubMed 採集、canonical paper/evidence 投影、OpenRouter 繁體中文解說、分領域 daily digest、SMTP Email 與 durable worker 主線，並已取得 recent-paper live E2E PASS。main 是可執行 source of truth；正式排程直接執行 main 的 workflow event SHA，不再依賴 detached runtime pin。
 
 FAISS／hybrid retrieval、搜尋／閱讀後台、reading history／bookmark／feedback、localhost HTTP／RSS、修訂更正通知、產品化 backup/restore、health dashboard、macOS launchd 正式部署都已明確移出產品 scope，不是延後 backlog。未來擴充只接受能直接改善「找到哪些新論文、如何篩選、如何翻譯整理、如何可靠寄 Email」的能力。
 
@@ -39,16 +39,18 @@ Migration 原文位於 root `migrations/`；只將明確啟用的 0001／0002 �
 
 ## 關注設定
 
-正常 MVP 不需要先跑 `domains import` / `profile publish`。研究範圍也放在同一份 owner-only
-`worker.env`：
+正常 production 由 GitHub Actions 為每個領域建立獨立 workspace；每個 workspace
+只追一個 domain，所以每個領域會形成獨立 Email 與獨立 durable state。正式追蹤的五個
+domain 是：
 
-```dotenv
-PAPER_RADAR_PROFILE_DOMAINS=software_engineering,deep_learning,machine_learning,statistics
-PAPER_RADAR_PROFILE_SCOPE=關注軟體工程、深度學習、機器學習與統計學的新 arXiv 論文。
-```
+- `deep_learning`：深度學習，來源 arXiv。
+- `machine_learning`：機器學習，來源 arXiv。
+- `statistics`：統計，來源 arXiv。
+- `badminton`：羽球，來源 PubMed。
+- `male_reproductive_urology`：男性生殖學／泌尿科醫學，來源 PubMed。
 
-目前 arXiv-only MVP 可選的 domain 是 `software_engineering`、`deep_learning`、
-`machine_learning`、`statistics`。worker 啟動時會先驗證 runtime schema v24，
+本機開發仍可在 owner-only `worker.env` 用 `PAPER_RADAR_PROFILE_DOMAINS` 與
+`PAPER_RADAR_PROFILE_SCOPE` 指定單一或多個 domain。worker 啟動時會先驗證 runtime schema v24，
 從 wheel 內建的 canonical `domain-seeds.json` idempotent 匯入 domain，再建立或更新
 `personal` profile；相同設定重跑不新增 revision。若 `.env` 改回先前已發布過的設定，
 worker 會明確把那個歷史 revision 設回 current，而不是新增一份重複 revision 或繼續沿用
@@ -86,7 +88,7 @@ SMTP transport 必須明示加密模式：implicit TLS（常見 port 465）使�
 `PAPER_RADAR_SMTP_SECURITY=ssl`；需要 STARTTLS（常見 port 587）的 provider 改成
 `PAPER_RADAR_SMTP_SECURITY=starttls`。不支援 plaintext SMTP。
 
-每日 Email 只寄 `new_work`。`late_discovery`、`revision_available`、`newly_accessible`、`correction`、`retraction` 可留在內部 catalog/history，但不進正式 daily digest。
+每日 Email 只寄 `new_work`。正式排程會依領域分成不同郵件，subject 會帶領域名稱，例如 `Paper Radar｜統計｜每日精選 2 篇`。`late_discovery`、`revision_available`、`newly_accessible`、`correction`、`retraction` 可留在內部 catalog/history，但不進正式 daily digest。
 
 是否真的寄過，不靠 subject 或畫面猜測；用
 `paper-radar digest status --env-file ...` 讀 durable delivery history。
@@ -202,10 +204,10 @@ cost receipt。API key 只由 GitHub secret 注入，不寫入 repo 或 log。
 `Daily Paper Radar` 是正式 daily worker，不是 smoke/CI。workflow 設定為每天 `Asia/Taipei 08:17` 排程，直接 checkout 該次 workflow event 的 `main` source；不再使用 detached runtime SHA pin。GitHub scheduled workflow 是 best-effort，實際 runner 開始時間可能因 GitHub 排程佇列而晚於 08:17；Email 在該次 run 完成後送出。
 
 GitHub-hosted runner 每次都是新機器，因此 daily workflow 不把 workspace 當暫存資料。
-每輪會從 `paper-radar-daily-workspace` artifact 還原完整 workspace，包含 harvest cursor、
-paper/catalog history、`notification_ledger`、delivery outbox 與 attempts；跑完後即使 worker
-失敗也會再保存 workspace。SMTP/OpenRouter secrets 與 recipient email 只寫到 runner 的
-owner-only 暫存 `worker.env`，不包含在 workspace artifact。
+正式 workflow 使用五個獨立 artifact：`paper-radar-daily-<domain_id>`。五個 domain job
+以 `max-parallel: 1` 串行執行，避免同時打 arXiv／NCBI；每個 artifact 各自保存 harvest cursor、
+paper/catalog history、`notification_ledger`、delivery outbox 與 attempts。SMTP/OpenRouter
+secrets 與 recipient email 只寫到 runner 的 owner-only 暫存 `worker.env`，不包含在 artifact。
 
 第一次從未有過 daily state 時，workflow 會初始化 runtime workspace 並明示 enable effects。
 之後若已經有 daily run 歷史卻找不到 workspace artifact，workflow 會 fail closed，不會自動
@@ -213,7 +215,7 @@ owner-only 暫存 `worker.env`，不包含在 workspace artifact。
 `workflow_dispatch` 並指定 `bootstrap=true`。
 
 每輪執行 4 個 finite `run-worker --once` cycle，不再啟動 daemon 後靠 shell timeout 強制殺掉。
-每日 arXiv harvest 會完整投影 metadata，但每個 domain / harvest unit 最多只排 2 個
+每日 arXiv／PubMed harvest 會完整投影 metadata，但每個 domain / harvest unit 最多只排 2 個
 explanation candidate，避免大量新論文把模型 queue 塞爆；daily digest 最多仍寄 5 篇，
 而且不會等待整個 explanation backlog 清空才建立。結束時會執行
 `digest status --limit 10`，Actions log 可直接看到 durable `sent/pending/unknown/failed`

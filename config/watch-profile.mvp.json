@@ -1,13 +1,9 @@
 {
   "id": "personal",
   "reader_id": "local",
-  "name": "我的 arXiv 論文雷達",
-  "scope_text": "關注軟體工程、深度學習、機器學習與統計學的新 arXiv 論文；優先提供繁體中文摘要與研究重點。",
+  "name": "我的論文雷達",
+  "scope_text": "關注深度學習、機器學習、統計、羽球，以及男性生殖學／泌尿科醫學的新論文；提供繁體中文摘要與研究重點。",
   "domains": [
-    {
-      "id": "software_engineering",
-      "revision": 1
-    },
     {
       "id": "deep_learning",
       "revision": 1
@@ -19,16 +15,23 @@
     {
       "id": "statistics",
       "revision": 1
+    },
+    {
+      "id": "badminton",
+      "revision": 1
+    },
+    {
+      "id": "male_reproductive_urology",
+      "revision": 1
     }
   ],
   "filters": {
     "include": [],
     "exclude": [],
-    "languages": [
-      "en"
-    ],
+    "languages": [],
     "sources": [
-      "arxiv"
+      "arxiv",
+      "pubmed"
     ],
     "free_only": true,
     "allow_preprints": true

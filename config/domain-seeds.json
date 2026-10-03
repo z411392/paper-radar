@@ -89,11 +89,11 @@
       "source_categories": {
         "arxiv": [
           "stat.AP",
-        "stat.CO",
-        "stat.ME",
-        "stat.ML",
-        "stat.OT",
-        "stat.TH"
+          "stat.CO",
+          "stat.ME",
+          "stat.ML",
+          "stat.OT",
+          "stat.TH"
         ]
       }
     },
@@ -113,6 +113,29 @@
       "exclude": [
         "Badminton House"
       ],
+      "sources": [
+        "pubmed",
+        "crossref"
+      ],
+      "source_categories": {}
+    },
+    {
+      "id": "male_reproductive_urology",
+      "name": "男性生殖學／泌尿科醫學",
+      "aliases": [
+        "andrology",
+        "male reproductive health",
+        "male infertility",
+        "urology"
+      ],
+      "include": [
+        "spermatogenesis",
+        "semen analysis",
+        "erectile dysfunction",
+        "testicular",
+        "prostate"
+      ],
+      "exclude": [],
       "sources": [
         "pubmed",
         "crossref"

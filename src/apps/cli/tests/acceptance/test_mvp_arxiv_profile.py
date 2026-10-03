@@ -32,7 +32,7 @@ def ok(result: subprocess.CompletedProcess[str]) -> dict:
     return json.loads(result.stdout)
 
 
-def test_mvp_profile_schedules_only_arxiv_bindings(tmp_path: Path) -> None:
+def test_mvp_profile_schedules_requested_arxiv_and_pubmed_bindings(tmp_path: Path) -> None:
     workspace = tmp_path / "runtime"
     initialized = ok(
         cli(
@@ -67,7 +67,7 @@ def test_mvp_profile_schedules_only_arxiv_bindings(tmp_path: Path) -> None:
             str(ROOT / "config/watch-profile.mvp.json"),
         )
     )
-    assert published["filters"]["sources"] == ["arxiv"]
+    assert published["filters"]["sources"] == ["arxiv", "pubmed"]
 
     snapshot = SqliteSchedulerInputAdapter(
         SqliteConnectionFactory(workspace).connect
@@ -78,8 +78,9 @@ def test_mvp_profile_schedules_only_arxiv_bindings(tmp_path: Path) -> None:
         (item.domain_id, item.source_id)
         for item in snapshot.harvest_bindings
     } == {
-        ("software_engineering", "arxiv"),
         ("deep_learning", "arxiv"),
         ("machine_learning", "arxiv"),
         ("statistics", "arxiv"),
+        ("badminton", "pubmed"),
+        ("male_reproductive_urology", "pubmed"),
     }

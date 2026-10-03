@@ -468,9 +468,25 @@ def run_worker_cli(
                 env_profile_domains,
                 env_profile_scope,
             )
-            env_profile_domain_count = len(
-                json.loads(env_profile_document)["domains"]
-            )
+            profile_payload = json.loads(env_profile_document)
+            env_profile_domain_count = len(profile_payload["domains"])
+            profile_sources = frozenset(profile_payload["filters"]["sources"])
+            if "pubmed" in profile_sources:
+                contact_email = (
+                    arguments.recipient_email
+                    or arguments.smtp_sender
+                )
+                if contact_email is None:
+                    parser.error(
+                        "PubMed profile requires recipient or SMTP sender "
+                        "email for NCBI contact"
+                    )
+                arguments.ncbi_email = contact_email
+                arguments.ncbi_rate_limit_state = str(
+                    Path(arguments.workspace)
+                    / "state"
+                    / "ncbi-rate-limit.json"
+                )
         except ConfigurationFileError as exc:
             _error(exc.code)
             raise SystemExit(1) from None
