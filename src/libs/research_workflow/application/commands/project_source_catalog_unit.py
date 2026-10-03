@@ -35,7 +35,6 @@ from libs.scholarly_catalog.ports.project_pubmed_observation_port import (
 
 class ProjectSourceCatalogUnit:
     _SOURCES = frozenset({"arxiv", "pubmed"})
-    _MAX_EXPLANATION_CANDIDATES_PER_UNIT = 2
 
     def __init__(
         self,
@@ -193,11 +192,7 @@ class ProjectSourceCatalogUnit:
                 result = self._pubmed_project(replay)
             if result.observation_id != observation_id:
                 raise Error("source_catalog_projection_result_mismatch")
-            if (
-                context is not None
-                and progress.projected_count
-                < self._MAX_EXPLANATION_CANDIDATES_PER_UNIT
-            ):
+            if context is not None:
                 self._enqueue_explanation(
                     context,
                     replay,
