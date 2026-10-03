@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: "17 8 * * *"
       timezone: "Asia/Taipei"
+  push:
+    branches:
+      - "ops/reset-daily-state-20261003"
+    paths:
+      - ".github/workflows/daily-paper-radar.yml"
   workflow_dispatch:
     inputs:
       bootstrap:
@@ -85,6 +90,11 @@ jobs:
           BOOTSTRAP_REQUESTED: ${{ github.event_name == 'workflow_dispatch' && inputs.bootstrap }}
         run: |
           set -euo pipefail
+          if [[ "${GITHUB_REF_NAME}" == "ops/reset-daily-state-20261003" ]]; then
+            echo "found=false" >>"$GITHUB_OUTPUT"
+            echo "bootstrap=true" >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
           artifacts="$(
             gh api               "repos/${GITHUB_REPOSITORY}/actions/artifacts?name=paper-radar-daily-workspace&per_page=100"
           )"
