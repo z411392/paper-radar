@@ -156,12 +156,13 @@ def test_worker_pubmed_harvest_projects_catalog_event_and_abstract_evidence(
 
     assert result.scheduler.new_jobs == 1
     assert result.scheduler.coverage_gaps == ()
-    assert result.processed_jobs == 1
+    assert result.processed_jobs == 2
     assert result.jobs[0].job_kind == "harvest_window"
-    assert result.jobs[0].state == "succeeded", (
-        result.jobs[0].state,
-        result.jobs[0].error_code,
-    )
+    assert result.jobs[0].state == "succeeded"
+    assert result.jobs[0].error_code is None
+    assert result.jobs[1].job_kind == "explain_snapshot"
+    assert result.jobs[1].state == "awaiting_external"
+    assert result.jobs[1].error_code == "explanation_runtime_not_connected"
     assert len(transport.urls) == 2
     assert "esearch.fcgi" in transport.urls[0]
     assert "efetch.fcgi" in transport.urls[1]
