@@ -16,7 +16,7 @@ Paper Radar 是一個 GitHub Actions 排程的論文 Email bot，不是本機研
   Owner Story：https://github.com/z411392/paper-radar/issues/9
 - E2：只對符合關注範圍的新論文產生繁體中文翻譯／白話整理；模型失敗明確失敗，不用其他模型偷偷替代。
   Owner Story：https://github.com/z411392/paper-radar/issues/17
-- E3：每天建立固定上限的 digest 並可靠寄到指定 Email；相同事件重跑不重寄，unknown delivery 不自動重送。
+- E3：每個領域每天把該期間所有符合條件的新論文建立 digest 並可靠寄到指定 Email；不做 top-N 精選，相同事件重跑不重寄，unknown delivery 不自動重送。
   Owner Story：https://github.com/z411392/paper-radar/issues/21
 - E4：GitHub Actions 保存並恢復最小 durable workspace；state 遺失時 fail closed，不自動建立空狀態造成歷史重寄。
 
