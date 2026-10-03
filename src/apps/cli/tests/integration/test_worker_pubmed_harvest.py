@@ -200,7 +200,7 @@ def test_worker_pubmed_harvest_projects_catalog_event_and_abstract_evidence(
         event = connection.execute(
             "SELECT revision_id,event_kind FROM research_events"
         ).fetchone()
-        assert tuple(event) == (revision["id"], "revision_available")
+        assert tuple(event) == (revision["id"], "new_work")
 
         snapshot = connection.execute(
             "SELECT revision_id,evidence_level,parser_version "
