@@ -22,6 +22,10 @@ test:
 		src/apps/cli/tests/e2e/test_cli_package.py \
 		src/apps/cli/tests/acceptance/test_t01_local_workspace.py \
 		src/apps/cli/tests/acceptance/test_mvp_arxiv_profile.py \
+		src/apps/cli/tests/unit/test_mvp_profile_config.py \
+		src/apps/cli/tests/integration/test_worker_pubmed_harvest.py \
+		src/libs/scholarly_catalog/tests/unit/test_project_pubmed_observation.py \
+		src/libs/scholarly_catalog/tests/integration/test_pubmed_catalog_projection.py \
 		src/libs/research_workflow/tests/contract/test_resumable_harvest.py \
 		src/libs/research_workflow/tests/unit/test_project_source_catalog_unit.py \
 		src/libs/research_workflow/tests/unit/test_catchup_scheduler.py \
