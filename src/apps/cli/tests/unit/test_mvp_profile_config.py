@@ -39,6 +39,7 @@ def test_mvp_profile_builder_uses_pubmed_for_medical_domains(domain_id: str) -> 
     )
 
     assert payload["filters"]["sources"] == ["pubmed"]
+    assert payload["filters"]["languages"] == ["english"]
     assert payload["domains"] == [
         {"id": domain_id, "revision": 1},
     ]
