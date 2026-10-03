@@ -55,6 +55,18 @@ def test_input_order_does_not_change_preview_identity() -> None:
     assert first.content_fingerprint == second.content_fingerprint
 
 
+def test_single_domain_digest_subject_uses_human_label() -> None:
+    candidate = replace(
+        item("event:a", "work:a", 1),
+        domains=("male_reproductive_urology",),
+    )
+
+    preview = PrepareDigest()(request((candidate,)))
+
+    assert preview.subject == "Paper Radar｜男性生殖學／泌尿科醫學｜每日精選 1 篇"
+    assert "Paper Radar 男性生殖學／泌尿科醫學 每日精選" in preview.text_body
+
+
 def test_dynamic_text_is_not_interpreted_as_html() -> None:
     candidate = DigestCandidate(
         event_id="event:a",
