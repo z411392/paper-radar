@@ -72,6 +72,13 @@ def mvp_profile_json(domains_csv: str, scope_text: str) -> str:
         if source in selected_sources
     ]
 
+    languages = (
+        ["english"]
+        if sources == ["pubmed"]
+        else ["en"]
+        if sources == ["arxiv"]
+        else []
+    )
     payload = {
         "id": "personal",
         "reader_id": "local",
@@ -84,7 +91,7 @@ def mvp_profile_json(domains_csv: str, scope_text: str) -> str:
         "filters": {
             "include": [],
             "exclude": [],
-            "languages": ["en"],
+            "languages": languages,
             "sources": sources,
             "free_only": True,
             "allow_preprints": True,
