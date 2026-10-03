@@ -28,9 +28,7 @@
   "filters": {
     "include": [],
     "exclude": [],
-    "languages": [
-      "en"
-    ],
+    "languages": [],
     "sources": [
       "arxiv",
       "pubmed"
