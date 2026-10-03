@@ -24,6 +24,8 @@ test:
 		src/apps/cli/tests/acceptance/test_mvp_arxiv_profile.py \
 		src/libs/research_workflow/tests/contract/test_resumable_harvest.py \
 		src/libs/research_workflow/tests/unit/test_project_source_catalog_unit.py \
+		src/libs/research_workflow/tests/unit/test_catchup_scheduler.py \
+		src/libs/research_workflow/tests/unit/test_process_workflow_job.py \
 		src/libs/paper_explanations/tests/contract/test_t12_grounded_explanations.py \
 		src/libs/paper_explanations/tests/contract/test_task19_openrouter.py \
 		src/libs/delivery/tests/integration/test_scheduled_digest_pipeline.py \
