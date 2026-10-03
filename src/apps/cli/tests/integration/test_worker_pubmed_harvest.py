@@ -92,8 +92,8 @@ def _workspace(tmp_path: Path) -> Path:
             (
                 "badminton",
                 "羽球",
-                '{"id":"badminton","name":"羽球","aliases":["badminton"],'
-                '"exclude":[],"include":["badminton"],'
+                '{"aliases":["badminton"],"exclude":[],"id":"badminton",'
+                '"include":["badminton"],"name":"羽球",'
                 '"source_categories":{},"sources":["pubmed"]}',
                 1,
                 NOW.isoformat(),
