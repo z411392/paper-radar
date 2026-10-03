@@ -217,4 +217,7 @@ class DigestSelectionRules:
         items.sort(key=lambda item: item.event_id)
         items.sort(key=lambda item: item.event_at, reverse=True)
         items.sort(key=lambda item: item.priority, reverse=True)
-        return tuple(items[: request.max_items])
+        # max_items is retained in the persisted subscription schema for
+        # backward compatibility, but the product no longer performs top-N
+        # selection. Every eligible, deduplicated new paper is included.
+        return tuple(items)
