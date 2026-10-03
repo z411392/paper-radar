@@ -44,7 +44,7 @@ jobs:
             domain_label: 男性生殖學／泌尿科醫學
             scope: 關注男性生殖學、男性不孕、男科學與泌尿科醫學的新研究。
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 180
     env:
       UV_PYTHON: "3.13.5"
       PAPER_RADAR_OPENROUTER_API_KEY: ${{ secrets.PAPER_RADAR_OPENROUTER_API_KEY }}
@@ -173,10 +173,10 @@ jobs:
             printf 'PAPER_RADAR_SMTP_PASSWORD=%s\n' "$PAPER_RADAR_SMTP_PASSWORD"
             printf 'PAPER_RADAR_DIGEST_TIMEZONE=Asia/Taipei\n'
             printf 'PAPER_RADAR_DIGEST_LOCAL_TIME=08:00\n'
-            printf 'PAPER_RADAR_DIGEST_MAX_ITEMS=5\n'
+            printf 'PAPER_RADAR_DIGEST_MAX_ITEMS=100\n'
             printf 'PAPER_RADAR_POLL_SECONDS=10\n'
             printf 'PAPER_RADAR_MAX_NEW_JOBS=50\n'
-            printf 'PAPER_RADAR_MAX_JOBS=50\n'
+            printf 'PAPER_RADAR_MAX_JOBS=5\n'
             printf 'PAPER_RADAR_LEASE_SECONDS=300\n'
           } >"$PAPER_RADAR_ENV_FILE"
           chmod 600 "$PAPER_RADAR_ENV_FILE"
@@ -193,17 +193,31 @@ jobs:
           test -d "$PAPER_RADAR_WORKSPACE_DIR"
           echo "ready=true" >>"$GITHUB_OUTPUT"
 
-      - name: Run bounded daily worker cycles
+      - name: Drain today's worker queue
         shell: bash
         run: |
           set -euo pipefail
-          for cycle in 1 2 3 4
+          drained=false
+          for cycle in $(seq 1 200)
           do
-            echo "Paper Radar worker cycle $cycle/4"
-            uv run --locked python -m apps.cli run-worker \
-              --env-file "$PAPER_RADAR_ENV_FILE" \
-              --once
+            echo "Paper Radar worker cycle $cycle"
+            output="$(
+              uv run --locked python -m apps.cli run-worker \
+                --env-file "$PAPER_RADAR_ENV_FILE" \
+                --once
+            )"
+            printf '%s\n' "$output"
+            processed="$(jq -r '.processed_jobs' <<<"$output")"
+            new_jobs="$(jq -r '.scheduler.new_jobs' <<<"$output")"
+            if [[ "$processed" == "0" && "$new_jobs" == "0" ]]; then
+              drained=true
+              break
+            fi
           done
+          if [[ "$drained" != "true" ]]; then
+            echo "::error::Daily worker queue did not drain within 200 cycles."
+            exit 1
+          fi
 
       - name: Show durable delivery status
         if: always() && steps.workspace.outputs.ready == 'true'
