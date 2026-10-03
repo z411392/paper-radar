@@ -396,7 +396,7 @@ class ProcessWorkflowJob:
                         projection = self._source_catalog(
                             source_id,
                             progress.unit_id,
-                            max_observations=100,
+                            max_observations=1000,
                             projected_at=self._clock.now(),
                         )
                     except (

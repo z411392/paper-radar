@@ -135,7 +135,7 @@ def test_harvest_job_uses_exact_scheduled_revisions_and_completes() -> None:
     source_catalog.assert_called_once_with(
         "arxiv",
         UNIT,
-        max_observations=100,
+        max_observations=1000,
         projected_at=NOW + timedelta(seconds=2),
     )
     assert result.state == "succeeded"
@@ -291,7 +291,7 @@ def test_pubmed_job_uses_dedicated_runner_and_create_date_basis() -> None:
     source_catalog.assert_called_once_with(
         "pubmed",
         UNIT,
-        max_observations=100,
+        max_observations=1000,
         projected_at=NOW + timedelta(seconds=2),
     )
     assert result.state == "succeeded"
