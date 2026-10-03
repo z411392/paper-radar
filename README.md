@@ -199,7 +199,7 @@ cost receipt。API key 只由 GitHub secret 注入，不寫入 repo 或 log。
 
 ### GitHub Actions 每日正式排程（非 CI）
 
-`Daily Paper Radar` 是正式 daily worker，不是 smoke/CI。workflow 每天在 `Asia/Taipei 08:17` 執行，直接 checkout 該次 workflow event 的 `main` source；不再使用 detached runtime SHA pin。
+`Daily Paper Radar` 是正式 daily worker，不是 smoke/CI。workflow 設定為每天 `Asia/Taipei 08:17` 排程，直接 checkout 該次 workflow event 的 `main` source；不再使用 detached runtime SHA pin。GitHub scheduled workflow 是 best-effort，實際 runner 開始時間可能因 GitHub 排程佇列而晚於 08:17；Email 在該次 run 完成後送出。
 
 GitHub-hosted runner 每次都是新機器，因此 daily workflow 不把 workspace 當暫存資料。
 每輪會從 `paper-radar-daily-workspace` artifact 還原完整 workspace，包含 harvest cursor、
@@ -212,8 +212,10 @@ owner-only 暫存 `worker.env`，不包含在 workspace artifact。
 建立新的空 workspace；這避免遺失「已寄過」紀錄後重複投遞。確認真的要重置時，才手動
 `workflow_dispatch` 並指定 `bootstrap=true`。
 
-每輪用正式 daemon 跑 bounded 8 分鐘，poll 10 秒，讓 arXiv rate-limit、explanation、
-digest、SMTP 4xx 的 5 分鐘 retry 都能沿原 workflow state machine 推進。結束時會執行
+每輪執行 4 個 finite `run-worker --once` cycle，不再啟動 daemon 後靠 shell timeout 強制殺掉。
+每日 arXiv harvest 會完整投影 metadata，但每個 domain / harvest unit 最多只排 2 個
+explanation candidate，避免大量新論文把模型 queue 塞爆；daily digest 最多仍寄 5 篇，
+而且不會等待整個 explanation backlog 清空才建立。結束時會執行
 `digest status --limit 10`，Actions log 可直接看到 durable `sent/pending/unknown/failed`
 狀態。workspace artifact 保留 30 天；正常每天執行會持續產生新的最新 state。
 
