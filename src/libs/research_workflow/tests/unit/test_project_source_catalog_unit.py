@@ -286,7 +286,7 @@ def test_unavailable_abstract_does_not_enqueue_explanation_job() -> None:
     assert jobs.requests == []
 
 
-def test_explanation_candidates_are_bounded_per_harvest_unit() -> None:
+def test_every_available_observation_enqueues_explanation_work() -> None:
     jobs = Jobs()
 
     class ThreePage:
@@ -314,4 +314,5 @@ def test_explanation_candidates_are_bounded_per_harvest_unit() -> None:
     assert [job.business_key for job in jobs.requests] == [
         f"explain:{O1}:personal:3:statistics:1",
         f"explain:{O2}:personal:3:statistics:1",
+        f"explain:{O3}:personal:3:statistics:1",
     ]

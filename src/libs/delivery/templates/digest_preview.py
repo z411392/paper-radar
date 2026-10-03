@@ -55,12 +55,12 @@ class DigestPreviewTemplate:
         domain_label = cls._domain_label(items)
         if domain_label is not None:
             return (
-                f"Paper Radar｜{domain_label}｜每日精選 {len(items)} 篇",
-                f"Paper Radar {domain_label} 每日精選",
+                f"Paper Radar｜{domain_label}｜每日新論文 {len(items)} 篇",
+                f"Paper Radar {domain_label} 每日新論文",
             )
         return (
-            f"Paper Radar｜每日精選 {len(items)} 篇",
-            "Paper Radar 每日精選",
+            f"Paper Radar｜每日新論文 {len(items)} 篇",
+            "Paper Radar 每日新論文",
         )
 
     @staticmethod

@@ -77,7 +77,7 @@ owner-only worker `.env`：
 ```dotenv
 PAPER_RADAR_DIGEST_TIMEZONE=Asia/Taipei
 PAPER_RADAR_DIGEST_LOCAL_TIME=08:00
-PAPER_RADAR_DIGEST_MAX_ITEMS=5
+PAPER_RADAR_DIGEST_MAX_ITEMS=100
 ```
 
 `run-worker --env-file ...` 每次啟動都會 idempotent 對齊本機
@@ -88,7 +88,7 @@ SMTP transport 必須明示加密模式：implicit TLS（常見 port 465）使�
 `PAPER_RADAR_SMTP_SECURITY=ssl`；需要 STARTTLS（常見 port 587）的 provider 改成
 `PAPER_RADAR_SMTP_SECURITY=starttls`。不支援 plaintext SMTP。
 
-每日 Email 只寄 `new_work`。正式排程會依領域分成不同郵件，subject 會帶領域名稱，例如 `Paper Radar｜統計｜每日精選 2 篇`。`late_discovery`、`revision_available`、`newly_accessible`、`correction`、`retraction` 可留在內部 catalog/history，但不進正式 daily digest。
+每日 Email 只寄 `new_work`。正式排程會依領域分成不同郵件，subject 會帶領域名稱，例如 `Paper Radar｜統計｜每日新論文 2 篇`。`late_discovery`、`revision_available`、`newly_accessible`、`correction`、`retraction` 可留在內部 catalog/history，但不進正式 daily digest。
 
 是否真的寄過，不靠 subject 或畫面猜測；用
 `paper-radar digest status --env-file ...` 讀 durable delivery history。
@@ -215,9 +215,7 @@ secrets 與 recipient email 只寫到 runner 的 owner-only 暫存 `worker.env`�
 `workflow_dispatch` 並指定 `bootstrap=true`。
 
 每輪執行 4 個 finite `run-worker --once` cycle，不再啟動 daemon 後靠 shell timeout 強制殺掉。
-每日 arXiv／PubMed harvest 會完整投影 metadata，但每個 domain / harvest unit 最多只排 2 個
-explanation candidate，避免大量新論文把模型 queue 塞爆；daily digest 最多仍寄 5 篇，
-而且不會等待整個 explanation backlog 清空才建立。結束時會執行
+每日 arXiv／PubMed harvest 會完整投影 metadata；符合該 domain 的新論文會全部排進 explanation queue，沒有 top-N 或「精選」上限。正式 daily job 會持續跑 finite `--once` cycles 直到當天 queue 清空後才建立該領域 Email，因此不會在還有論文待翻譯時先寄 partial digest。`PAPER_RADAR_DIGEST_MAX_ITEMS` 只保留給舊 subscription schema 相容，正式 selection 不再用它截斷內容。結束時會執行
 `digest status --limit 10`，Actions log 可直接看到 durable `sent/pending/unknown/failed`
 狀態。workspace artifact 保留 30 天；正常每天執行會持續產生新的最新 state。
 

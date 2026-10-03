@@ -90,7 +90,7 @@ Work／Manifestation／Revision 分層。確定識別碼與可信明示關係優
 FTS、FAISS、embedding search、hybrid retrieval、搜尋 UI 不屬於 Paper Radar Email bot 的產品需求。既有歷史規格／migration 可保留相容性，但不得作為 release exit、active backlog 或 daily pipeline 前置。
 
 <a id="r12"></a>
-### R12 — 每日精選與推送
+### R12 — 每日新論文與推送
 
 email 為第一通道；固定 digest snapshot 與 transactional outbox。通知身份依讀者×研究事件×channel，不因重跑、跨來源或模型重寫產生新通知。
 
@@ -132,7 +132,7 @@ localhost HTTP、RSS 閱讀產品、搜尋、收藏、閱讀歷史、reader feed
 
 ## 可調整的初始預設
 
-這些是提案設定，不是來源 SLA，也不是當次收集／寄送授權：Asia/Taipei 每日排程；目標 5 篇、不湊數；初次回填有界；預印本允許並標記；daily Email 只寄新論文。abstract 足以進 MVP 解說流程，不要求免費全文入口。
+這些是提案設定，不是來源 SLA，也不是當次收集／寄送授權：Asia/Taipei 每日排程；每個領域寄出該期間所有符合條件的新論文，不做 top-N／精選上限；初次回填有界；預印本允許並標記；daily Email 只寄新論文。abstract 足以進 MVP 解說流程，不要求免費全文入口。
 
 預設 `delivery_enabled=false`，直到 live commissioning 設定完整。LLM gateway/model 已依 R10 選定；金額預算、收件地址與 SMTP 寄送方式仍需明確配置。LLM 憑證只留本機安全環境，範例預設 `enabled=false`；模型已選不等於已授權付費呼叫。可先完成 hermetic 路徑，不以 credentials 缺失阻擋純工程工作。
 
@@ -140,7 +140,7 @@ localhost HTTP、RSS 閱讀產品、搜尋、收藏、閱讀歷史、reader feed
 
 D01（模型選型已決定）：2026-09-23 PO 選用 OpenRouter／`google/gemini-3.8-flash`。模型選型不再是待決事項；憑證、推論參數、預算與受控 live commissioning 仍需明確配置。產品不需要 embedding model。
 D02：寄件服務與指定收件者。由 PO 在 S05 controlled delivery 前指定；不影響 outbox 與 preview。
-D03：每日閱讀量與費用上限。提案值可改；發信／付費前確認，不自動帶入前報告的舊模型價格。
+D03：模型費用仍由明示 budget gate 保護，但不得用論文篇數 cap 或 top-N ranking 代替費用控制。若 budget 不足，workflow 應明確失敗／延後，而不是靜默漏寄部分論文。
 D04：HTTP/RSS 已依 2026-09-30 產品裁決移出 scope，不再是待決事項。
 
 工程缺件、adapter 實測、runtime session 尚未建立，留在 owning Task，不把它們偽裝成未決產品需求。
