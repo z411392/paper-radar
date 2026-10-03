@@ -183,11 +183,17 @@ jobs:
           test -d "$PAPER_RADAR_WORKSPACE_DIR"
           echo "ready=true" >>"$GITHUB_OUTPUT"
 
-      - name: Run bounded daily worker window
+      - name: Run bounded daily worker cycles
         shell: bash
         run: |
           set -euo pipefail
-          timeout             --preserve-status             --signal=TERM             --kill-after=30s             8m             uv run --locked python -m apps.cli run-worker               --env-file "$PAPER_RADAR_ENV_FILE"
+          for cycle in 1 2 3 4
+          do
+            echo "Paper Radar worker cycle $cycle/4"
+            uv run --locked python -m apps.cli run-worker \
+              --env-file "$PAPER_RADAR_ENV_FILE" \
+              --once
+          done
 
       - name: Show durable delivery status
         if: always() && steps.workspace.outputs.ready == 'true'
