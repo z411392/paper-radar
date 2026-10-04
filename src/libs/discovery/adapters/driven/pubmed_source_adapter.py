@@ -42,7 +42,25 @@ class _BoundedTreeBuilder(ET.TreeBuilder):
         self._depth -= 1
         return value
 
-    def doctype(self, name: str, pubid: str | None, system: str | None) -> NoReturn:
+    def doctype(self, name: str, pubid: str | None, system: str | None) -> None:
+        # PubMed eFetch XML legitimately declares the NLM PubMedArticle DTD.
+        # Accept only the canonical NLM declaration family; ElementTree does
+        # not need to fetch the external DTD for the document structure we use.
+        valid_system = (
+            isinstance(system, str)
+            and re.fullmatch(
+                r"https://dtd\.nlm\.nih\.gov/ncbi/pubmed/out/pubmed_[0-9]{6}\.dtd",
+                system,
+            )
+            is not None
+        )
+        valid_pubid = (
+            isinstance(pubid, str)
+            and pubid.startswith("-//NLM//DTD PubMedArticle")
+            and pubid.endswith("//EN")
+        )
+        if name == "PubmedArticleSet" and valid_system and valid_pubid:
+            return
         raise SourceParseError("xml_doctype_forbidden", self._digest)
 
 

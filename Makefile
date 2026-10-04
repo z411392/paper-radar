@@ -24,6 +24,7 @@ test:
 		src/apps/cli/tests/acceptance/test_mvp_arxiv_profile.py \
 		src/apps/cli/tests/unit/test_mvp_profile_config.py \
 		src/apps/cli/tests/integration/test_worker_pubmed_harvest.py \
+		src/libs/discovery/tests/unit/test_pubmed_doctype.py \
 		src/libs/scholarly_catalog/tests/unit/test_project_pubmed_observation.py \
 		src/libs/scholarly_catalog/tests/integration/test_pubmed_catalog_projection.py \
 		src/libs/research_workflow/tests/contract/test_resumable_harvest.py \
