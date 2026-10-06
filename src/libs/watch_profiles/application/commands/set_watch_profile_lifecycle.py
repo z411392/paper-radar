@@ -7,6 +7,6 @@ class SetWatchProfileLifecycle:
         self._store = store
 
     def __call__(self, profile_id: str, lifecycle: str) -> None:
-        if lifecycle not in {"active", "paused"}:
+        if not isinstance(lifecycle, str) or lifecycle not in {"active", "paused"}:
             raise WatchConfigurationError("invalid_lifecycle")
         self._store.set_lifecycle(profile_id, lifecycle)
