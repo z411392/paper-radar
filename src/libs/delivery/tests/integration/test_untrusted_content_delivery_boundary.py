@@ -42,9 +42,20 @@ class Store:
             recipient_ref="recipient:primary",
         )
 
-    def claim_dispatch(self, outbox_id: str, now: datetime) -> DeliveryClaim:
+    def claim_dispatch(
+        self,
+        outbox_id: str,
+        now: datetime,
+        *,
+        expected_rendered_object_id: str,
+        expected_payload_sha256: str,
+        expected_idempotency_key: str,
+    ) -> DeliveryClaim:
         assert outbox_id == "outbox:test"
         assert now == NOW
+        assert expected_rendered_object_id == "digest:" + "d" * 64
+        assert expected_payload_sha256 == "d" * 64
+        assert expected_idempotency_key == "delivery:test"
         return DeliveryClaim("sending", "attempt:1", 1)
 
     def finish_dispatch(self, attempt_id, result, now):
