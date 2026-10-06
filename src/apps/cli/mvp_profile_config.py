@@ -11,7 +11,7 @@ MVP_DOMAIN_SOURCES = {
     "machine_learning": ("arxiv",),
     "statistics": ("arxiv",),
     "badminton": ("pubmed",),
-    "male_reproductive_urology": ("pubmed",),
+    "male_sexual_function": ("pubmed",),
 }
 SOURCE_ORDER = ("arxiv", "pubmed")
 

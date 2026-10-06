@@ -120,22 +120,34 @@
       "source_categories": {}
     },
     {
-      "id": "male_reproductive_urology",
-      "name": "男性生殖學／泌尿科醫學",
+      "id": "male_sexual_function",
+      "name": "男性性功能提升",
       "aliases": [
-        "andrology",
-        "male reproductive health",
-        "male infertility",
-        "urology"
+        "male sexual function",
+        "male sexual health",
+        "erectile function",
+        "erectile dysfunction",
+        "male sexual dysfunction",
+        "male libido"
       ],
       "include": [
+        "sexual function",
+        "erectile function",
+        "sexual satisfaction",
+        "sexual performance",
+        "erectile dysfunction treatment",
+        "PDE5 inhibitor",
+        "phosphodiesterase type 5 inhibitor",
+        "testosterone therapy",
+        "pelvic floor muscle training",
+        "penile rehabilitation"
+      ],
+      "exclude": [
+        "male infertility",
         "spermatogenesis",
         "semen analysis",
-        "erectile dysfunction",
-        "testicular",
-        "prostate"
+        "sperm quality"
       ],
-      "exclude": [],
       "sources": [
         "pubmed",
         "crossref"

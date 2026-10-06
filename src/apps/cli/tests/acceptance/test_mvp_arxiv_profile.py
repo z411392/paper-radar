@@ -82,5 +82,5 @@ def test_mvp_profile_schedules_requested_arxiv_and_pubmed_bindings(tmp_path: Pat
         ("machine_learning", "arxiv"),
         ("statistics", "arxiv"),
         ("badminton", "pubmed"),
-        ("male_reproductive_urology", "pubmed"),
+        ("male_sexual_function", "pubmed"),
     }

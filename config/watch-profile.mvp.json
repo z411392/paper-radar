@@ -2,7 +2,7 @@
   "id": "personal",
   "reader_id": "local",
   "name": "我的論文雷達",
-  "scope_text": "關注深度學習、機器學習、統計、羽球，以及男性生殖學／泌尿科醫學的新論文；提供繁體中文摘要與研究重點。",
+  "scope_text": "關注深度學習、機器學習、統計、羽球，以及提升男性性功能的新論文；提供繁體中文摘要與研究重點。",
   "domains": [
     {
       "id": "deep_learning",
@@ -21,7 +21,7 @@
       "revision": 1
     },
     {
-      "id": "male_reproductive_urology",
+      "id": "male_sexual_function",
       "revision": 1
     }
   ],

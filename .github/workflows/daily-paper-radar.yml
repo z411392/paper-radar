@@ -66,9 +66,9 @@ jobs:
           - domain_id: badminton
             domain_label: 羽球
             scope: 關注羽球相關的新研究，包含運動表現、訓練、傷害、復健、生理與運動醫學。
-          - domain_id: male_reproductive_urology
-            domain_label: 男性生殖學／泌尿科醫學
-            scope: 關注男性生殖學、男性不孕、男科學與泌尿科醫學的新研究。
+          - domain_id: male_sexual_function
+            domain_label: 男性性功能提升
+            scope: 關注能改善成年男性性功能的新研究，包含勃起功能、性慾、性滿意度、性表現與性功能治療或介入；排除男性不孕、精液精子與一般泌尿科研究，除非主要 outcome 是男性性功能改善。
     runs-on: ubuntu-latest
     timeout-minutes: 180
     env:

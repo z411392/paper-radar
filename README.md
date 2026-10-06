@@ -47,7 +47,7 @@ domain 是：
 - `machine_learning`：機器學習，來源 arXiv。
 - `statistics`：統計，來源 arXiv。
 - `badminton`：羽球，來源 PubMed。
-- `male_reproductive_urology`：男性生殖學／泌尿科醫學，來源 PubMed。
+- `male_sexual_function`：男性性功能提升，來源 PubMed；聚焦勃起功能、性慾、性滿意度、性表現與改善性功能的治療／介入，不追一般男性不孕或一般泌尿科研究。
 
 本機開發仍可在 owner-only `worker.env` 用 `PAPER_RADAR_PROFILE_DOMAINS` 與
 `PAPER_RADAR_PROFILE_SCOPE` 指定單一或多個 domain。worker 啟動時會先驗證 runtime schema v24，
@@ -256,10 +256,7 @@ reading card，也就是 `selected_domains + 2` 次 request。
 domain-independent 的 claims／reading card 會走 durable generation cache，
 不會因同一 paper 跨 domain 重複付費。
 
-canonical 四-domain profile 因此最多需要 6 次 reservation，現在合計約 `$1.818624`；
-月預算低於依所選 domain 數動態計算的門檻時，worker 會在啟動時直接拒絕。
-canonical example 使用 `$2.00/月`，至少能保守 admission 一篇 paper 完成四個 domain 的
-relevance coverage 與 verified summary。
+正式 production 是一個 domain 一個 workspace，因此每篇 paper 只做該領域的 relevance assessment；模型 budget ledger 仍以實際 provider cost 結算。daily selection 不做 top-N，所有通過該領域 relevance 與 QA 的新論文都會進該領域 Email。
 
 第一次上線前明示開啟外部副作用，之後 worker 只需要設定檔。若 `.env` 開啟 live mail
 但 workspace 尚未 enable effects，worker 會在啟動時直接回
