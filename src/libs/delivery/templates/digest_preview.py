@@ -9,7 +9,7 @@ class DigestPreviewTemplate:
         "machine_learning": "機器學習",
         "statistics": "統計",
         "badminton": "羽球",
-        "male_reproductive_urology": "男性生殖學／泌尿科醫學",
+        "male_sexual_function": "男性性功能提升",
     }
 
     @classmethod
