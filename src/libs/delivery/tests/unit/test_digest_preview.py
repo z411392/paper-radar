@@ -73,13 +73,13 @@ def test_legacy_max_items_does_not_drop_eligible_new_papers() -> None:
 def test_single_domain_digest_subject_uses_human_label() -> None:
     candidate = replace(
         item("event:a", "work:a", 1),
-        domains=("male_reproductive_urology",),
+        domains=("male_sexual_function",),
     )
 
     preview = PrepareDigest()(request((candidate,)))
 
-    assert preview.subject == "Paper Radar｜男性生殖學／泌尿科醫學｜每日新論文 1 篇"
-    assert "Paper Radar 男性生殖學／泌尿科醫學 每日新論文" in preview.text_body
+    assert preview.subject == "Paper Radar｜男性性功能提升｜每日新論文 1 篇"
+    assert "Paper Radar 男性性功能提升 每日新論文" in preview.text_body
 
 
 def test_dynamic_text_is_not_interpreted_as_html() -> None:
