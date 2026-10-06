@@ -24,6 +24,8 @@ class NormalizeWatchConfiguration:
             raise WatchConfigurationError("invalid_document", "expected bounded JSON text")
         try:
             raw = json.loads(payload, object_pairs_hook=self._unique_keys, parse_constant=self._constant)
+        except WatchConfigurationError:
+            raise
         except (json.JSONDecodeError, RecursionError, ValueError) as exc:
             raise WatchConfigurationError("invalid_json") from exc
         if kind == "domains":
