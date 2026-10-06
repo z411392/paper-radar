@@ -28,7 +28,7 @@ def test_mvp_profile_builder_keeps_arxiv_domains_on_arxiv() -> None:
 
 @pytest.mark.parametrize(
     "domain_id",
-    ["badminton", "male_reproductive_urology"],
+    ["badminton", "male_sexual_function"],
 )
 def test_mvp_profile_builder_uses_pubmed_for_medical_domains(domain_id: str) -> None:
     payload = json.loads(
@@ -75,5 +75,5 @@ def test_bundled_domain_seeds_contains_requested_domains() -> None:
         "machine_learning",
         "statistics",
         "badminton",
-        "male_reproductive_urology",
+        "male_sexual_function",
     } <= ids
