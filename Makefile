@@ -33,6 +33,10 @@ test:
 		src/libs/research_workflow/tests/unit/test_process_workflow_job.py \
 		src/libs/paper_explanations/tests/contract/test_t12_grounded_explanations.py \
 		src/libs/paper_explanations/tests/contract/test_task19_openrouter.py \
+		src/libs/paper_explanations/tests/contract/test_diagnostic_minimization.py \
+		src/libs/paper_explanations/tests/contract/test_untrusted_model_boundary.py \
+		src/libs/delivery/tests/integration/test_untrusted_content_delivery_boundary.py \
+		src/libs/watch_profiles/tests/unit/test_configuration_failure_boundaries.py \
 		src/libs/delivery/tests/integration/test_scheduled_digest_pipeline.py \
 		src/libs/delivery/tests/unit/test_digest_preview.py \
 		-m 'not live_external' \
